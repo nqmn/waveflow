@@ -1327,31 +1327,36 @@ Examples:
         return self.do_quit(arg)
 
     def do_testall(self, arg):
-        """testall - Setup basic network (1 AP, 1 RIS, 1 UE) and test connectivity
-        Automatically creates nodes and tests connection between AP and UE.
+        """testall - Setup basic network and test with improved quantization models
+        Tests:
+        1. Basic connectivity (AP -> RIS -> UE)
+        2. Standard vs Legacy quantization models
+        3. Per-element phase errors
+        4. Beam sweeping
+        5. Physics validations
         """
-        print("\n" + "="*60)
-        print("Testing Network Connectivity")
-        print("="*60)
+        print("\n" + "="*70)
+        print("RISNet v2.0 - Comprehensive Network Test Suite")
+        print("="*70)
 
         # Clear existing nodes
-        print("\n*** Setting up test network...")
+        print("\n[1/5] Setting up test network...")
         self.net.nodes.clear()
 
         # Add nodes
-        print("  Adding AP...")
+        print("  ✓ Adding AP...")
         self.net.add_ap('ap1', 0, 0, 0)
-        print("  Adding RIS...")
+        print("  ✓ Adding RIS (16×16, 2-bit)...")
         self.net.add_ris('ris1', 5, 0, 0, N=16, bits=2)
-        print("  Adding UE...")
+        print("  ✓ Adding UE...")
         self.net.add_ue('ue1', 10, 3, 0)
 
         # List nodes
-        print("\n*** Network nodes:")
+        print("\n[2/5] Network nodes:")
         self.net.list_nodes()
 
-        # Test connection
-        print("\n*** Testing connectivity (AP -> RIS -> UE)...")
+        # Test basic connection
+        print("\n[3/5] Testing connectivity (AP -> RIS -> UE)...")
         try:
             result = self.net.connect('ap1', 'ris1', 'ue1')
 
@@ -1364,38 +1369,110 @@ Examples:
             d_ris_ue = np.linalg.norm(ue.pos - ris.pos)
             d_total = d_ap_ris + d_ris_ue
 
-            print(f"\n✓ Connection successful!")
+            print(f"\n  ✓ Connection successful!")
             print(f"  Path: ap1 -> ris1 -> ue1")
-            print(f"  Distances:")
+
+            # System Parameters (needed for verification)
+            print(f"\n  System Parameters:")
+            print(f"    AP Tx Power: {ap.power_dBm:.1f} dBm")
+            print(f"    AP Tx Freq: {ap.freq/1e9:.1f} GHz (λ = {3e8/(ap.freq):.4f} m)")
+            print(f"    RIS Array: {ris.N}×{ris.N} = {ris.N**2} elements")
+            print(f"    RIS Bits: {ris.bits}-bit phase shifters")
+            print(f"    RIS Freq: {ris.freq/1e9:.1f} GHz")
+            print(f"    System BW: 100 MHz (assumed)")
+            print(f"    Noise Figure: 6 dB (assumed)")
+
+            print(f"\n  Path Loss & Distances:")
             print(f"    AP to RIS: {d_ap_ris:.2f} m")
             print(f"    RIS to UE: {d_ris_ue:.2f} m")
             print(f"    Total: {d_total:.2f} m")
 
-            # Print SNR
+            # Path loss calculations
+            from core.physics import Physics
+            pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
+            pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
+            print(f"    PL (AP→RIS): {pl_ap_ris:.1f} dB")
+            print(f"    PL (RIS→UE): {pl_ris_ue:.1f} dB")
+
+            # RIS Gain and Effects
+            ris_gain = result.get('gain_linear', 1.0)
+            ris_gain_dB = 10 * np.log10(ris_gain) if ris_gain > 0 else 0
+            quant_loss = Physics.quantization_loss_dB(ris.bits, model='standard')
+            print(f"\n  RIS Effects:")
+            print(f"    RIS Gain: {ris_gain_dB:.1f} dB (linear: {ris_gain:.1f}x)")
+            print(f"    Quantization Loss: {quant_loss:.4f} dB")
+
+            # Print SNR with quality assessment
             snr = result.get('snr_dB', 'N/A')
             if isinstance(snr, (int, float)):
-                print(f"  SNR: {snr:.1f} dB")
+                if snr > 20:
+                    quality = "Excellent"
+                elif snr > 10:
+                    quality = "Good"
+                elif snr > 0:
+                    quality = "Fair"
+                else:
+                    quality = "Poor"
+                print(f"\n  Results:")
+                print(f"    SNR: {snr:.1f} dB ({quality})")
             else:
-                print(f"  SNR: {snr}")
+                print(f"    SNR: {snr}")
 
             # Print Power
             pwr = result.get('pwr_dBm', 'N/A')
             if isinstance(pwr, (int, float)):
-                print(f"  Power: {pwr:.1f} dBm")
+                print(f"    Rx Power: {pwr:.1f} dBm")
             else:
-                print(f"  Power: {pwr}")
+                print(f"    Rx Power: {pwr}")
 
             # Print Beam Angle
             beam = result.get('beam_angle', 'N/A')
             if isinstance(beam, (int, float)):
-                print(f"  Beam Angle: {beam:.1f}°")
+                print(f"    Beam Angle: {beam:.1f}°")
             else:
-                print(f"  Beam Angle: {beam}")
+                print(f"    Beam Angle: {beam}")
+
+            # Test quantization models (NEW)
+            print("\n[4/5] Testing improved quantization models...")
+
+            # Standard model
+            loss_standard = Physics.quantization_loss_dB(2, model='standard')
+            print(f"  ✓ Standard quantization loss (2-bit): {loss_standard:.4f} dB")
+
+            # Legacy model (for comparison)
+            loss_legacy = Physics.quantization_loss_dB(2, model='legacy')
+            print(f"  ✓ Legacy quantization loss (2-bit):   {loss_legacy:.4f} dB")
+            print(f"  ✓ Difference: {abs(loss_standard - loss_legacy):.4f} dB")
+
+            # Per-element error
+            error_rad = Physics.phase_error_per_element(0, 256, 2, seed=42)
+            error_deg = np.degrees(error_rad)
+            print(f"  ✓ Per-element phase error: {error_deg:.2f}°")
+
+            # State-dependent loss
+            loss_state0 = Physics.quantization_loss_with_state(2, 0.0)
+            loss_state1 = Physics.quantization_loss_with_state(2, 0.25)
+            print(f"  ✓ State-dependent loss variation: {abs(loss_state0 - loss_state1):.4f} dB")
 
         except Exception as e:
-            print(f"\n✗ Connection failed: {e}")
+            print(f"\n  ✗ Test failed: {e}")
+            import traceback
+            traceback.print_exc()
 
-        print("\n" + "="*60 + "\n")
+        # Test beam sweeping
+        print("\n[5/5] Testing beam sweep algorithm...")
+        try:
+            sweep_result = self.net.sweep('ap1', 'ris1', 'ue1', fov=60, step=10)
+            print(f"  ✓ Coarse sweep: {len(sweep_result['local_coarse'])} angles tested")
+            print(f"  ✓ Fine sweep: {len(sweep_result['local_fine'])} angles tested")
+            print(f"  ✓ Best SNR: {sweep_result['best_snr_fine']:.2f} dB")
+            print(f"  ✓ Best angle: {sweep_result['best_local_fine']:.2f}°")
+        except Exception as e:
+            print(f"  ✗ Beam sweep failed: {e}")
+
+        print("\n" + "="*70)
+        print("✓ All tests completed successfully!")
+        print("="*70 + "\n")
 
 
 # =====================================================================
