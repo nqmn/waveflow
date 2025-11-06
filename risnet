@@ -112,6 +112,39 @@ def run_all_examples():
     print(f"Completed: {success_count}/{len(examples)} examples successful")
     print("="*60 + "\n")
 
+def run_file(filepath):
+    """Run a Python file directly"""
+    filepath = Path(filepath)
+
+    if not filepath.exists():
+        print(f"Error: File not found: {filepath}")
+        return False
+
+    if not filepath.suffix == '.py':
+        print(f"Error: File must be a Python file (.py): {filepath}")
+        return False
+
+    # Load and run the file
+    spec = importlib.util.spec_from_file_location("example_module", filepath)
+    module = importlib.util.module_from_spec(spec)
+
+    try:
+        spec.loader.exec_module(module)
+
+        # Run the example
+        if hasattr(module, 'run'):
+            module.run()
+        else:
+            print(f"Warning: {filepath.name} has no run() function")
+            return False
+
+        return True
+    except Exception as e:
+        print(f"Error running file: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 def main():
     """Main entry point"""
     if len(sys.argv) < 2:
@@ -131,6 +164,9 @@ def main():
     elif command.startswith("example_"):
         example_num = command.split("_")[1]
         run_example(example_num)
+    elif "/" in command or "\\" in command or command.endswith(".py"):
+        # It's a file path
+        run_file(command)
     else:
         print(f"Error: Unknown command '{command}'")
         print("Use 'risnet --help' for usage information")
