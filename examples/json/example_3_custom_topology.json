@@ -1,0 +1,45 @@
+{
+  "name": "Example 3: Custom Topology",
+  "description": "Custom layout with multiple APs, RIS surfaces, and UEs",
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [0.0, 0.0, 0.0]
+    },
+    {
+      "name": "AP2",
+      "type": "AccessPoint",
+      "pos": [0.0, 10.0, 0.0]
+    },
+    {
+      "name": "R1",
+      "type": "RIS",
+      "pos": [5.0, 2.5, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "R2",
+      "type": "RIS",
+      "pos": [5.0, 7.5, 0.0],
+      "N": 32,
+      "bits": 3
+    },
+    {
+      "name": "UE1",
+      "type": "UE",
+      "pos": [10.0, 0.0, 0.0]
+    },
+    {
+      "name": "UE2",
+      "type": "UE",
+      "pos": [10.0, 5.0, 0.0]
+    },
+    {
+      "name": "UE3",
+      "type": "UE",
+      "pos": [10.0, 10.0, 0.0]
+    }
+  ]
+}

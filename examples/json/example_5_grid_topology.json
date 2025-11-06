@@ -1,0 +1,44 @@
+{
+  "name": "Example 5: Grid Topology",
+  "description": "Grid-based network topology with multiple RIS surfaces",
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [0.0, 0.0, 0.0]
+    },
+    {
+      "name": "R1",
+      "type": "RIS",
+      "pos": [4.0, 4.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "R2",
+      "type": "RIS",
+      "pos": [8.0, 4.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "R3",
+      "type": "RIS",
+      "pos": [4.0, 8.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "R4",
+      "type": "RIS",
+      "pos": [8.0, 8.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "UE1",
+      "type": "UE",
+      "pos": [12.0, 12.0, 0.0]
+    }
+  ]
+}

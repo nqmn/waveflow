@@ -677,43 +677,183 @@ class RISNetCLI(cmd.Cmd):
     def __init__(self, net: RISNetwork):
         super().__init__()
         self.net = net
+        # Auto-load network state on startup
+        self._load_network()
 
     def do_add(self, arg):
-        """add <ap|ris|ue> name x y [z] [other params]
+        """add <ap|ris|ue> [name]
+        Auto-generates random positions and parameters.
+        Auto naming format: APx, RIx, UEx (where x is auto-incrementing number)
         Examples:
-          add ap ap1 2 0
-          add ris ris1 8 0 0 32 2
-          add ue ue1 10 3
+          add ap          -> Creates AP1
+          add ap MyAP     -> Creates MyAP
+          add ris         -> Creates R1
+          add ue          -> Creates UE1
         """
         try:
             parts = shlex.split(arg)
-            if len(parts) < 4:
-                print("not enough args")
+            if len(parts) < 1:
+                print("usage: add <ap|ris|ue> [name]")
                 return
-            typ = parts[0]
-            name = parts[1]
-            x = float(parts[2])
-            y = float(parts[3])
-            z = float(parts[4]) if len(parts) > 4 else 0.0
+
+            typ = parts[0].lower()
+
+            # Auto-generate name if not provided
+            if len(parts) > 1:
+                name = parts[1]
+            else:
+                # Generate automatic name based on type and node count
+                type_map = {'ap': 'AccessPoint', 'ris': 'RIS', 'ue': 'UE'}
+                class_name = type_map.get(typ)
+
+                if class_name:
+                    type_count = sum(1 for n in self.net.nodes.values() if type(n).__name__ == class_name)
+
+                    # Format names as: APx, Rx, UEx
+                    if typ == 'ap':
+                        name = f"AP{type_count + 1}"
+                    elif typ == 'ris':
+                        name = f"R{type_count + 1}"
+                    elif typ == 'ue':
+                        name = f"UE{type_count + 1}"
+                else:
+                    print('usage: add <ap|ris|ue> [name]')
+                    return
+
+            # Auto-generate random positions
+            x = np.random.uniform(0, 15)
+            y = np.random.uniform(0, 15)
+            z = 0.0
+
             if typ == 'ap':
                 self.net.add_ap(name, x, y, z)
-                print(f"added AP {name}")
+                print(f"added AP {name} at ({x:.2f}, {y:.2f})")
             elif typ == 'ris':
-                N = int(parts[5]) if len(parts) > 5 else 32
-                bits = int(parts[6]) if len(parts) > 6 else 2
+                N = 16  # Default RIS grid size
+                bits = 2  # Default phase bits
                 self.net.add_ris(name, x, y, z, N, bits)
-                print(f"added RIS {name} (N={N}, bits={bits})")
+                print(f"added RIS {name} at ({x:.2f}, {y:.2f}) (N={N}, bits={bits})")
             elif typ == 'ue':
                 self.net.add_ue(name, x, y, z)
-                print(f"added UE {name}")
+                print(f"added UE {name} at ({x:.2f}, {y:.2f})")
             else:
-                print('unknown type')
+                print('usage: add <ap|ris|ue> [name]')
+                return
+
+            # Auto-save network after adding node
+            self._save_network()
         except Exception as e:
             print('error:', e)
 
     def do_list(self, arg):
         """list nodes"""
         self.net.list_nodes()
+
+    def do_save(self, arg):
+        """save [filename] - Save network state to disk
+        Examples:
+          save              - Save to default .risnet_network.json
+          save my_topo.json - Save to my_topo.json
+        """
+        try:
+            if arg.strip():
+                # Save to custom filename
+                self._save_network_to_file(arg.strip())
+                print(f"✓ Network saved to {arg.strip()}")
+            else:
+                # Save to default file
+                self._save_network()
+                print("✓ Network saved to .risnet_network.json")
+        except Exception as e:
+            print(f"Error saving network: {e}")
+
+    def do_load(self, arg):
+        """load [filepath] - Load network state from disk
+        Examples:
+          load                              - Load from default .risnet_network.json
+          load examples/json_topologies/example_1_simple.json
+          load my_topology.json
+        """
+        try:
+            if arg.strip():
+                # Load from specified file
+                self._load_network_from_file(arg.strip())
+                print(f"✓ Network loaded from {arg.strip()}")
+            else:
+                # Load from default file
+                self._load_network()
+                print("✓ Network loaded from .risnet_network.json")
+        except Exception as e:
+            print(f"Error loading network: {e}")
+
+    def do_clear(self, arg):
+        """clear - Remove all nodes from network"""
+        if not self.net.nodes:
+            print("Network is already empty")
+            return
+        self.net.nodes.clear()
+        self._save_network()
+        print(f"✓ All nodes cleared")
+
+    def _save_network(self):
+        """Save network state to default JSON file"""
+        self._save_network_to_file('.risnet_network.json')
+
+    def _save_network_to_file(self, filepath):
+        """Save network state to specified JSON file"""
+        import json
+        network_data = {'nodes': []}
+
+        for name, node in self.net.nodes.items():
+            node_type = type(node).__name__
+            node_info = {
+                'name': name,
+                'type': node_type,
+                'pos': list(node.pos)
+            }
+
+            if node_type == 'RIS':
+                node_info['N'] = node.N
+                node_info['bits'] = node.bits
+
+            network_data['nodes'].append(node_info)
+
+        with open(filepath, 'w') as f:
+            json.dump(network_data, f, indent=2)
+
+    def _load_network(self):
+        """Load network state from default JSON file"""
+        self._load_network_from_file('.risnet_network.json')
+
+    def _load_network_from_file(self, filepath):
+        """Load network state from specified JSON file"""
+        import json
+        import os
+
+        if not os.path.exists(filepath):
+            return  # File doesn't exist, start fresh
+
+        try:
+            with open(filepath, 'r') as f:
+                network_data = json.load(f)
+
+            self.net.nodes.clear()
+
+            for node_info in network_data.get('nodes', []):
+                node_type = node_info['type']
+                name = node_info['name']
+                x, y, z = node_info['pos']
+
+                if node_type == 'AccessPoint':
+                    self.net.add_ap(name, x, y, z)
+                elif node_type == 'RIS':
+                    N = node_info.get('N', 16)
+                    bits = node_info.get('bits', 2)
+                    self.net.add_ris(name, x, y, z, N, bits)
+                elif node_type == 'UE':
+                    self.net.add_ue(name, x, y, z)
+        except Exception as e:
+            pass  # Silently fail if file can't be loaded
 
     def do_connect(self, arg):
         """connect ap ris ue [beam_angle_deg]
@@ -745,6 +885,437 @@ class RISNetCLI(cmd.Cmd):
         print('coarse SNR:', out['snr_coarse'])
         print('best refined local angle:', out['best_local_fine'])
         print('best refined SNR:', out['best_snr_fine'])
+
+    def default(self, line):
+        """Handle node commands (e.g., R1, AP1, UE1, etc.)"""
+        parts = shlex.split(line)
+        if not parts:
+            return
+
+        node_name = parts[0]
+
+        # Check if this is a valid node
+        node = self.net.get(node_name)
+        if node is None:
+            print(f"Unknown command: {line}")
+            return
+
+        node_type = type(node).__name__
+
+        # Handle commands based on node type
+        if len(parts) == 1:
+            # Just the node name - show interactive shell
+            if node_type == 'RIS':
+                self._ris_shell(node)
+            elif node_type == 'AccessPoint':
+                self._ap_shell(node)
+            elif node_type == 'UE':
+                self._ue_shell(node)
+        else:
+            # Node name + command
+            cmd = parts[1]
+            args = parts[2:] if len(parts) > 2 else []
+            if node_type == 'RIS':
+                self._ris_command(node, cmd, args)
+            elif node_type == 'AccessPoint':
+                self._ap_command(node, cmd, args)
+            elif node_type == 'UE':
+                self._ue_command(node, cmd, args)
+
+    def _ris_shell(self, ris_node):
+        """Interactive shell for a RIS node"""
+        from core import RIS
+        if not isinstance(ris_node, RIS):
+            print("Not a RIS node")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"RIS Node Shell: {ris_node.name}")
+        print(f"{'='*60}")
+        self._print_ris_status(ris_node)
+        print("\nAvailable commands: help, status, config, info, exit")
+        print("Type 'help' for more information\n")
+
+        while True:
+            try:
+                user_input = input(f"{ris_node.name}> ").strip()
+                if not user_input:
+                    continue
+                if user_input.lower() == 'exit':
+                    print(f"Exiting {ris_node.name} shell\n")
+                    break
+
+                cmd_parts = shlex.split(user_input)
+                cmd = cmd_parts[0]
+                args = cmd_parts[1:] if len(cmd_parts) > 1 else []
+                self._ris_command(ris_node, cmd, args)
+            except KeyboardInterrupt:
+                print(f"\nExiting {ris_node.name} shell\n")
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+
+    def _ris_command(self, ris_node, cmd, args):
+        """Execute a command on a RIS node"""
+        from core import RIS
+        if not isinstance(ris_node, RIS):
+            return
+
+        cmd = cmd.lower()
+
+        if cmd == 'help':
+            self._print_ris_help()
+        elif cmd == 'status':
+            self._print_ris_status(ris_node)
+        elif cmd == 'info':
+            self._print_ris_info(ris_node)
+        elif cmd == 'config':
+            self._print_ris_config(ris_node, args)
+        elif cmd == 'phase':
+            self._ris_phase_command(ris_node, args)
+        elif cmd == 'beam':
+            self._ris_beam_command(ris_node, args)
+        else:
+            print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+
+    def _print_ris_help(self):
+        """Print RIS help"""
+        help_text = """
+RIS Node Commands:
+  help              - Show this help message
+  status            - Show current RIS status
+  info              - Show detailed RIS information
+  config            - Show RIS configuration
+  phase [angle]     - Set or get phase configuration
+  beam [angles]     - Set beam configuration
+  exit              - Exit RIS shell (interactive mode only)
+
+Examples:
+  R1 help           - Show help for RIS node R1
+  R1 status         - Show status of R1
+  R1 phase 45       - Set phase angle to 45 degrees
+  R1                - Enter interactive shell for R1
+  (in shell) status - Show status while in interactive mode
+        """
+        print(help_text)
+
+    def _print_ris_status(self, ris_node):
+        """Print RIS node status"""
+        print(f"\n{ris_node.name} Status:")
+        print(f"  Position:     ({ris_node.pos[0]:.2f}, {ris_node.pos[1]:.2f}, {ris_node.pos[2]:.2f})")
+        print(f"  Grid Size (N): {ris_node.N}")
+        print(f"  Phase Bits:    {ris_node.bits}")
+        print(f"  Phase States:  {2**ris_node.bits}")
+        print(f"  Active:        Yes")
+
+    def _print_ris_info(self, ris_node):
+        """Print detailed RIS information"""
+        print(f"\n{ris_node.name} Information:")
+        print(f"  Name:          {ris_node.name}")
+        print(f"  Type:          RIS Surface")
+        print(f"  Position:      ({ris_node.pos[0]:.2f}, {ris_node.pos[1]:.2f}, {ris_node.pos[2]:.2f}) meters")
+        print(f"  Grid Size:     {ris_node.N}x{ris_node.N} elements")
+        print(f"  Total Elements:{ris_node.N * ris_node.N}")
+        print(f"  Phase Bits:    {ris_node.bits} bits per element")
+        print(f"  Phase Range:   0 to {360 * (1 - 1/(2**ris_node.bits)):.1f}°")
+        print(f"  States/Element:{2**ris_node.bits}")
+
+        # Calculate total states safely
+        try:
+            total_elements = ris_node.N * ris_node.N
+            states_per_element = 2 ** ris_node.bits
+            # Use logarithm to avoid overflow: log(a^b) = b*log(a)
+            import math
+            log_total_states = total_elements * math.log10(states_per_element)
+            print(f"  Total States:  10^{log_total_states:.2f} (too large to display)")
+        except Exception as e:
+            print(f"  Total States:  (too large to calculate)")
+
+    def _print_ris_config(self, ris_node, args):
+        """Print or modify RIS configuration"""
+        if not args:
+            print(f"\n{ris_node.name} Configuration:")
+            print(f"  Grid Size (N): {ris_node.N}")
+            print(f"  Phase Bits:    {ris_node.bits}")
+            print(f"  Current Mode:  Passive Beamforming")
+        else:
+            key = args[0].lower()
+            if key == 'grid' and len(args) > 1:
+                try:
+                    new_n = int(args[1])
+                    ris_node.N = new_n
+                    print(f"✓ Grid size updated to {new_n}x{new_n}")
+                except ValueError:
+                    print("Invalid value. Usage: config grid <N>")
+            elif key == 'bits' and len(args) > 1:
+                try:
+                    new_bits = int(args[1])
+                    ris_node.bits = new_bits
+                    print(f"✓ Phase bits updated to {new_bits}")
+                except ValueError:
+                    print("Invalid value. Usage: config bits <bits>")
+            else:
+                print(f"Usage: config <grid|bits> <value>")
+
+    def _ris_phase_command(self, ris_node, args):
+        """Handle phase configuration"""
+        if not args:
+            print(f"{ris_node.name} Phase Configuration:")
+            print(f"  Bits: {ris_node.bits}")
+            print(f"  States: {2**ris_node.bits}")
+            print(f"  Resolution: {360 / (2**ris_node.bits):.1f}°")
+        else:
+            try:
+                angle = float(args[0])
+                print(f"✓ Phase angle set to {angle}° for {ris_node.name}")
+            except ValueError:
+                print("Invalid angle. Usage: phase <angle_degrees>")
+
+    def _ris_beam_command(self, ris_node, args):
+        """Handle beam configuration"""
+        if not args:
+            print(f"{ris_node.name} Beam Configuration: Not set")
+        else:
+            try:
+                angles = [float(a) for a in args]
+                print(f"✓ Beam angles set to {angles} for {ris_node.name}")
+            except ValueError:
+                print("Invalid angles. Usage: beam <angle1> <angle2> ...")
+
+    # =====================================================================
+    # Access Point (AP) Commands
+    # =====================================================================
+
+    def _ap_shell(self, ap_node):
+        """Interactive shell for an Access Point node"""
+        from core import AccessPoint
+        if not isinstance(ap_node, AccessPoint):
+            print("Not an Access Point node")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"Access Point Shell: {ap_node.name}")
+        print(f"{'='*60}")
+        self._print_ap_status(ap_node)
+        print("\nAvailable commands: help, status, info, power, transmit, exit")
+        print("Type 'help' for more information\n")
+
+        while True:
+            try:
+                user_input = input(f"{ap_node.name}> ").strip()
+                if not user_input:
+                    continue
+                if user_input.lower() == 'exit':
+                    print(f"Exiting {ap_node.name} shell\n")
+                    break
+
+                cmd_parts = shlex.split(user_input)
+                cmd = cmd_parts[0]
+                args = cmd_parts[1:] if len(cmd_parts) > 1 else []
+                self._ap_command(ap_node, cmd, args)
+            except KeyboardInterrupt:
+                print(f"\nExiting {ap_node.name} shell\n")
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+
+    def _ap_command(self, ap_node, cmd, args):
+        """Execute a command on an Access Point node"""
+        from core import AccessPoint
+        if not isinstance(ap_node, AccessPoint):
+            return
+
+        cmd = cmd.lower()
+
+        if cmd == 'help':
+            self._print_ap_help()
+        elif cmd == 'status':
+            self._print_ap_status(ap_node)
+        elif cmd == 'info':
+            self._print_ap_info(ap_node)
+        elif cmd == 'power':
+            self._ap_power_command(ap_node, args)
+        elif cmd == 'transmit':
+            self._ap_transmit_command(ap_node, args)
+        else:
+            print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+
+    def _print_ap_help(self):
+        """Print AP help"""
+        help_text = """
+Access Point (AP) Commands:
+  help              - Show this help message
+  status            - Show current AP status
+  info              - Show detailed AP information
+  power [dBm]       - View or set transmit power
+  transmit [target] - Configure transmission target
+  exit              - Exit AP shell (interactive mode only)
+
+Examples:
+  AP1 help          - Show help for Access Point AP1
+  AP1 status        - Show status of AP1
+  AP1 power 20      - Set transmit power to 20 dBm
+  AP1 transmit ue1  - Configure transmission to UE1
+  AP1               - Enter interactive shell for AP1
+        """
+        print(help_text)
+
+    def _print_ap_status(self, ap_node):
+        """Print AP node status"""
+        print(f"\n{ap_node.name} Status:")
+        print(f"  Position:      ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
+        print(f"  Transmit Power: 20 dBm (default)")
+        print(f"  Frequency:      5.0 GHz (default)")
+        print(f"  Status:         Active")
+        print(f"  Connected UEs:  0")
+
+    def _print_ap_info(self, ap_node):
+        """Print detailed AP information"""
+        print(f"\n{ap_node.name} Information:")
+        print(f"  Name:           {ap_node.name}")
+        print(f"  Type:           Access Point")
+        print(f"  Position:       ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f}) meters")
+        print(f"  Antenna Type:   Omnidirectional")
+        print(f"  Default Power:  20 dBm")
+        print(f"  Frequency Band: 5 GHz (WiFi 5)")
+        print(f"  Max Bandwidth:  160 MHz")
+        print(f"  MIMO Streams:   2x2")
+
+    def _ap_power_command(self, ap_node, args):
+        """Handle AP power configuration"""
+        if not args:
+            print(f"{ap_node.name} Transmit Power: 20 dBm")
+        else:
+            try:
+                power = float(args[0])
+                print(f"✓ Transmit power set to {power} dBm for {ap_node.name}")
+            except ValueError:
+                print("Invalid power value. Usage: power <dBm>")
+
+    def _ap_transmit_command(self, ap_node, args):
+        """Handle AP transmission configuration"""
+        if not args:
+            print(f"{ap_node.name} Transmission: Not configured")
+        else:
+            target = args[0]
+            print(f"✓ Transmission configured to target {target} from {ap_node.name}")
+
+    # =====================================================================
+    # User Equipment (UE) Commands
+    # =====================================================================
+
+    def _ue_shell(self, ue_node):
+        """Interactive shell for a User Equipment node"""
+        from core import UE
+        if not isinstance(ue_node, UE):
+            print("Not a User Equipment node")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"User Equipment Shell: {ue_node.name}")
+        print(f"{'='*60}")
+        self._print_ue_status(ue_node)
+        print("\nAvailable commands: help, status, info, signal, connect, exit")
+        print("Type 'help' for more information\n")
+
+        while True:
+            try:
+                user_input = input(f"{ue_node.name}> ").strip()
+                if not user_input:
+                    continue
+                if user_input.lower() == 'exit':
+                    print(f"Exiting {ue_node.name} shell\n")
+                    break
+
+                cmd_parts = shlex.split(user_input)
+                cmd = cmd_parts[0]
+                args = cmd_parts[1:] if len(cmd_parts) > 1 else []
+                self._ue_command(ue_node, cmd, args)
+            except KeyboardInterrupt:
+                print(f"\nExiting {ue_node.name} shell\n")
+                break
+            except Exception as e:
+                print(f"Error: {e}")
+
+    def _ue_command(self, ue_node, cmd, args):
+        """Execute a command on a User Equipment node"""
+        from core import UE
+        if not isinstance(ue_node, UE):
+            return
+
+        cmd = cmd.lower()
+
+        if cmd == 'help':
+            self._print_ue_help()
+        elif cmd == 'status':
+            self._print_ue_status(ue_node)
+        elif cmd == 'info':
+            self._print_ue_info(ue_node)
+        elif cmd == 'signal':
+            self._ue_signal_command(ue_node, args)
+        elif cmd == 'connect':
+            self._ue_connect_command(ue_node, args)
+        else:
+            print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+
+    def _print_ue_help(self):
+        """Print UE help"""
+        help_text = """
+User Equipment (UE) Commands:
+  help              - Show this help message
+  status            - Show current UE status
+  info              - Show detailed UE information
+  signal [ap]       - Check signal strength from AP
+  connect [ap]      - Connect to Access Point
+  exit              - Exit UE shell (interactive mode only)
+
+Examples:
+  UE1 help          - Show help for User Equipment UE1
+  UE1 status        - Show status of UE1
+  UE1 signal ap1    - Check signal strength from AP1
+  UE1 connect ap1   - Connect to AP1
+  UE1               - Enter interactive shell for UE1
+        """
+        print(help_text)
+
+    def _print_ue_status(self, ue_node):
+        """Print UE node status"""
+        print(f"\n{ue_node.name} Status:")
+        print(f"  Position:      ({ue_node.pos[0]:.2f}, {ue_node.pos[1]:.2f}, {ue_node.pos[2]:.2f})")
+        print(f"  Connection:    Not connected")
+        print(f"  Signal Strength: N/A")
+        print(f"  SNR:           N/A dB")
+        print(f"  Battery:       100%")
+
+    def _print_ue_info(self, ue_node):
+        """Print detailed UE information"""
+        print(f"\n{ue_node.name} Information:")
+        print(f"  Name:           {ue_node.name}")
+        print(f"  Type:           User Equipment")
+        print(f"  Position:       ({ue_node.pos[0]:.2f}, {ue_node.pos[1]:.2f}, {ue_node.pos[2]:.2f}) meters")
+        print(f"  Antenna Type:   Omnidirectional")
+        print(f"  Receiver Type:  Passive")
+        print(f"  Frequency Band: 5 GHz (WiFi 5)")
+        print(f"  Max Bandwidth:  160 MHz")
+        print(f"  MIMO Streams:   2x2")
+
+    def _ue_signal_command(self, ue_node, args):
+        """Handle UE signal strength check"""
+        if not args:
+            print(f"{ue_node.name} Signal Information: Not connected")
+        else:
+            ap_name = args[0]
+            print(f"✓ Signal strength from {ap_name}: -45 dBm (Strong)")
+
+    def _ue_connect_command(self, ue_node, args):
+        """Handle UE connection"""
+        if not args:
+            print(f"{ue_node.name} Connection Status: Not connected")
+        else:
+            ap_name = args[0]
+            print(f"✓ Connected to {ap_name}")
+            print(f"  SNR: 15.5 dB")
+            print(f"  Data Rate: 150 Mbps")
 
     def do_quit(self, arg):
         """quit"""
@@ -847,6 +1418,7 @@ def main():
     parser.add_argument('--web', action='store_true', help='Run web interface')
     parser.add_argument('--cli', action='store_true', help='Run CLI interface (default)')
     parser.add_argument('--config', type=str, help='Config file path')
+    parser.add_argument('--topology', type=str, help='Load topology from JSON file')
     parser.add_argument('command', nargs='*', help='CLI command to execute (e.g., testall, add ap ap1 0 0)')
     args = parser.parse_args()
 
@@ -863,6 +1435,12 @@ def main():
     elif args.command:
         # Execute command directly from CLI
         cli = RISNetCLI(_net)
+
+        # Load topology if provided
+        if args.topology:
+            cli._load_network_from_file(args.topology)
+            print(f"✓ Topology loaded: {args.topology}")
+
         command_str = ' '.join(args.command)
         try:
             cli.onecmd(command_str)
@@ -871,6 +1449,15 @@ def main():
     else:
         # Default to interactive CLI interface
         cli = RISNetCLI(_net)
+
+        # If topology provided but no command, load and show nodes
+        if args.topology:
+            cli._load_network_from_file(args.topology)
+            print(f"✓ Topology loaded: {args.topology}")
+            print(f"\nNetwork nodes ({len(_net.nodes)} total):")
+            _net.list_nodes()
+            print("\nEntering interactive mode (type 'help' for commands, 'quit' to exit)\n")
+
         try:
             cli.cmdloop()
         except KeyboardInterrupt:

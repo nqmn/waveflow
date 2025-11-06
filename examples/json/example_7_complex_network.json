@@ -1,0 +1,72 @@
+{
+  "name": "Example 7: Complex Network",
+  "description": "Complex network with multiple APs, RIS surfaces at different scales, and distributed UEs",
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [0.0, 0.0, 0.0]
+    },
+    {
+      "name": "AP2",
+      "type": "AccessPoint",
+      "pos": [0.0, 8.0, 0.0]
+    },
+    {
+      "name": "AP3",
+      "type": "AccessPoint",
+      "pos": [10.0, 4.0, 0.0]
+    },
+    {
+      "name": "R1",
+      "type": "RIS",
+      "pos": [3.0, 2.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "R2",
+      "type": "RIS",
+      "pos": [3.0, 6.0, 0.0],
+      "N": 32,
+      "bits": 3
+    },
+    {
+      "name": "R3",
+      "type": "RIS",
+      "pos": [7.0, 4.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "UE1",
+      "type": "UE",
+      "pos": [0.0, 12.0, 0.0]
+    },
+    {
+      "name": "UE2",
+      "type": "UE",
+      "pos": [5.0, 12.0, 0.0]
+    },
+    {
+      "name": "UE3",
+      "type": "UE",
+      "pos": [10.0, 12.0, 0.0]
+    },
+    {
+      "name": "UE4",
+      "type": "UE",
+      "pos": [15.0, 0.0, 0.0]
+    },
+    {
+      "name": "UE5",
+      "type": "UE",
+      "pos": [15.0, 4.0, 0.0]
+    },
+    {
+      "name": "UE6",
+      "type": "UE",
+      "pos": [15.0, 8.0, 0.0]
+    }
+  ]
+}

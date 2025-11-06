@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""
+RISNet CLI - Executable wrapper script
+
+This allows running RISNet with:
+  risnet --topology examples/json_topologies/example_1_simple.json list
+  risnet add ap
+  risnet list
+  etc.
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Get the directory where this script is located
+script_dir = Path(__file__).parent.absolute()
+
+# Add to Python path so we can import main
+sys.path.insert(0, str(script_dir))
+
+# Import and run main
+from main import main
+
+if __name__ == '__main__':
+    sys.exit(main())

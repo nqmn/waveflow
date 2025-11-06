@@ -1,0 +1,23 @@
+{
+  "name": "Example 1: Simple Network",
+  "description": "Basic network with 1 AP, 1 RIS, and 1 UE",
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [0.0, 0.0, 0.0]
+    },
+    {
+      "name": "R1",
+      "type": "RIS",
+      "pos": [5.0, 0.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "UE1",
+      "type": "UE",
+      "pos": [10.0, 3.0, 0.0]
+    }
+  ]
+}

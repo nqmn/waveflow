@@ -1,0 +1,37 @@
+{
+  "name": "Example 4: Network with Obstacles",
+  "description": "Network topology with obstacles/walls blocking direct paths",
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [0.0, 5.0, 0.0]
+    },
+    {
+      "name": "R1",
+      "type": "RIS",
+      "pos": [5.0, 5.0, 0.0],
+      "N": 16,
+      "bits": 2
+    },
+    {
+      "name": "UE1",
+      "type": "UE",
+      "pos": [10.0, 5.0, 0.0]
+    }
+  ],
+  "obstacles": [
+    {
+      "description": "Wall blocking direct AP-UE path",
+      "start": [2.0, 0.0],
+      "end": [2.0, 10.0],
+      "attenuation_dB": 20.0
+    },
+    {
+      "description": "Secondary wall",
+      "start": [8.0, 2.0],
+      "end": [8.0, 8.0],
+      "attenuation_dB": 15.0
+    }
+  ]
+}
