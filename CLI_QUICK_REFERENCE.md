@@ -30,8 +30,9 @@ python3 examples/example_interactive_cli.py
 | `<node> ping <target>` | Test connectivity | `AP1 ping UE1` |
 | `<node> iperf <target>` | Test throughput | `AP1 iperf UE1` |
 | `<node> findpaths <target> [algo]` | Find all paths | `AP1 findpaths UE1 dijkstra` |
-| `<ap> connect <ris> <ue>` | RIS-assisted connection | `AP1 connect R1 UE1` |
 | `<node> position <x> <y> [z]` | Update position | `AP1 position 2 1` |
+| `<node> rename <newname>` | Rename the node | `AP1 rename wifi_ap` |
+| `<ap> connect <ris> <ue>` | RIS-assisted connection | `AP1 connect R1 UE1` |
 
 ## Network Management
 
@@ -63,17 +64,22 @@ risnet> add ap 0 0          # AP1
 risnet> add ris 5 0         # R1
 risnet> add ue 10 3         # UE1
 
+# Rename to meaningful names
+risnet> AP1 rename wifi_ap
+risnet> R1 rename relay_station
+risnet> UE1 rename mobile_device
+
 # Test connectivity
 risnet> list
-risnet> AP1 info
-risnet> AP1 ping UE1
-risnet> AP1 iperf UE1
+risnet> wifi_ap info
+risnet> wifi_ap ping mobile_device
+risnet> wifi_ap iperf mobile_device
 
 # Find best path
-risnet> AP1 findpaths UE1
+risnet> wifi_ap findpaths mobile_device
 
 # Setup RIS-assisted connection
-risnet> AP1 connect R1 UE1
+risnet> wifi_ap connect relay_station mobile_device
 
 # Clean up
 risnet> clear
