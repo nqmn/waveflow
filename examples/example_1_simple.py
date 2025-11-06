@@ -1,5 +1,5 @@
 """
-Example 1: Simple Network Creation (Mininet-style)
+Example 1: Simple Network Creation
 
 Demonstrates basic RISnet usage with manual node creation.
 """
@@ -10,13 +10,13 @@ from risnet import RISnet
 def run():
     """Run Example 1"""
     print("\n" + "="*60)
-    print("Example 1: Simple Network (Mininet-style)")
+    print("Example 1: Simple Network Creation")
     print("="*60)
 
     # Create network
     net = RISnet()
 
-    # Add nodes (like Mininet's addHost, addSwitch)
+    # Add nodes
     print("\n*** Adding nodes")
     ap = net.addAP('ap1', position=(0, 0))
     ris = net.addRIS('ris1', position=(5, 0), N=16, bits=2)

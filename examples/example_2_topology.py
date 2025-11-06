@@ -13,7 +13,7 @@ def run():
     print("Example 2: Predefined Topology")
     print("="*60)
 
-    # Create topology (like Mininet's SingleSwitchTopo)
+    # Create topology
     print("\n*** Creating topology")
     topo = topos['single']()
     topo.build(n=3)  # 3 UEs

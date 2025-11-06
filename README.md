@@ -26,10 +26,19 @@ A modular, full-featured Reconfigurable Intelligent Surface (RIS) network simula
 - Path visualization
 - Controller statistics
 
+## Quick Links
+
+- **[Quick Start](docs/QUICKSTART.md)** - Get started in 30 seconds
+- **[Architecture](docs/ARCHITECTURE.md)** - Technical deep-dive
+- **[Project Structure](docs/STRUCTURE.md)** - File organization
+- **[Development Guide](docs/CLAUDE.md)** - For developers using Claude Code
+
 ## Architecture
 
 ```
-risimulator/
+risnet/
+├── main.py             # Web interface + CLI entry point
+├── risnet.py           # High-level Python API
 ├── core/               # Core simulation modules
 │   ├── nodes.py        # Node classes (AP, RIS, UE)
 │   ├── network.py      # Network manager
@@ -41,26 +50,128 @@ risimulator/
 ├── controller/         # Network orchestration
 │   └── ris_controller.py
 ├── config/             # Configuration management
-│   └── config.py       # YAML config support
-├── main-web-v2.py      # Main application
+├── examples/           # Example scripts
+├── tests/              # Test suite
+├── docs/               # Documentation
 └── requirements.txt    # Dependencies
 ```
 
-## Installation
+## Installation & Quick Start
 
-### 1. Install Dependencies
+### 1. Install RISNet
 
 ```bash
-pip install -r requirements.txt
+# Clone or navigate to the repository
+cd risnet
+
+# Install as a command-line tool
+pip install -e .
 ```
 
 ### 2. Run the Simulator
 
 ```bash
-# Web interface (recommended)
-python main-web-v2.py --web
+# Option 1a: Interactive CLI (default)
+risnet
+
+# Option 1b: Direct command (non-interactive)
+risnet testall                          # Quick test
+risnet add ap ap1 0 0                   # Add access point
+risnet help                             # Show commands
+
+# Option 2: Web interface
+risnet --web
 
 # Then open browser to: http://127.0.0.1:5000
+
+# Option 3: Use Python API
+from risnet import RISnet
+net = RISnet()
+# ... your code
+```
+
+### 3. CLI Commands
+
+You can use these commands either:
+- **Interactively**: Type `risnet` then enter commands
+- **Directly**: `risnet <command> [args]`
+
+```bash
+# Interactive mode
+risnet
+risnet> testall                         # Quick test
+risnet> add ap ap1 0 0                  # Add access point
+risnet> add ris ris1 5 0 0 16 2         # Add RIS surface
+risnet> add ue ue1 10 3                 # Add user equipment
+risnet> list                            # List all nodes
+risnet> connect ap1 ris1 ue1            # Connect with beam sweep
+risnet> sweep ap1 ris1 ue1 60 10        # Perform beam sweeping
+risnet> help                            # Show all commands
+risnet> quit                            # Exit
+
+# Direct command mode (non-interactive)
+risnet testall                          # Quick test
+risnet help                             # Show all commands
+risnet help testall                     # Help on specific command
+```
+
+### testall Command Example
+
+```bash
+$ risnet
+Welcome to RISNet CLI. Type help or ? to list commands.
+risnet> testall
+
+============================================================
+Testing Network Connectivity
+============================================================
+
+*** Setting up test network...
+  Adding AP...
+  Adding RIS...
+  Adding UE...
+
+*** Network nodes:
+ap1        AccessPoint('ap1', pos=[0.0, 0.0, 0.0])
+ris1       RIS('ris1', pos=[5.0, 0.0, 0.0])
+ue1        UE('ue1', pos=[10.0, 3.0, 0.0])
+
+*** Testing connectivity (AP -> RIS -> UE)...
+
+✓ Connection successful!
+  Path: ap1 -> ris1 -> ue1
+  Distances:
+    AP to RIS: 5.00 m
+    RIS to UE: 5.83 m
+    Total: 10.83 m
+  SNR: 24.8 dB
+  Power: -66.1 dBm
+  Beam Angle: 31.0°
+
+============================================================
+```
+
+### 4. Command Reference
+
+```bash
+# Show help
+risnet --help
+
+# Run CLI mode (default - interactive)
+risnet
+risnet --cli
+
+# Run web interface
+risnet --web
+
+# Run with custom config
+risnet --web --config config.yaml
+
+# Use Python API
+python -c "from risnet import RISnet; net = RISnet()"
+
+# Run examples
+python examples/run_all.py
 ```
 
 ## Quick Start

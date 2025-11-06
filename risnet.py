@@ -1,8 +1,7 @@
 """
-RISnet - Mininet-inspired API for RIS Network Simulation
+RISnet - Clean API for RIS Network Simulation
 
-Provides a clean, intuitive API for creating and simulating RIS networks,
-similar to how Mininet works for SDN networks.
+Provides a clean, intuitive API for creating and simulating RIS networks.
 
 Usage:
     from risnet import RISnet, Topology
@@ -36,10 +35,7 @@ from config import Config
 
 
 class RISnet:
-    """Main RISnet class - similar to Mininet's Mininet class
-
-    Provides high-level API for RIS network creation and simulation.
-    """
+    """Main RISnet class - high-level API for RIS network simulation"""
 
     def __init__(self, topo=None, controller=True, config=None, autoSetPos=False):
         """Initialize RISnet
@@ -71,7 +67,7 @@ class RISnet:
             self.network.set_controller(self.controller)
 
     def addAP(self, name, position=None, power_dBm=20.0, freq=5.8e9):
-        """Add Access Point (like Mininet's addHost)
+        """Add Access Point
 
         Args:
             name: AP name
@@ -94,7 +90,7 @@ class RISnet:
         return node
 
     def addRIS(self, name, position=None, N=16, bits=2, max_angle_deg=60):
-        """Add RIS surface (like Mininet's addSwitch)
+        """Add RIS surface
 
         Args:
             name: RIS name
@@ -118,7 +114,7 @@ class RISnet:
         return node
 
     def addUE(self, name, position=None):
-        """Add User Equipment (like Mininet's addHost)
+        """Add User Equipment
 
         Args:
             name: UE name
@@ -152,7 +148,7 @@ class RISnet:
         return self.network.add_wall(start, end, attenuation_dB)
 
     def start(self):
-        """Start the network (like Mininet's start)"""
+        """Start the network"""
         if self.started:
             print("Network already started")
             return
@@ -162,7 +158,7 @@ class RISnet:
         print("*** RISnet started")
 
     def stop(self):
-        """Stop the network (like Mininet's stop)"""
+        """Stop the network"""
         if not self.started:
             return
 
@@ -276,7 +272,7 @@ class RISnet:
         }
 
     def CLI(self):
-        """Launch interactive CLI (like Mininet's CLI)"""
+        """Launch interactive CLI"""
         from risnet_cli import RISnetCLI
         cli = RISnetCLI(self)
         cli.cmdloop()
@@ -324,10 +320,7 @@ class RISnet:
 
 
 class Topology:
-    """Base topology class (like Mininet's Topo)
-
-    Subclass this to create custom topologies.
-    """
+    """Base topology class for creating custom network topologies"""
 
     def __init__(self):
         self.ap_dict = {}
@@ -376,7 +369,7 @@ class Topology:
 
 
 # =====================================================================
-# Predefined Topologies (like Mininet's topos)
+# Predefined Topologies
 # =====================================================================
 
 class SingleRISTopo(Topology):
@@ -457,7 +450,7 @@ class ObstacleTopo(Topology):
         self.addWall(start=(4, -3), end=(4, 3), attenuation_dB=30)
 
 
-# Topology registry (like Mininet's topos)
+# Topology registry
 topos = {
     'single': SingleRISTopo,
     'multi': MultiRISTopo,
@@ -467,7 +460,7 @@ topos = {
 
 
 # =====================================================================
-# Utility functions (like Mininet's helpers)
+# Utility functions
 # =====================================================================
 
 def run_experiment(topo_class, experiment_fn, **topo_params):
@@ -489,7 +482,7 @@ def run_experiment(topo_class, experiment_fn, **topo_params):
 
 
 def quick_test():
-    """Quick test (like Mininet's quick test)"""
+    """Quick test"""
     print("*** Creating network")
     net = RISnet()
 

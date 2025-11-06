@@ -52,6 +52,11 @@ class RISnetCLI(cmd.Cmd):
         self.net = net
         self._started = False
 
+        # Auto-naming counters
+        self._ap_counter = 0
+        self._ris_counter = 0
+        self._ue_counter = 0
+
     def onecmd(self, line):
         """Override onecmd to handle node access syntax"""
         # First check if this is a node access command
@@ -75,30 +80,69 @@ class RISnetCLI(cmd.Cmd):
         return super().onecmd(line)
 
     def do_add(self, arg):
-        """add <ap|ris|ue> <name> <x> <y> [z] [N] [bits]
+        """add <ap|ris|ue> [name] <x> <y> [z] [N] [bits]
 
-        Add a node to the network
+        Add a node to the network. Name is optional - auto-generated if omitted.
 
-        Examples:
-            add ap ap1 0 0
-            add ris ris1 5 0
-            add ris ris1 5 0 0 16 2
-            add ue ue1 10 3
+        Examples (with auto-names):
+            add ap 0 0              # Creates AP1, AP2, AP3, ...
+            add ris 5 0             # Creates R1, R2, R3, ...
+            add ue 10 3             # Creates UE1, UE2, UE3, ...
+
+        Examples (with explicit names):
+            add ap ap1 0 0          # Creates AP named 'ap1'
+            add ris ris1 5 0        # Creates RIS named 'ris1'
+            add ue ue1 10 3         # Creates UE named 'ue1'
+
+        RIS with parameters:
+            add ris 5 0 0 16 2      # R1 at (5,0,0) with N=16, bits=2
         """
         try:
             parts = arg.split()
-            if len(parts) < 4:
-                print("Usage: add <ap|ris|ue> <name> <x> <y> [z] [N] [bits]")
+            if len(parts) < 3:
+                print("Usage: add <ap|ris|ue> [name] <x> <y> [z] [N] [bits]")
+                print("       (name is optional, auto-generated if omitted)")
                 return
 
             node_type = parts[0].lower()
-            name = parts[1]
-            x = float(parts[2])
-            y = float(parts[3])
-            z = float(parts[4]) if len(parts) > 4 and parts[4][0] not in ['N', 'n', 'b'] else 0.0
 
-            # Adjust index based on whether z was provided
-            idx = 5 if len(parts) > 4 and parts[4][0] not in ['N', 'n', 'b'] else 4
+            # Determine if second argument is a name or coordinate
+            second_arg = parts[1]
+            # A name starts with a letter and may contain letters, digits, underscores
+            # A coordinate is a number (possibly negative)
+            try:
+                float(second_arg)
+                is_name = False  # It's a valid number, so it's a coordinate
+            except ValueError:
+                is_name = True   # Not a number, so it must be a name
+
+            if is_name:
+                # Explicit name provided
+                name = second_arg
+                x = float(parts[2])
+                y = float(parts[3])
+                z = float(parts[4]) if len(parts) > 4 and parts[4][0] not in ['N', 'n', 'b'] else 0.0
+                idx = 5 if len(parts) > 4 and parts[4][0] not in ['N', 'n', 'b'] else 4
+            else:
+                # No name provided, auto-generate
+                x = float(second_arg)
+                y = float(parts[2])
+                z = float(parts[3]) if len(parts) > 3 and parts[3][0] not in ['N', 'n', 'b'] else 0.0
+                idx = 4 if len(parts) > 3 and parts[3][0] not in ['N', 'n', 'b'] else 3
+
+                # Auto-generate name based on type
+                if node_type == 'ap':
+                    self._ap_counter += 1
+                    name = f"AP{self._ap_counter}"
+                elif node_type == 'ris':
+                    self._ris_counter += 1
+                    name = f"R{self._ris_counter}"
+                elif node_type == 'ue':
+                    self._ue_counter += 1
+                    name = f"UE{self._ue_counter}"
+                else:
+                    print(f"Unknown node type: {node_type}")
+                    return
 
             if node_type == 'ap':
                 node = self.net.addAP(name, position=(x, y, z))
