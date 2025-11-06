@@ -1,0 +1,18 @@
+# RISNet v2.0 Requirements
+
+# Core dependencies
+numpy>=1.21.0
+flask>=2.0.0
+
+# Production WSGI server (recommended)
+waitress>=2.1.0
+
+# Configuration management
+pyyaml>=6.0
+
+# Optional: For advanced visualization
+matplotlib>=3.5.0
+
+# Optional: For testing
+pytest>=7.0.0
+pytest-cov>=3.0.0
