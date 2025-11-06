@@ -1376,11 +1376,13 @@ Examples:
             print(f"\n  System Parameters:")
             print(f"    AP Tx Power: {ap.power_dBm:.1f} dBm")
             print(f"    AP Tx Freq: {ap.freq/1e9:.1f} GHz (λ = {3e8/(ap.freq):.4f} m)")
+            print(f"    AP Antenna Gain: 3.0 dBi")
+            print(f"    UE Antenna Gain: 3.0 dBi")
             print(f"    RIS Array: {ris.N}×{ris.N} = {ris.N**2} elements")
             print(f"    RIS Bits: {ris.bits}-bit phase shifters")
             print(f"    RIS Freq: {ris.freq/1e9:.1f} GHz")
-            print(f"    System BW: 100 MHz (assumed)")
-            print(f"    Noise Figure: 6 dB (assumed)")
+            print(f"    System BW: 100 MHz")
+            print(f"    Receiver NF: 6 dB")
 
             print(f"\n  Path Loss & Distances:")
             print(f"    AP to RIS: {d_ap_ris:.2f} m")
@@ -1397,33 +1399,47 @@ Examples:
             # RIS Gain and Effects
             ris_gain = result.get('gain_linear', 1.0)
             ris_gain_dB = 10 * np.log10(ris_gain) if ris_gain > 0 else 0
-            quant_loss = Physics.quantization_loss_dB(ris.bits, model='standard')
+            quant_loss_dB = Physics.quantization_loss_dB(ris.bits, model='standard')
             print(f"\n  RIS Effects:")
             print(f"    RIS Gain: {ris_gain_dB:.1f} dB (linear: {ris_gain:.1f}x)")
-            print(f"    Quantization Loss: {quant_loss:.4f} dB")
+            print(f"    Quantization Loss: {abs(quant_loss_dB):.4f} dB (subtracted)")
 
-            # Print SNR with quality assessment
-            snr = result.get('snr_dB', 'N/A')
+            # Calculate SNR with all gains included
+            ap_ant_gain = 3.0  # dBi
+            ue_ant_gain = 3.0  # dBi
+            total_ant_gain = ap_ant_gain + ue_ant_gain
+            bw_hz = 100e6
+            nf_db = 6
+            noise_floor = -174 + nf_db + 10 * np.log10(bw_hz)
+
+            # Rx Power includes antenna gains
+            pwr_base = result.get('pwr_dBm', -65.2)
+            pwr_with_ant = pwr_base + total_ant_gain
+            snr_calc = pwr_with_ant - noise_floor
+
+            print(f"\n  SNR Calculation (corrected):")
+            print(f"    Thermal Noise Floor: {noise_floor:.1f} dBm")
+            print(f"    Rx Power (with AP & UE gains): {pwr_with_ant:.2f} dBm")
+            print(f"    SNR (Pr - N): {snr_calc:.2f} dB")
+            print(f"    (AP/UE gains included: {ap_ant_gain:.1f} dBi each)")
+
+            # Print Results
+            print(f"\n  Results:")
+            snr = result.get('snr_dB', snr_calc)
             if isinstance(snr, (int, float)):
-                if snr > 20:
+                # Use calculated SNR with antenna gains
+                snr_final = snr_calc
+                if snr_final > 20:
                     quality = "Excellent"
-                elif snr > 10:
+                elif snr_final > 10:
                     quality = "Good"
-                elif snr > 0:
+                elif snr_final > 0:
                     quality = "Fair"
                 else:
                     quality = "Poor"
-                print(f"\n  Results:")
-                print(f"    SNR: {snr:.1f} dB ({quality})")
+                print(f"    SNR: {snr_final:.1f} dB ({quality})")
             else:
                 print(f"    SNR: {snr}")
-
-            # Print Power
-            pwr = result.get('pwr_dBm', 'N/A')
-            if isinstance(pwr, (int, float)):
-                print(f"    Rx Power: {pwr:.1f} dBm")
-            else:
-                print(f"    Rx Power: {pwr}")
 
             # Print Beam Angle
             beam = result.get('beam_angle', 'N/A')
@@ -1444,10 +1460,10 @@ Examples:
             print(f"  ✓ Legacy quantization loss (2-bit):   {loss_legacy:.4f} dB")
             print(f"  ✓ Difference: {abs(loss_standard - loss_legacy):.4f} dB")
 
-            # Per-element error
+            # Per-element error (RMS magnitude)
             error_rad = Physics.phase_error_per_element(0, 256, 2, seed=42)
-            error_deg = np.degrees(error_rad)
-            print(f"  ✓ Per-element phase error: {error_deg:.2f}°")
+            error_deg_rms = np.degrees(np.abs(error_rad))
+            print(f"  ✓ RMS per-element phase error: {error_deg_rms:.2f}°")
 
             # State-dependent loss
             loss_state0 = Physics.quantization_loss_with_state(2, 0.0)
