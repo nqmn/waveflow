@@ -277,6 +277,7 @@ class RISnetCLI(cmd.Cmd):
             findpaths <target> [algorithm] - Find all paths
             connect <ris> <target> - Connect via RIS
             position <x> <y> [z] - Update node position
+            rename <newname>  - Rename the node
         """
         try:
             parts = line.split(None, 2)
@@ -306,9 +307,11 @@ class RISnetCLI(cmd.Cmd):
                 self._cmd_connect(node_name, node, args)
             elif command == 'position':
                 self._cmd_position(node_name, node, args)
+            elif command == 'rename':
+                self._cmd_rename(node_name, node, args)
             else:
                 print(f"Unknown command: {command}")
-                print("Available: info, ping, iperf, findpaths, connect, position")
+                print("Available: info, ping, iperf, findpaths, connect, position, rename")
 
         except Exception as e:
             print(f"Error: {e}")
@@ -528,6 +531,53 @@ class RISnetCLI(cmd.Cmd):
         except (ValueError, IndexError) as e:
             print(f"Error: {e}")
 
+    def _cmd_rename(self, node_name, node, args):
+        """Rename a node"""
+        new_name = args.strip()
+
+        if not new_name:
+            print("Usage: <node> rename <newname>")
+            return
+
+        if not new_name.replace('_', '').replace('-', '').isalnum():
+            print("Error: Node name must contain only letters, digits, underscores, and hyphens")
+            return
+
+        # Check if new name is already taken
+        if (new_name in self.net.aps or
+            new_name in self.net.riss or
+            new_name in self.net.ues):
+            print(f"Error: Node name '{new_name}' is already in use")
+            return
+
+        # Find which dict the node is in and update it
+        if node_name in self.net.aps:
+            del self.net.aps[node_name]
+            self.net.aps[new_name] = node
+            node_dict = "AP"
+        elif node_name in self.net.riss:
+            del self.net.riss[node_name]
+            self.net.riss[new_name] = node
+            node_dict = "RIS"
+        elif node_name in self.net.ues:
+            del self.net.ues[node_name]
+            self.net.ues[new_name] = node
+            node_dict = "UE"
+        else:
+            print(f"Error: Node '{node_name}' not found")
+            return
+
+        # Update the node's name property
+        node.name = new_name
+
+        # Update in the main network nodes dict if it exists
+        if node_name in self.net.network.nodes:
+            del self.net.network.nodes[node_name]
+            self.net.network.nodes[new_name] = node
+
+        print(f"✓ Renamed {node_dict} '{node_name}' to '{new_name}'")
+        print(f"  Use '{new_name}' for future commands (e.g., '{new_name} info')")
+
     def _get_node(self, name: str):
         """Get node by name from any node dict"""
         if name in self.net.aps:
@@ -609,6 +659,7 @@ NODE OPERATIONS (syntax: <nodename> <command>):
   <node> iperf <target>          - Test throughput
   <node> findpaths <target> [algo] - Find all paths
   <node> position <x> <y> [z]    - Update position
+  <node> rename <newname>        - Rename the node
   <ap> connect <ris> <ue>        - Connect AP→RIS→UE
 
 EXAMPLE SESSION:
@@ -617,7 +668,8 @@ EXAMPLE SESSION:
   risnet> add ue ue1 10 3
   risnet> list
   risnet> ap1 info
-  risnet> ap1 ping ue1
+  risnet> ap1 rename access_point
+  risnet> access_point ping ue1
   risnet> ap1 findpaths ue1 dijkstra
   risnet> ap1 connect ris1 ue1
 
