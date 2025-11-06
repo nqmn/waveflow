@@ -32,8 +32,11 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "risnet=main:main",
+            "risnet=risnet:main",
         ],
     },
+    scripts=[
+        "risnet",
+    ],
     include_package_data=True,
 )
