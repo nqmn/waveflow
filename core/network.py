@@ -127,13 +127,14 @@ class RISNetwork:
 
         # Received power calculation (coherent link)
         # Pr = Pt + G_AP + G_UE + G_RIS - PL_AP_RIS - PL_RIS_UE - |quant_loss|
+        # NOTE: quant_loss_dB is NEGATIVE (e.g., -1.67 dB), so we subtract it (subtract negative = add less)
         pwr_dBm = (ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi -
-                   pl_ap_ris - pl_ris_ue - quant_loss_dB)
+                   pl_ap_ris - pl_ris_ue + quant_loss_dB)
 
         # SNR calculation using physics module (100 MHz default, 6 dB NF)
         # This properly accounts for noise floor = -174 + 10*log10(BW) + NF
         total_loss_dB = pl_ap_ris + pl_ris_ue
-        total_gain_dBi = (gain_dBi - quant_loss_dB + ap_antenna_gain_dBi + ue_antenna_gain_dBi)
+        total_gain_dBi = (gain_dBi + quant_loss_dB + ap_antenna_gain_dBi + ue_antenna_gain_dBi)
 
         snr_dB = Physics.compute_snr_dB(
             tx_power_dBm=ap.power_dBm,
