@@ -290,14 +290,10 @@ paths = controller.find_all_paths('ap1', 'ue1', algorithm='astar')
 
 ```python
 from controller.beamforming import BeamformingEngine
+from controller.beamsweeping import compute_snr  # Shared calibrated helper
 import numpy as np
 
-# Define SNR computation function
-def compute_snr(pos1, pos2, node1, node2, angle):
-    # Your SNR calculation here
-    return snr_linear
-
-# Perform greedy beam sweep
+# Perform greedy beam sweep (uses compute_snr by default, but passed here explicitly)
 result = BeamformingEngine.greedy_beam_sweep(
     pos1=np.array([0, 0, 0]),
     pos2=np.array([10, 3, 0]),
@@ -311,6 +307,7 @@ result = BeamformingEngine.greedy_beam_sweep(
 print(f"Best angle: {result['best_angle']:.1f}°")
 print(f"Best SNR: {result['best_snr_dB']:.1f} dB")
 ```
+`compute_snr_fn` now defaults to `controller.beamsweeping.compute_snr`, so you can omit the argument unless you need a custom propagation model.
 
 ## API Reference
 

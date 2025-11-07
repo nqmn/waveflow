@@ -4,6 +4,10 @@ Example 6: Batch Testing
 Demonstrates testing multiple configurations in a loop.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet
 
 

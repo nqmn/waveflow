@@ -16,8 +16,9 @@ from pathlib import Path
 # Get the directory where this script is located
 script_dir = Path(__file__).parent.absolute()
 
-# Add to Python path so we can import main
-sys.path.insert(0, str(script_dir))
+# Add project root to Python path (parent of bin directory)
+project_root = script_dir.parent
+sys.path.insert(0, str(project_root))
 
 # Import and run main
 from main import main

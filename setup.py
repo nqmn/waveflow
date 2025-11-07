@@ -17,7 +17,8 @@ class RISNetSetup:
 
     def __init__(self):
         self.project_root = Path(__file__).parent.absolute()
-        self.risnet_script = self.project_root / "risnet"
+        self.bin_dir = self.project_root / "bin"
+        self.risnet_script = self.bin_dir / "risnet"
         self.shell_profiles = [
             Path.home() / ".bashrc",
             Path.home() / ".zshrc",
@@ -71,7 +72,7 @@ class RISNetSetup:
 
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install"] + packages
+                [sys.executable, "-m", "pip", "install", "--break-system-packages"] + packages
             )
             print("\n✓ Dependencies installed successfully")
             return True
@@ -103,16 +104,16 @@ class RISNetSetup:
         self.print_header("Setting up PATH")
 
         profile = self.find_shell_profile()
-        path_export = f'export PATH="{self.project_root}:$PATH"'
+        path_export = f'export PATH="{self.bin_dir}:$PATH"'
         path_comment = "# RISNet installation"
 
         print(f"Shell profile: {profile}")
-        print(f"Adding to PATH: {self.project_root}\n")
+        print(f"Adding to PATH: {self.bin_dir}\n")
 
         # Check if already in PATH
         if profile.exists():
             content = profile.read_text()
-            if str(self.project_root) in content:
+            if str(self.bin_dir) in content:
                 print("✓ RISNet already in PATH")
                 return True
 
@@ -151,7 +152,7 @@ class RISNetSetup:
         print("Test 2: Load topology")
         topology_file = (
             self.project_root
-            / "examples/json_topologies/example_1_simple.json"
+            / "examples/json/example_1_simple.json"
         )
         if topology_file.exists():
             try:
@@ -169,7 +170,7 @@ class RISNetSetup:
                 )
                 if result.returncode == 0:
                     print(f"✓ Topology loading works")
-                    print(f"  Command: python3 main.py --topology examples/json_topologies/example_1_simple.json list\n")
+                    print(f"  Command: python3 main.py --topology examples/json/example_1_simple.json list\n")
                 else:
                     print(f"⚠ Topology loading failed\n")
             except Exception as e:
@@ -213,7 +214,7 @@ class RISNetSetup:
         print("QUICK START:")
         print(f"\n1. From project directory:")
         print(f"   cd {self.project_root}")
-        print(f"   python3 main.py --topology examples/json_topologies/example_1_simple.json list\n")
+        print(f"   python3 main.py --topology examples/json/example_1_simple.json list\n")
 
         print("USEFUL COMMANDS:")
         print("   python3 main.py               # Interactive mode")
@@ -222,12 +223,12 @@ class RISNetSetup:
         print("   python3 main.py add ris       # Add RIS surface")
         print("   python3 main.py add ue        # Add user equipment")
         print("   python3 main.py save network.json  # Save topology")
-        print("   python3 main.py --topology examples/json_topologies/example_1_simple.json list")
+        print("   python3 main.py --topology examples/json/example_1_simple.json list")
 
         print("\nDOCUMENTATION:")
         print("   - docs_archive/SETUP.md       # Setup guide")
-        print("   - examples/json_topologies/README.md")
-        print("   - examples/json_topologies/LOADING_GUIDE.md")
+        print("   - examples/json/README.md")
+        print("   - examples/json/LOADING_GUIDE.md")
 
     def run(self):
         """Run complete setup"""

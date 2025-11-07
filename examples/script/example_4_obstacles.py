@@ -4,6 +4,10 @@ Example 4: Network with Obstacles
 Demonstrates pathfinding around walls and obstacles.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet, topos
 
 

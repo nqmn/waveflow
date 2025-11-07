@@ -4,6 +4,10 @@ Example 3: Custom Topology Class
 Demonstrates how to create your own topology.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet, Topology
 
 

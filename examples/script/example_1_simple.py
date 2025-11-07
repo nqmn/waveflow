@@ -4,6 +4,10 @@ Example 1: Simple Network Creation
 Demonstrates basic RISnet usage with manual node creation.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet
 
 

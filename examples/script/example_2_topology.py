@@ -4,6 +4,10 @@ Example 2: Using Predefined Topology
 Demonstrates how to use built-in topology classes.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet, topos
 
 

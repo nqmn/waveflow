@@ -1,0 +1,71 @@
+{
+  "name": "Example 8: 5.8 GHz SDR Validation Topology",
+  "description": "RIS-assisted HackRF testbed inspired by Fig. 12 and Table 2 of Design and SDR Validation of a 5.8 GHz 1-Bit RIS",
+  "impairments": {
+    "extra_path_loss_dB": 40.74,
+    "direct_blockage_dB": 20.79
+  },
+  "metadata": {
+    "source": "Design_and_SDR_Validation_of_a_58_GHz_1-Bit_Reconf.pdf",
+    "notes": [
+      "RIS positioned 7 m in front of the transmitter (Tx) horn.",
+      "Receiver placed 5 m from the RIS at a 45 degree off-axis angle.",
+      "1-bit 16x16 RIS operating at 5.8 GHz with up to 60 degree steering.",
+      "QPSK waveform over 1 MHz bandwidth; RIS improves RSSI by ~13 dB."
+    ],
+    "reported_metrics": {
+      "direct": {
+        "snr_dB": 4.84,
+        "rssi_dBm": -56.82,
+        "evm_percent": 57.3
+      },
+      "ris": {
+        "snr_dB": 12.26,
+        "rssi_dBm": -43.71,
+        "evm_percent": 24.39
+      }
+    }
+  },
+  "nodes": [
+    {
+      "name": "AP_TX",
+      "type": "AccessPoint",
+      "pos": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dBm": 10.0,
+      "freq": 5800000000.0,
+      "bandwidth_MHz": 1.0,
+      "antenna_gain_dBi": 15.0
+    },
+    {
+      "name": "RIS_PANEL",
+      "type": "RIS",
+      "pos": [
+        7.0,
+        0.0,
+        0.0
+      ],
+      "N": 16,
+      "bits": 1,
+      "freq": 5800000000.0,
+      "max_angle_deg": 60,
+      "active_mode": false,
+      "element_efficiency": 0.8,
+      "K_db": 6.0
+    },
+    {
+      "name": "UE_RX",
+      "type": "UE",
+      "pos": [
+        10.5355339059,
+        3.5355339059,
+        0.0
+      ],
+      "antenna_gain_dBi": 8.0,
+      "noise_figure_dB": 12.0
+    }
+  ]
+}

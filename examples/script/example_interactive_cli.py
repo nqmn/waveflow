@@ -13,6 +13,10 @@ Usage:
     python3 example_interactive_cli.py
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet
 from risnet_cli import RISnetCLI
 

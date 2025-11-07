@@ -273,7 +273,7 @@ class RISnet:
 
     def CLI(self):
         """Launch interactive CLI"""
-        from risnet_cli import RISnetCLI
+        from .cli import RISnetCLI
         cli = RISnetCLI(self)
         cli.cmdloop()
 

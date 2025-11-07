@@ -420,15 +420,21 @@ def compute_snr(
     atm_loss_db = (distance / 1000) * 0.5
 
     # Gain calculation
+    reflectors_per_dim = max(int(ris_reflectors), 1)
+    if reflectors_per_dim > 64:
+        # Interpret large values as already representing total elements
+        total_elements = reflectors_per_dim
+    else:
+        total_elements = reflectors_per_dim * reflectors_per_dim
+    array_gain_dbi = 10 * np.log10(total_elements)
+    insertion_loss = 2.0  # dB
+    reflection_loss = 1.0  # dB
+    aligned_gain_dbi = array_gain_dbi - insertion_loss - reflection_loss
+    misalignment_penalty_db = 10.0  # ≈ -10 dB when off target
+
     if node1 == 'AP' and node2.startswith('R'):
-        # AP→RIS: Direct link with known RIS location
-        N = ris_reflectors * ris_reflectors
-        # RIS array gain: 20*log10(N)
-        theoretical_gain_dbi = 20 * np.log10(N)
-        insertion_loss = 2.0  # dB
-        reflection_loss = 1.0  # dB
-        gain_dbi = theoretical_gain_dbi - insertion_loss - reflection_loss
-        # Add amplifier gain separately (if active RIS)
+        # AP→RIS: treat as omnidirectional AP illuminating RIS
+        gain_dbi = 3.0
         if active_ris_mode:
             gain_dbi += amplifier_gain
 
@@ -458,28 +464,17 @@ def compute_snr(
 
         # Target within 5° of beam: aligned
         if angle_error < 5:
-            N = ris_reflectors * ris_reflectors
-            # RIS array gain: 20*log10(N)
-            theoretical_gain_dbi = 20 * np.log10(N)
-            insertion_loss = 2.0  # dB
-            reflection_loss = 1.0  # dB
-            gain_dbi = theoretical_gain_dbi - insertion_loss - reflection_loss
-            # Add amplifier gain separately (if active RIS)
+            gain_dbi = aligned_gain_dbi
             if active_ris_mode:
                 gain_dbi += amplifier_gain
         else:
-            # Misaligned: reduced gain (10% efficiency)
-            N = ris_reflectors * ris_reflectors
-            # RIS array gain: 20*log10(N)
-            theoretical_gain_dbi = 20 * np.log10(N)
-            gain_dbi = theoretical_gain_dbi * 0.1
-            # Add amplifier gain separately if active, but at reduced efficiency
+            gain_dbi = aligned_gain_dbi - misalignment_penalty_db
             if active_ris_mode:
-                gain_dbi += amplifier_gain * 0.1
+                gain_dbi += max(amplifier_gain - misalignment_penalty_db, amplifier_gain * 0.1)
 
-        # RIS→RIS: Apply relay efficiency penalty
+        # RIS→RIS: Apply relay efficiency penalty (~70% efficiency -> -1.55 dB)
         if node2.startswith('R'):
-            gain_dbi = gain_dbi * 0.70
+            gain_dbi -= 10 * np.log10(1 / 0.70)
 
     else:
         # Default: minimal gain

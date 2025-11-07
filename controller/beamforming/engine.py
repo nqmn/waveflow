@@ -8,8 +8,11 @@ Implements:
 - Binary search optimization
 """
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Callable, Any
 import logging
+import inspect
+
+from controller.beamsweeping import compute_snr as default_compute_snr
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class BeamformingEngine:
                           pos2: np.ndarray,
                           node1: str,
                           node2: str,
-                          compute_snr_fn,
+                          compute_snr_fn: Optional[Callable[..., float]] = None,
                           ap_pos: np.ndarray = None,
                           max_angle_deg: float = 60,
                           coarse_step_deg: float = 10,
@@ -81,6 +84,7 @@ class BeamformingEngine:
             Dict with best_angle, best_snr, measurements, etc.
         """
         measurements = []
+        compute_snr_fn = compute_snr_fn or default_compute_snr
 
         if verbose:
             logger.info(f"\n┌─ BEAM SWEEP: {node1}→{node2} ─────────────")
@@ -140,7 +144,9 @@ class BeamformingEngine:
         # Step 5: Start from center (specular) and expand
         current_idx = len(codebook) // 2
         current_angle = codebook[current_idx]
-        current_snr = compute_snr_fn(pos1, pos2, node1, node2, current_angle)
+        current_snr = BeamformingEngine._call_compute_snr(
+            compute_snr_fn, pos1, pos2, node1, node2, current_angle, specular_angle_deg
+        )
         measurements.append({'angle': current_angle, 'SNR': current_snr, 'idx': current_idx})
 
         best_idx = current_idx
@@ -155,7 +161,9 @@ class BeamformingEngine:
             # Test left neighbor
             if left_idx >= 0:
                 left_angle = codebook[left_idx]
-                left_snr = compute_snr_fn(pos1, pos2, node1, node2, left_angle)
+                left_snr = BeamformingEngine._call_compute_snr(
+                    compute_snr_fn, pos1, pos2, node1, node2, left_angle, specular_angle_deg
+                )
                 measurements.append({'angle': left_angle, 'SNR': left_snr, 'idx': left_idx})
 
                 if left_snr > best_snr:
@@ -166,7 +174,9 @@ class BeamformingEngine:
             # Test right neighbor
             if right_idx < len(codebook):
                 right_angle = codebook[right_idx]
-                right_snr = compute_snr_fn(pos1, pos2, node1, node2, right_angle)
+                right_snr = BeamformingEngine._call_compute_snr(
+                    compute_snr_fn, pos1, pos2, node1, node2, right_angle, specular_angle_deg
+                )
                 measurements.append({'angle': right_angle, 'SNR': right_snr, 'idx': right_idx})
 
                 if right_snr > best_snr:
@@ -186,7 +196,9 @@ class BeamformingEngine:
             refined_angles = np.arange(left_bound, right_bound + fine_step_deg, fine_step_deg)
 
             for angle in refined_angles:
-                snr = compute_snr_fn(pos1, pos2, node1, node2, angle)
+                snr = BeamformingEngine._call_compute_snr(
+                    compute_snr_fn, pos1, pos2, node1, node2, angle, specular_angle_deg
+                )
                 measurements.append({'angle': angle, 'SNR': snr, 'idx': -1})
 
                 if snr > best_snr:
@@ -221,7 +233,7 @@ class BeamformingEngine:
                           pos2: np.ndarray,
                           node1: str,
                           node2: str,
-                          compute_snr_fn,
+                          compute_snr_fn: Optional[Callable[..., float]] = None,
                           fov_deg: float = 60,
                           coarse_step_deg: float = 10,
                           fine_step_deg: float = 1) -> Dict:
@@ -240,9 +252,12 @@ class BeamformingEngine:
         Returns:
             Dict with best angle and SNR
         """
+        compute_snr_fn = compute_snr_fn or default_compute_snr
+
         # Calculate base direction
         vec = pos2 - pos1
         base_angle = np.degrees(np.arctan2(vec[1], vec[0]))
+        specular_angle = base_angle
 
         # Coarse sweep
         coarse_angles = np.arange(-fov_deg, fov_deg + coarse_step_deg, coarse_step_deg)
@@ -250,7 +265,9 @@ class BeamformingEngine:
 
         snr_values = []
         for angle in abs_angles:
-            snr = compute_snr_fn(pos1, pos2, node1, node2, angle)
+            snr = BeamformingEngine._call_compute_snr(
+                compute_snr_fn, pos1, pos2, node1, node2, angle, specular_angle
+            )
             snr_values.append(snr)
 
         # Find coarse peak
@@ -266,7 +283,9 @@ class BeamformingEngine:
 
         fine_snr_values = []
         for angle in fine_angles:
-            snr = compute_snr_fn(pos1, pos2, node1, node2, angle)
+            snr = BeamformingEngine._call_compute_snr(
+                compute_snr_fn, pos1, pos2, node1, node2, angle, specular_angle
+            )
             fine_snr_values.append(snr)
 
         # Find fine peak
@@ -304,3 +323,34 @@ class BeamformingEngine:
             center_angle_deg + max_angle_deg,
             num_angles
         )
+
+    @staticmethod
+    def _snr_fn_accepts_spec_arg(compute_snr_fn: Callable[..., Any]) -> bool:
+        """Determine if the provided SNR function supports a specular_angle parameter."""
+        try:
+            signature = inspect.signature(compute_snr_fn)
+        except (ValueError, TypeError):
+            return True  # Cannot inspect (e.g., builtins); assume compatible
+
+        params = signature.parameters.values()
+        for param in params:
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                return True
+
+        if 'specular_angle' in signature.parameters:
+            return True
+
+        return len(params) >= 6
+
+    @staticmethod
+    def _call_compute_snr(compute_snr_fn: Callable[..., float],
+                          pos1: np.ndarray,
+                          pos2: np.ndarray,
+                          node1: str,
+                          node2: str,
+                          angle: float,
+                          specular_angle: float) -> float:
+        """Invoke compute_snr_fn with backwards compatibility for legacy signatures."""
+        if BeamformingEngine._snr_fn_accepts_spec_arg(compute_snr_fn):
+            return compute_snr_fn(pos1, pos2, node1, node2, angle, specular_angle)
+        return compute_snr_fn(pos1, pos2, node1, node2, angle)

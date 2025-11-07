@@ -24,18 +24,26 @@ class Node:
 
 
 class AccessPoint(Node):
-    """Access Point (AP) node with transmission capabilities"""
+    """Access Point (AP) node with transmission and RF impairments"""
 
-    def __init__(self, name, x, y, z=0.0, power_dBm=20.0, freq=10e9):
+    def __init__(self, name, x, y, z=0.0, power_dBm=20.0, freq=5.8e9,
+                 bandwidth_MHz=20.0, antenna_gain_dBi=3.0,
+                 noise_figure_dB=6.0):
         super().__init__(name, x, y, z)
         self.power_dBm = power_dBm
         self.freq = freq
+        self.bandwidth_MHz = bandwidth_MHz
+        self.antenna_gain_dBi = antenna_gain_dBi
+        self.noise_figure_dB = noise_figure_dB
 
     def to_dict(self):
         d = super().to_dict()
         d.update({
             'power_dBm': self.power_dBm,
-            'freq': self.freq
+            'freq': self.freq,
+            'bandwidth_MHz': self.bandwidth_MHz,
+            'antenna_gain_dBi': self.antenna_gain_dBi,
+            'noise_figure_dB': self.noise_figure_dB
         })
         return d
 
@@ -44,7 +52,10 @@ class RIS(Node):
     """Reconfigurable Intelligent Surface with phase control"""
 
     def __init__(self, name, x, y, z=0.0, N=32, bits=2, spacing=None,
-                 freq=10e9, max_angle_deg=60, active_mode=False, amplifier_gain=1.0):
+                 freq=10e9, max_angle_deg=60, active_mode=False,
+                 amplifier_gain=1.0, element_efficiency=0.95,
+                 phase_error_std_deg=8.0, amp_std=0.15,
+                 coupling_enabled=True, K_db=10, noise_floor=-90.0):
         super().__init__(name, x, y, z)
         self.N = int(N)  # Array size (will create N x N grid)
         self.bits = int(bits)  # Phase quantization bits
@@ -52,6 +63,7 @@ class RIS(Node):
         self.max_angle_deg = max_angle_deg  # Maximum steering angle
         self.active_mode = active_mode  # Active vs passive RIS
         self.amplifier_gain = amplifier_gain if active_mode else 1.0
+        self.element_efficiency = element_efficiency
 
         # Element spacing (default: λ/2)
         wavelength = C / freq
@@ -59,12 +71,12 @@ class RIS(Node):
 
         # Physical properties
         self.element_positions = None
-        self.phase_rms = 8.0  # Phase error RMS (degrees)
-        self.amp_std = 0.15  # Amplitude variation std dev
-        self.coupling_enabled = True
-        self.K_db = 10  # Rician K-factor
+        self.phase_rms = phase_error_std_deg  # Phase error RMS (degrees)
+        self.amp_std = amp_std  # Amplitude variation std dev
+        self.coupling_enabled = coupling_enabled
+        self.K_db = K_db  # Rician K-factor
         self.P_tx_dBm = 20  # Default transmit power
-        self.noise_floor = -90  # Noise floor in dBm
+        self.noise_floor = noise_floor  # Noise floor in dBm
 
         # Current configuration
         self.current_phases = None  # Ideal phases (radians)
@@ -192,6 +204,12 @@ class RIS(Node):
             'max_angle_deg': self.max_angle_deg,
             'active_mode': self.active_mode,
             'amplifier_gain': self.amplifier_gain,
+            'element_efficiency': self.element_efficiency,
+            'phase_error_std_deg': self.phase_rms,
+            'amp_std': self.amp_std,
+            'coupling_enabled': self.coupling_enabled,
+            'K_db': self.K_db,
+            'noise_floor': self.noise_floor,
             'total_elements': self.N * self.N,
             'current_beam_angle': self.current_beam_angle,
             'phase_manager': 'controller.ris_phase.RISPhaseManager'
@@ -200,10 +218,18 @@ class RIS(Node):
 
 
 class UE(Node):
-    """User Equipment (receiver) node"""
+    """User Equipment (receiver) node with customizable impairments"""
 
-    def __init__(self, name, x, y, z=0.0):
+    def __init__(self, name, x, y, z=0.0, antenna_gain_dBi=3.0,
+                 noise_figure_dB=6.0):
         super().__init__(name, x, y, z)
+        self.antenna_gain_dBi = antenna_gain_dBi
+        self.noise_figure_dB = noise_figure_dB
 
     def to_dict(self):
-        return super().to_dict()
+        d = super().to_dict()
+        d.update({
+            'antenna_gain_dBi': self.antenna_gain_dBi,
+            'noise_figure_dB': self.noise_figure_dB
+        })
+        return d

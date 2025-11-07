@@ -23,6 +23,7 @@ import pprint
 # Import core modules
 from core import RISNetwork, AccessPoint, RIS, UE, Environment, Physics
 from controller import PathfindingEngine, BeamformingEngine, RISController
+from cli import run_testall
 from config import Config
 
 # Flask imports
@@ -1024,6 +1025,38 @@ class RISNetCLI(cmd.Cmd):
         # Auto-load network state on startup
         self._load_network()
 
+    def do_help(self, arg):
+        """help [command] - Show available commands"""
+        if arg:
+            target = getattr(self, f'do_{arg}', None)
+            if target and target.__doc__:
+                print(target.__doc__.strip())
+            else:
+                print(f"No detailed help for '{arg}'")
+            return
+
+        print("Available commands:")
+        command_docs = []
+        for name in dir(self):
+            if not name.startswith('do_'):
+                continue
+            cmd_name = name[3:]
+            func = getattr(self, name)
+            doc = (func.__doc__ or '').strip().splitlines()
+            description = doc[0].strip() if doc else ''
+            if not description:
+                description = '(no description)'
+            command_docs.append((cmd_name, description))
+
+        if not command_docs:
+            return
+
+        max_len = max(len(cmd) for cmd, _ in command_docs)
+        pad = max(12, max_len + 2)
+
+        for cmd_name, description in sorted(command_docs):
+            print(f"  {cmd_name:<{pad}}{description}")
+
     def do_add(self, arg):
         """add <ap|ris|ue> [name]
         Auto-generates random positions and parameters.
@@ -1074,7 +1107,7 @@ class RISNetCLI(cmd.Cmd):
                 print(f"added AP {name} at ({x:.2f}, {y:.2f})")
             elif typ == 'ris':
                 N = 16  # Default RIS grid size
-                bits = 2  # Default phase bits
+                bits = 1  # Default phase bits
                 self.net.add_ris(name, x, y, z, N, bits)
                 print(f"added RIS {name} at ({x:.2f}, {y:.2f}) (N={N}, bits={bits})")
             elif typ == 'ue':
@@ -1156,7 +1189,11 @@ class RISNetCLI(cmd.Cmd):
                 'pos': list(node.pos)
             }
 
-            if node_type == 'RIS':
+            if node_type == 'AccessPoint':
+                node_info['power_dBm'] = node.power_dBm
+                node_info['freq'] = node.freq
+                node_info['bandwidth_MHz'] = getattr(node, 'bandwidth_MHz', 100.0)
+            elif node_type == 'RIS':
                 node_info['N'] = node.N
                 node_info['bits'] = node.bits
 
@@ -1189,28 +1226,73 @@ class RISNetCLI(cmd.Cmd):
                 x, y, z = node_info['pos']
 
                 if node_type == 'AccessPoint':
-                    self.net.add_ap(name, x, y, z)
+                    power = node_info.get('power_dBm', 20.0)
+                    freq = node_info.get('freq', 5.8e9)
+                    bw = node_info.get('bandwidth_MHz', 20.0)
+                    ant_gain = node_info.get('antenna_gain_dBi', 3.0)
+                    noise_fig = node_info.get('noise_figure_dB', 6.0)
+                    self.net.add_ap(
+                        name, x, y, z, power, freq, bw,
+                        antenna_gain_dBi=ant_gain,
+                        noise_figure_dB=noise_fig
+                    )
                 elif node_type == 'RIS':
                     N = node_info.get('N', 16)
-                    bits = node_info.get('bits', 2)
-                    self.net.add_ris(name, x, y, z, N, bits)
+                    bits = node_info.get('bits', 1)
+                    freq = node_info.get('freq', 10e9)
+                    max_angle = node_info.get('max_angle_deg', 60.0)
+                    active_mode = node_info.get('active_mode', False)
+                    amplifier_gain = node_info.get('amplifier_gain', 1.0)
+                    element_efficiency = node_info.get('element_efficiency', 0.95)
+                    phase_error = node_info.get('phase_error_std_deg', 8.0)
+                    amp_std = node_info.get('amp_std', 0.15)
+                    coupling_enabled = node_info.get('coupling_enabled', True)
+                    K_db = node_info.get('K_db', 10.0)
+                    noise_floor = node_info.get('noise_floor', -90.0)
+                    self.net.add_ris(
+                        name, x, y, z, N, bits, freq, max_angle,
+                        active_mode=active_mode, amplifier_gain=amplifier_gain,
+                        element_efficiency=element_efficiency,
+                        phase_error_std_deg=phase_error,
+                        amp_std=amp_std, coupling_enabled=coupling_enabled,
+                        K_db=K_db, noise_floor=noise_floor
+                    )
                 elif node_type == 'UE':
-                    self.net.add_ue(name, x, y, z)
+                    ant_gain = node_info.get('antenna_gain_dBi', 3.0)
+                    noise_fig = node_info.get('noise_figure_dB', 6.0)
+                    self.net.add_ue(
+                        name, x, y, z,
+                        antenna_gain_dBi=ant_gain,
+                        noise_figure_dB=noise_fig
+                    )
+
+            # Global impairment settings
+            impairments = network_data.get('impairments')
+            if impairments:
+                self.net.set_impairments(impairments)
         except Exception as e:
             pass  # Silently fail if file can't be loaded
 
     def do_connect(self, arg):
-        """connect ap ris ue [beam_angle_deg]
+        """connect ap ris ue [beam_angle_deg] [seed]
         Example: connect ap1 ris1 ue1 30
+                 connect ap1 ris1 ue1 45 0   # deterministic seed
         If beam angle omitted, auto-steer geometrically.
         """
         parts = shlex.split(arg)
         if len(parts) < 3:
-            print('usage: connect ap ris ue [beam_angle]')
+            print('usage: connect ap ris ue [beam_angle] [seed]')
             return
         ap, ris, ue = parts[0], parts[1], parts[2]
         angle = float(parts[3]) if len(parts) > 3 else None
-        res = self.net.connect(ap, ris, ue, beam_angle_deg=angle)
+        seed = None
+        if len(parts) > 4:
+            try:
+                seed = int(parts[4])
+            except ValueError:
+                print('Seed must be an integer')
+                return
+        res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed)
         pprint.pprint(res)
 
     def do_sweep(self, arg):
@@ -1717,6 +1799,10 @@ IDEAL PHASES:
             self._print_ap_info(ap_node)
         elif cmd == 'power':
             self._ap_power_command(ap_node, args)
+        elif cmd == 'freq':
+            self._ap_freq_command(ap_node, args)
+        elif cmd == 'bw':
+            self._ap_bw_command(ap_node, args)
         elif cmd == 'transmit':
             self._ap_transmit_command(ap_node, args)
         else:
@@ -1730,6 +1816,8 @@ Access Point (AP) Commands:
   status            - Show current AP status
   info              - Show detailed AP information
   power [dBm]       - View or set transmit power
+  freq [Hz]         - View or set carrier frequency (Hz)
+  bw [MHz]          - View or set signal bandwidth
   transmit [target] - Configure transmission target
   exit              - Exit AP shell (interactive mode only)
 
@@ -1737,6 +1825,8 @@ Examples:
   AP1 help          - Show help for Access Point AP1
   AP1 status        - Show status of AP1
   AP1 power 20      - Set transmit power to 20 dBm
+  AP1 freq 28e9     - Set carrier to 28 GHz
+  AP1 bw 200        - Set bandwidth to 200 MHz
   AP1 transmit ue1  - Configure transmission to UE1
   AP1               - Enter interactive shell for AP1
         """
@@ -1746,8 +1836,9 @@ Examples:
         """Print AP node status"""
         print(f"\n{ap_node.name} Status:")
         print(f"  Position:      ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
-        print(f"  Transmit Power: 20 dBm (default)")
-        print(f"  Frequency:      5.0 GHz (default)")
+        print(f"  Transmit Power: {ap_node.power_dBm:.1f} dBm")
+        print(f"  Frequency:      {ap_node.freq/1e9:.2f} GHz")
+        print(f"  Bandwidth:      {ap_node.bandwidth_MHz:.1f} MHz")
         print(f"  Status:         Active")
         print(f"  Connected UEs:  0")
 
@@ -1758,21 +1849,46 @@ Examples:
         print(f"  Type:           Access Point")
         print(f"  Position:       ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f}) meters")
         print(f"  Antenna Type:   Omnidirectional")
-        print(f"  Default Power:  20 dBm")
-        print(f"  Frequency Band: 5 GHz (WiFi 5)")
-        print(f"  Max Bandwidth:  160 MHz")
+        print(f"  Power:          {ap_node.power_dBm:.1f} dBm")
+        print(f"  Frequency:      {ap_node.freq/1e9:.2f} GHz")
+        print(f"  Bandwidth:      {ap_node.bandwidth_MHz:.1f} MHz")
         print(f"  MIMO Streams:   2x2")
 
     def _ap_power_command(self, ap_node, args):
         """Handle AP power configuration"""
         if not args:
-            print(f"{ap_node.name} Transmit Power: 20 dBm")
+            print(f"{ap_node.name} Transmit Power: {ap_node.power_dBm:.1f} dBm")
         else:
             try:
                 power = float(args[0])
-                print(f"✓ Transmit power set to {power} dBm for {ap_node.name}")
+                ap_node.power_dBm = power
+                print(f"✓ Transmit power set to {power:.1f} dBm for {ap_node.name}")
             except ValueError:
                 print("Invalid power value. Usage: power <dBm>")
+
+    def _ap_freq_command(self, ap_node, args):
+        """Handle AP frequency configuration"""
+        if not args:
+            print(f"{ap_node.name} Frequency: {ap_node.freq/1e9:.3f} GHz")
+        else:
+            try:
+                freq = float(args[0])
+                ap_node.freq = freq
+                print(f"✓ Frequency set to {freq/1e9:.3f} GHz for {ap_node.name}")
+            except ValueError:
+                print("Invalid frequency. Usage: freq <Hz>")
+
+    def _ap_bw_command(self, ap_node, args):
+        """Handle AP bandwidth configuration"""
+        if not args:
+            print(f"{ap_node.name} Bandwidth: {ap_node.bandwidth_MHz:.1f} MHz")
+        else:
+            try:
+                bw = float(args[0])
+                ap_node.bandwidth_MHz = bw
+                print(f"✓ Bandwidth set to {bw:.1f} MHz for {ap_node.name}")
+            except ValueError:
+                print("Invalid bandwidth. Usage: bandwidth <MHz>")
 
     def _ap_transmit_command(self, ap_node, args):
         """Handle AP transmission configuration"""
@@ -2051,255 +2167,12 @@ Examples:
         4. Beam sweeping
         5. Physics validations
         """
-        print("\n" + "="*70)
+        print("\n" + "=" * 70)
         print("RISNet v2.0 - Comprehensive Network Test Suite")
-        print("="*70)
+        print("=" * 70)
 
-        # Clear existing nodes
-        print("\n[1/5] Setting up test network...")
-        self.net.nodes.clear()
-
-        # Add nodes with default naming convention
-        print("  ✓ Adding AP...")
-        self.net.add_ap('AP1', 0, 0, 0)
-        print("  ✓ Adding RIS (16×16, 1-bit)...")
-        self.net.add_ris('R1', 5, 0, 0, N=16, bits=1)
-        print("  ✓ Adding UE...")
-        self.net.add_ue('UE1', 10, 3, 0)
-
-        # List nodes
-        print("\n[2/5] Network nodes:")
-        self.net.list_nodes()
-
-        # Test basic connection
-        print("\n[3/5] Testing connectivity (AP -> RIS -> UE)...")
-        try:
-            result = self.net.connect('AP1', 'R1', 'UE1')
-
-            # Calculate distances
-            ap = self.net.get('AP1')
-            ris = self.net.get('R1')
-            ue = self.net.get('UE1')
-
-            d_ap_ris = np.linalg.norm(ris.pos - ap.pos)
-            d_ris_ue = np.linalg.norm(ue.pos - ris.pos)
-            d_total = d_ap_ris + d_ris_ue
-
-            print(f"\n  ✓ Connection successful!")
-            print(f"  Path: ap1 -> ris1 -> ue1")
-
-            # System Parameters (needed for verification)
-            print(f"\n  System Parameters:")
-            print(f"    AP Tx Power: {ap.power_dBm:.1f} dBm")
-            print(f"    AP Tx Freq: {ap.freq/1e9:.1f} GHz (λ = {3e8/(ap.freq):.4f} m)")
-            print(f"    AP Antenna Gain: 3.0 dBi")
-            print(f"    UE Antenna Gain: 3.0 dBi")
-            print(f"    RIS Array: {ris.N}×{ris.N} = {ris.N**2} elements")
-            print(f"    RIS Bits: {ris.bits}-bit phase shifters ({2**ris.bits} states: 0°, 180°)")
-            print(f"    RIS Freq: {ris.freq/1e9:.1f} GHz")
-            print(f"    System BW: 100 MHz")
-            print(f"    Receiver NF: 6 dB")
-
-            print(f"\n  Path Loss & Distances:")
-            print(f"    AP to RIS: {d_ap_ris:.2f} m")
-            print(f"    RIS to UE: {d_ris_ue:.2f} m")
-            print(f"    Total: {d_total:.2f} m")
-
-            # Path loss calculations
-            from core.physics import Physics
-            pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
-            pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
-            print(f"    PL (AP→RIS): {pl_ap_ris:.1f} dB")
-            print(f"    PL (RIS→UE): {pl_ris_ue:.1f} dB")
-
-            # RIS Gain and Effects
-            ris_gain = result.get('gain_linear', 1.0)
-            ris_gain_dB = 10 * np.log10(ris_gain) if ris_gain > 0 else 0
-            quant_loss_dB = Physics.quantization_loss_dB(ris.bits, model='standard')
-            print(f"\n  RIS Effects:")
-            print(f"    RIS Gain: {ris_gain_dB:.1f} dB (linear: {ris_gain:.1f}x)")
-            print(f"    Quantization Loss: {abs(quant_loss_dB):.4f} dB (subtracted)")
-
-            # Display RIS phase element configuration
-            print(f"\n  RIS Phase Element Configuration:")
-            if ris.current_phases is not None:
-                ideal_deg = np.degrees(ris.current_phases)
-                quantized_deg = np.degrees(ris.quantized_phases)
-                error_deg = ideal_deg - quantized_deg
-
-                print(f"    Ideal Phases:")
-                print(f"      Min: {np.min(ideal_deg):7.2f}°, Max: {np.max(ideal_deg):7.2f}°, Mean: {np.mean(ideal_deg):7.2f}°")
-                print(f"    Quantized Phases (2-bit):")
-                print(f"      Min: {np.min(quantized_deg):7.2f}°, Max: {np.max(quantized_deg):7.2f}°, Mean: {np.mean(quantized_deg):7.2f}°")
-                print(f"    Quantization Error (ideal - quantized):")
-                print(f"      Max: {np.max(np.abs(error_deg)):7.2f}°, RMS: {np.sqrt(np.mean(error_deg**2)):7.2f}°")
-
-                # Show phase states grid
-                phases_grid = quantized_deg.reshape(ris.N, ris.N)
-
-                if ris.bits == 1:
-                    print(f"\n    Phase States ({ris.N}×{ris.N}) - 1-bit: 0=0°, 1=180°:")
-                    print("          ", end="")
-                    for j in range(ris.N):
-                        print(f"[C{j:2d}] ", end="")
-                    print()
-                    for i in range(ris.N):
-                        print(f"      [R{i:2d}] ", end="")
-                        for j in range(ris.N):
-                            state = int(phases_grid[i,j] / 180.0) % 2
-                            print(f"  {state}   ", end="")
-                        print()
-                else:
-                    # For multi-bit, show degrees
-                    print(f"\n    Full Phase Grid ({ris.N}×{ris.N}, degrees):")
-                    print("        ", end="")
-                    for j in range(ris.N):
-                        print(f"[C{j:2d}] ", end="")
-                    print()
-                    for i in range(ris.N):
-                        print(f"      [R{i:2d}]", end="")
-                        for j in range(ris.N):
-                            print(f"{phases_grid[i,j]:6.1f}°", end="")
-                        print()
-
-            # Calculate SNR with all gains included
-            ap_ant_gain = 3.0  # dBi
-            ue_ant_gain = 3.0  # dBi
-            total_ant_gain = ap_ant_gain + ue_ant_gain
-            bw_hz = 100e6
-            nf_db = 6
-            noise_floor = -174 + nf_db + 10 * np.log10(bw_hz)
-
-            # Rx Power includes antenna gains
-            pwr_base = result.get('pwr_dBm', -65.2)
-            pwr_with_ant = pwr_base + total_ant_gain
-            snr_calc = pwr_with_ant - noise_floor
-
-            print(f"\n  SNR Calculation (corrected):")
-            print(f"    Thermal Noise Floor: {noise_floor:.1f} dBm")
-            print(f"    Rx Power (with AP & UE gains): {pwr_with_ant:.2f} dBm")
-            print(f"    SNR (Pr - N): {snr_calc:.2f} dB")
-            print(f"    (AP/UE gains included: {ap_ant_gain:.1f} dBi each)")
-
-            # Print Results
-            print(f"\n  Results:")
-            snr = result.get('snr_dB', snr_calc)
-            if isinstance(snr, (int, float)):
-                # Use calculated SNR with antenna gains
-                snr_final = snr_calc
-                if snr_final > 20:
-                    quality = "Excellent"
-                elif snr_final > 10:
-                    quality = "Good"
-                elif snr_final > 0:
-                    quality = "Fair"
-                else:
-                    quality = "Poor"
-                print(f"    SNR: {snr_final:.1f} dB ({quality})")
-            else:
-                print(f"    SNR: {snr}")
-
-            # Print Beam Angle
-            beam = result.get('beam_angle', 'N/A')
-            if isinstance(beam, (int, float)):
-                print(f"    Beam Angle: {beam:.1f}°")
-            else:
-                print(f"    Beam Angle: {beam}")
-
-            # Test quantization models (NEW)
-            print("\n[4/5] Testing improved quantization models...")
-
-            # 1-bit model (used in testall)
-            loss_1bit = Physics.quantization_loss_dB(1, model='standard')
-            print(f"  ✓ Standard quantization loss (1-bit): {loss_1bit:.4f} dB")
-
-            # 2-bit model (for comparison)
-            loss_2bit_standard = Physics.quantization_loss_dB(2, model='standard')
-            print(f"  ✓ Standard quantization loss (2-bit): {loss_2bit_standard:.4f} dB")
-
-            # Legacy model (for comparison)
-            loss_2bit_legacy = Physics.quantization_loss_dB(2, model='legacy')
-            print(f"  ✓ Legacy quantization loss (2-bit):   {loss_2bit_legacy:.4f} dB")
-            print(f"  ✓ 1-bit vs 2-bit difference: {abs(loss_1bit - loss_2bit_standard):.4f} dB")
-
-            # Per-element error (RMS magnitude)
-            error_rad = Physics.phase_error_per_element(0, 256, 1, seed=42)
-            error_deg_rms = np.degrees(np.abs(error_rad))
-            print(f"  ✓ RMS per-element phase error: {error_deg_rms:.2f}°")
-
-            # State-dependent loss
-            loss_state0 = Physics.quantization_loss_with_state(1, 0.0)
-            loss_state1 = Physics.quantization_loss_with_state(1, 0.5)
-            print(f"  ✓ State-dependent loss variation (1-bit): {abs(loss_state0 - loss_state1):.4f} dB")
-
-        except Exception as e:
-            print(f"\n  ✗ Test failed: {e}")
-            import traceback
-            traceback.print_exc()
-
-        # Test beam sweeping
-        print("\n[5/5] Testing beam sweep algorithm...")
-        try:
-            sweep_result = self.net.sweep('AP1', 'R1', 'UE1', fov=60, step=10)
-            print(f"  ✓ Coarse sweep: {len(sweep_result['local_coarse'])} angles tested")
-            print(f"  ✓ Fine sweep: {len(sweep_result['local_fine'])} angles tested")
-            print(f"  ✓ Best SNR: {sweep_result['best_snr_fine']:.2f} dB")
-            print(f"  ✓ Best angle: {sweep_result['best_local_fine']:.2f}°")
-        except Exception as e:
-            print(f"  ✗ Beam sweep failed: {e}")
-
-        # Test adaptive center-out beam sweeping
-        print("\n[6/6] Testing adaptive center-out beam sweep...")
-        try:
-            from controller.beamsweeping import adaptive_center_out_beam_sweep, compute_snr
-
-            ap = self.net.get('AP1')
-            ris = self.net.get('R1')
-            ue = self.net.get('UE1')
-
-            print(f"  Setting up adaptive sweep...")
-            print(f"    RIS position: [{ris.pos[0]:.1f}, {ris.pos[1]:.1f}, {ris.pos[2]:.1f}]")
-            print(f"    Target position: [{ue.pos[0]:.1f}, {ue.pos[1]:.1f}, {ue.pos[2]:.1f}]")
-            print(f"    AP position: [{ap.pos[0]:.1f}, {ap.pos[1]:.1f}, {ap.pos[2]:.1f}]")
-
-            # Run adaptive sweep
-            adaptive_result = adaptive_center_out_beam_sweep(
-                ris_position=ris.pos,
-                target_position=ue.pos,
-                ap_position=ap.pos,
-                max_angle=60.0,
-                coarse_step=10.0,
-                fine_step=1.0,
-                compute_snr_fn=compute_snr,
-                is_ris_node=True,
-                verbose=True
-            )
-
-            print(f"\n  ✓ Adaptive sweep complete!")
-            print(f"    Best deflection angle: {adaptive_result['angle']:.2f}°")
-            print(f"    Absolute beam angle: {adaptive_result['absoluteAngle']:.2f}°")
-            print(f"    Peak SNR: {adaptive_result['SNR_dB']:.2f} dB (linear: {adaptive_result['SNR']:.2f})")
-            print(f"    Total measurements: {adaptive_result['numMeasurements']}")
-            print(f"    Efficiency: {adaptive_result['efficiency']*100:.1f}% (vs exhaustive)")
-            print(f"    Specular angle: {adaptive_result['specularAngle']:.2f}°")
-
-            # Efficiency comparison
-            coarse_exhaustive = int(2 * 60 / 10) + 1  # 13 beams
-            fine_exhaustive = int(2 * 5 / 1) + 1       # 11 beams
-            total_exhaustive = coarse_exhaustive + fine_exhaustive
-            savings = ((total_exhaustive - adaptive_result['numMeasurements']) / total_exhaustive) * 100
-
-            print(f"\n    Efficiency Analysis:")
-            print(f"      Exhaustive search would need: {total_exhaustive} measurements")
-            print(f"      Adaptive search used: {adaptive_result['numMeasurements']} measurements")
-            print(f"      Savings: {savings:.1f}%")
-
-        except Exception as e:
-            print(f"  ✗ Adaptive beam sweep failed: {e}")
-            import traceback
-            traceback.print_exc()
-
-        print("\n✓ All tests completed successfully!")
+        suite_results = run_testall(self.net)
+        print(suite_results.format_text())
 
 
 # =====================================================================

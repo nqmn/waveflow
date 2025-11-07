@@ -4,6 +4,10 @@ Example 5: Context Manager Usage
 Demonstrates automatic start/stop with context manager.
 """
 
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
 from risnet import RISnet
 
 
