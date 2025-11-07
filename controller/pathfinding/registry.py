@@ -18,17 +18,23 @@ class AlgorithmRegistry:
         self._discover_algorithms()
 
     def _discover_algorithms(self):
-        """Auto-discover algorithm classes in the algorithms package"""
-        import algorithms
+        """Auto-discover algorithm classes in the pathfinding package"""
+        from . import base as pathfinding_module
+        import os
 
-        # Iterate through all modules in algorithms package
-        for importer, modname, ispkg in pkgutil.iter_modules(algorithms.__path__):
-            if modname in ['base', 'registry', '__init__', 'beamforming', 'pathfinding']:
+        # Get the directory of this module
+        current_dir = os.path.dirname(__file__)
+
+        # List of algorithm modules to discover
+        algorithm_modules = ['dijkstra', 'astar', 'greedy', 'exhaustive']
+
+        for modname in algorithm_modules:
+            if modname in ['base', 'registry', '__init__', 'engine']:
                 continue  # Skip non-algorithm modules
 
             try:
                 # Import module
-                module = importlib.import_module(f'algorithms.{modname}')
+                module = importlib.import_module(f'controller.pathfinding.{modname}')
 
                 # Find PathfindingAlgorithm subclasses
                 for attr_name in dir(module):
@@ -43,7 +49,7 @@ class AlgorithmRegistry:
                         self.register(attr)
 
             except Exception as e:
-                print(f"Warning: Could not load algorithm from {modname}: {e}")
+                pass  # Silently skip modules that can't be loaded
 
     def register(self, algorithm_class: Type[PathfindingAlgorithm]):
         """Register an algorithm class

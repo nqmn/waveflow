@@ -4,8 +4,8 @@ RIS Controller - Central orchestration for pathfinding and optimization
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import time
-from algorithms import get_algorithm, list_algorithms
-from algorithms.beamforming import BeamformingEngine
+from .pathfinding import get_algorithm, list_algorithms
+from .beamforming import BeamformingEngine
 from core.physics import Physics
 
 

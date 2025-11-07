@@ -22,8 +22,7 @@ import pprint
 
 # Import core modules
 from core import RISNetwork, AccessPoint, RIS, UE, Environment, Physics
-from algorithms import PathfindingEngine, BeamformingEngine
-from controller import RISController
+from controller import PathfindingEngine, BeamformingEngine, RISController
 from config import Config
 
 # Flask imports
@@ -152,39 +151,58 @@ INDEX_HTML = r"""
           </div>
         </div>
 
-        <!-- Add Node Panel -->
+        <!-- Add Node Panel - Icon Drag & Drop -->
         <div class="bg-white rounded-lg shadow-lg p-4 mb-4">
-          <h3 class="font-bold text-gray-800 mb-3">Add Node</h3>
-          <div class="space-y-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">Type</label>
-              <select id="add_type" class="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm">
-                <option value="ap">Access Point (AP)</option>
-                <option value="ris">RIS Surface</option>
-                <option value="ue">User Equipment (UE)</option>
-              </select>
+          <h3 class="font-bold text-gray-800 mb-3">Add Nodes</h3>
+          <p class="text-xs text-gray-600 mb-3">Drag icons to canvas or click to add:</p>
+          <div class="flex gap-3 justify-around mb-4 p-3 bg-gray-50 rounded-lg">
+            <!-- AP Icon -->
+            <div draggable="true" ondragstart="dragStart(event, 'ap')" class="cursor-move p-3 bg-blue-100 rounded-lg hover:bg-blue-200 transition text-center" title="Drag to add Access Point">
+              <div class="text-3xl">📡</div>
+              <div class="text-xs font-medium text-gray-700 mt-1">AP</div>
             </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">Name</label>
-              <input id="add_name" placeholder="e.g., ap1, ris1, ue1" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/>
+            <!-- RIS Icon -->
+            <div draggable="true" ondragstart="dragStart(event, 'ris')" class="cursor-move p-3 bg-purple-100 rounded-lg hover:bg-purple-200 transition text-center" title="Drag to add RIS">
+              <div class="text-3xl">🔷</div>
+              <div class="text-xs font-medium text-gray-700 mt-1">RIS</div>
             </div>
-            <div class="grid grid-cols-2 gap-2">
+            <!-- UE Icon -->
+            <div draggable="true" ondragstart="dragStart(event, 'ue')" class="cursor-move p-3 bg-green-100 rounded-lg hover:bg-green-200 transition text-center" title="Drag to add User Equipment">
+              <div class="text-3xl">📱</div>
+              <div class="text-xs font-medium text-gray-700 mt-1">UE</div>
+            </div>
+          </div>
+
+          <!-- Quick Add Panel -->
+          <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+            <div class="text-xs font-medium text-gray-700 mb-2">Quick Add:</div>
+            <div class="space-y-2">
               <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">X (m)</label>
-                <input id="add_x" type="number" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/>
+                <label class="text-xs text-gray-600">Name (auto: ap1, ris1, ue1...)</label>
+                <input id="quick_add_name" placeholder="Leave blank for auto" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
               </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700 mb-1">Y (m)</label>
-                <input id="add_y" type="number" placeholder="0" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="text-xs text-gray-600">X (m)</label>
+                  <input id="quick_add_x" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+                </div>
+                <div>
+                  <label class="text-xs text-gray-600">Y (m)</label>
+                  <input id="quick_add_y" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-2">
+                <button type="button" onclick="quickAddNode('ap')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium py-1 px-2 rounded">
+                  + AP
+                </button>
+                <button type="button" onclick="quickAddNode('ris')" class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-2 rounded">
+                  + RIS
+                </button>
+                <button type="button" onclick="quickAddNode('ue')" class="text-sm bg-green-600 hover:bg-green-700 text-white font-medium py-1 px-2 rounded">
+                  + UE
+                </button>
               </div>
             </div>
-            <div id="ris-params" style="display:none;">
-              <label class="block text-xs font-medium text-gray-700 mb-1">RIS: Grid Size (N), Bits</label>
-              <input id="add_ris_params" placeholder="16,2" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"/>
-            </div>
-            <button onclick="addNode()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg">
-              Add Node
-            </button>
           </div>
         </div>
 
@@ -253,7 +271,12 @@ INDEX_HTML = r"""
               <span class="text-xs text-gray-500">px/m</span>
             </div>
           </div>
-          <div id="canvas" class="border border-gray-300 rounded bg-gray-50" style="width: 100%; height: 500px;"></div>
+          <div id="canvas" class="border-2 border-dashed border-gray-300 rounded bg-gray-50 hover:bg-gray-100 transition" style="width: 100%; height: 500px; cursor: grab; position: relative;" title="Drag nodes here to add them">
+            <svg id="canvas-svg" style="width: 100%; height: 100%;"></svg>
+            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #999; font-size: 14px; pointer-events: none;">
+              Drag node icons here or use Quick Add
+            </div>
+          </div>
         </div>
 
         <!-- Paths Panel -->
@@ -443,6 +466,131 @@ async function addNode(){
   }
   await api('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   await refresh();
+}
+
+// Auto-naming counters
+let nodeCounters = { ap: 0, ris: 0, ue: 0 };
+
+function getAutoNodeName(type){
+  nodeCounters[type]++;
+  return `${type}${nodeCounters[type]}`;
+}
+
+async function quickAddNode(type){
+  let name = document.getElementById('quick_add_name').value.trim();
+  if(!name) {
+    name = getAutoNodeName(type);
+  }
+  const x = parseFloat(document.getElementById('quick_add_x').value) || 0;
+  const y = parseFloat(document.getElementById('quick_add_y').value) || 0;
+
+  let body = {type, name, x, y};
+  if(type == 'ris'){
+    body.N = 8;
+    body.bits = 2;
+  }
+
+  try {
+    await api('/api/add', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    console.log(`Node ${name} added successfully`);
+    document.getElementById('quick_add_name').value = '';
+    await refresh();
+  } catch(err) {
+    console.error('Error adding node:', err);
+    alert('Error adding node: ' + err.message);
+  }
+}
+
+let draggedType = null;
+
+function dragStart(event, type){
+  draggedType = type;
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData('text/plain', type);
+  console.log('Dragging:', type);
+}
+
+// Initialize canvas drop handlers after DOM is ready
+function initializeCanvasDragDrop(){
+  const canvas = document.getElementById('canvas');
+
+  if(!canvas){
+    console.error('Canvas element not found!');
+    return;
+  }
+
+  canvas.ondragover = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    canvas.style.backgroundColor = '#e0e7ff';
+    canvas.style.borderColor = '#6366f1';
+    return false;
+  };
+
+  canvas.ondragleave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.style.backgroundColor = '';
+    canvas.style.borderColor = '';
+  };
+
+  canvas.ondrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    canvas.style.backgroundColor = '';
+    canvas.style.borderColor = '';
+
+    if(!draggedType) {
+      console.log('No drag type set');
+      return;
+    }
+
+    console.log('Dropping:', draggedType);
+
+    // Get canvas position relative to viewport
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / scale;
+    const y = (e.clientY - rect.top) / scale;
+
+    console.log(`Adding ${draggedType} at (${x.toFixed(2)}, ${y.toFixed(2)})`);
+
+    let name = getAutoNodeName(draggedType);
+    let body = {type: draggedType, name, x, y};
+    if(draggedType == 'ris'){
+      body.N = 8;
+      body.bits = 2;
+    }
+
+    try {
+      await api('/api/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      console.log('Node added successfully');
+      await refresh();
+    } catch(err) {
+      console.error('Error adding node:', err);
+      alert('Error adding node: ' + err.message);
+    }
+
+    draggedType = null;
+    return false;
+  };
+
+  console.log('Canvas drag-drop handlers initialized');
+}
+
+// Initialize when page loads
+window.addEventListener('load', initializeCanvasDragDrop);
+// Also try immediate initialization in case DOM is already ready
+if(document.readyState === 'interactive' || document.readyState === 'complete'){
+  initializeCanvasDragDrop();
 }
 
 async function connect(){
@@ -1750,6 +1898,140 @@ Examples:
             print(f"✓ Connected to {ap_name}")
             print(f"  SNR: 15.5 dB")
             print(f"  Data Rate: 150 Mbps")
+
+    def do_waveform_snr(self, arg):
+        """waveform_snr <ap> <ris> <ue> [num_symbols]
+        Compute SNR at waveform level (OFDM-based)
+
+        Usage:
+            waveform_snr ap1 ris1 ue1          # Use default 10 symbols
+            waveform_snr ap1 ris1 ue1 20       # Use 20 symbols
+        """
+        try:
+            args = shlex.split(arg)
+            if len(args) < 3:
+                print("Usage: waveform_snr <ap> <ris> <ue> [num_symbols]")
+                return
+
+            ap_name, ris_name, ue_name = args[0], args[1], args[2]
+            num_symbols = int(args[3]) if len(args) > 3 else 10
+
+            from controller.waveform_controller import WaveformController
+            waveform_ctrl = WaveformController(self.net, self.net.environment)
+            result = waveform_ctrl.compute_waveform_snr(ap_name, ris_name, ue_name, num_symbols)
+
+            print(f"\n✓ Waveform-Level SNR Results ({ap_name} → {ris_name} → {ue_name}):")
+            print(f"  RIS SNR (ideal): {result['snr_ris_dB']:.2f} dB")
+            print(f"  Effective SNR: {result['snr_effective_dB']:.2f} dB")
+            print(f"  Quantization penalty: {result['snr_ris_dB'] - result['snr_effective_dB']:.2f} dB")
+            print(f"  Capacity: {result['capacity_bps']/1e6:.2f} Mbps")
+            print(f"  PAPR: {result['papr_dB']:.2f} dB")
+            print(f"  Quantization error RMS: {result['quantization_error_rms_deg']:.2f}°")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    def do_waveform_compare(self, arg):
+        """waveform_compare <ap> <ris> <ue>
+        Compare system-level vs waveform-level SNR
+
+        Usage:
+            waveform_compare ap1 ris1 ue1
+        """
+        try:
+            args = shlex.split(arg)
+            if len(args) < 3:
+                print("Usage: waveform_compare <ap> <ris> <ue>")
+                return
+
+            ap_name, ris_name, ue_name = args[0], args[1], args[2]
+
+            from controller.waveform_controller import WaveformController
+            waveform_ctrl = WaveformController(self.net, self.net.environment)
+            result = waveform_ctrl.compare_system_vs_waveform(ap_name, ris_name, ue_name)
+
+            print(f"\n✓ System vs Waveform Comparison ({ap_name} → {ris_name} → {ue_name}):")
+            print(f"  System-level SNR: {result['system_level']['snr_dB']:.2f} dB")
+            print(f"  Waveform-level SNR (ideal): {result['waveform_level']['snr_dB']:.2f} dB")
+            print(f"  Effective SNR: {result['waveform_level']['snr_effective_dB']:.2f} dB")
+            print(f"  SNR difference (waveform - system): {result['difference']['snr_diff_dB']:+.2f} dB")
+            print(f"  Waveform penalty: {result['difference']['waveform_penalty_dB']:.2f} dB")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    def do_waveform_beam_sweep(self, arg):
+        """waveform_beam_sweep <ap> <ris> <ue> [angle_range] [angle_step]
+        Perform beam sweep at waveform level with SNR evaluation per angle
+
+        Usage:
+            waveform_beam_sweep ap1 ris1 ue1           # Default: ±60° with 5° steps
+            waveform_beam_sweep ap1 ris1 ue1 30 10     # ±30° with 10° steps
+        """
+        try:
+            args = shlex.split(arg)
+            if len(args) < 3:
+                print("Usage: waveform_beam_sweep <ap> <ris> <ue> [angle_range] [angle_step]")
+                return
+
+            ap_name, ris_name, ue_name = args[0], args[1], args[2]
+            angle_range = float(args[3]) if len(args) > 3 else 60.0
+            angle_step = float(args[4]) if len(args) > 4 else 5.0
+
+            from controller.waveform_controller import WaveformController
+            waveform_ctrl = WaveformController(self.net, self.net.environment)
+            result = waveform_ctrl.compute_beam_sweep_waveform(ap_name, ris_name, ue_name,
+                                                              angle_range, angle_step)
+
+            print(f"\n✓ Waveform-Level Beam Sweep ({ap_name} → {ris_name} → {ue_name}):")
+            print(f"  Angle Range: ±{angle_range}°, Step: {angle_step}°")
+            print(f"\n  {'Angle':>8} | {'SNR':>8}")
+            print(f"  {'-'*8}+{'-'*8}")
+            for angle, snr in zip(result['angles'], result['snr_values']):
+                marker = " <-- BEST" if abs(angle - result['best_angle']) < 0.1 else ""
+                print(f"  {angle:>6.1f}° | {snr:>7.2f} dB{marker}")
+            print(f"\n  Best angle: {result['best_angle']:.1f}°")
+            print(f"  Best SNR: {result['best_snr_dB']:.2f} dB")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    def do_waveform_validate(self, arg):
+        """waveform_validate
+        Validate network topology and physics
+        """
+        try:
+            from core.validation import WaveformValidator
+            validator = WaveformValidator(self.net)
+
+            # Topology validation
+            topo_result = validator.validate_topology()
+            print(f"\n✓ Topology Validation:")
+            print(f"  Valid: {topo_result['valid']}")
+            print(f"  APs: {topo_result['num_aps']}, RIS: {topo_result['num_ris']}, UEs: {topo_result['num_ues']}")
+
+            # If we have all node types, validate physics
+            if topo_result['num_aps'] > 0 and topo_result['num_ris'] > 0 and topo_result['num_ues'] > 0:
+                # Get first AP, RIS, UE from nodes
+                ap_name = None
+                ris_name = None
+                ue_name = None
+
+                for name, node in self.net.nodes.items():
+                    if ap_name is None and node.__class__.__name__ == 'AccessPoint':
+                        ap_name = name
+                    elif ris_name is None and node.__class__.__name__ == 'RIS':
+                        ris_name = name
+                    elif ue_name is None and node.__class__.__name__ == 'UE':
+                        ue_name = name
+
+                if ap_name and ris_name and ue_name:
+                    physics_result = validator.validate_basic_physics(ap_name, ris_name, ue_name)
+                    print(f"\n✓ Physics Validation ({ap_name} → {ris_name} → {ue_name}):")
+                    print(f"  Valid: {physics_result['physics_valid']}")
+                    print(f"  Path loss monotonic: {physics_result['checks'].get('path_loss_monotonic', 'N/A')}")
+                    if 'distances' in physics_result:
+                        d = physics_result['distances']
+                        print(f"  Distances: AP→RIS={d['ap_to_ris_m']:.2f}m, RIS→UE={d['ris_to_ue_m']:.2f}m")
+        except Exception as e:
+            print(f"Error: {e}")
 
     def do_quit(self, arg):
         """quit"""
