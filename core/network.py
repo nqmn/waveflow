@@ -66,7 +66,7 @@ class RISNetwork:
             del self.nodes[name]
 
     # Basic connectivity (legacy method, kept for compatibility)
-    def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None):
+    def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True):
         """Compute cascaded AP->RIS->UE link
 
         Args:
@@ -74,6 +74,7 @@ class RISNetwork:
             ris_name: RIS node name
             ue_name: UE node name
             beam_angle_deg: Beam steering angle (None for auto)
+            compute_phases: Whether to compute and quantize RIS phases
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_linear, beam_angle
@@ -89,6 +90,11 @@ class RISNetwork:
         if beam_angle_deg is None:
             vec_tgt = ue.pos - ris.pos
             beam_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
+
+        # Compute RIS phase configuration
+        if compute_phases:
+            ris.compute_phases(ap.pos, ue.pos)
+            ris.quantize_phases()
 
         # Calculate link SNR using physics models
         # AP -> RIS

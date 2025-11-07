@@ -67,8 +67,10 @@ class RIS(Node):
         self.noise_floor = -90  # Noise floor in dBm
 
         # Current configuration
-        self.current_phases = None
+        self.current_phases = None  # Ideal phases (radians)
+        self.quantized_phases = None  # Quantized phases (radians)
         self.current_beam_angle = None
+        self.phase_states = None  # Integer states (0 to 2^bits - 1)
 
         self.update_geometry()
 
@@ -101,6 +103,84 @@ class RIS(Node):
         self.current_beam_angle = beam_angle
         if phases is not None:
             self.current_phases = phases
+
+    def compute_phases(self, ap_pos, ue_pos):
+        """Compute ideal RIS phases for AP->RIS->UE beamforming
+
+        Args:
+            ap_pos: Access Point position (3D array)
+            ue_pos: User Equipment position (3D array)
+
+        Returns:
+            phase_array: Ideal phases in radians (N×N grid, flattened)
+        """
+        from .physics import Physics
+
+        wavelength = C / self.freq
+
+        # Compute ideal phases using wavefront matching
+        phases = Physics.compute_ris_phases(ue_pos, self.element_positions, ap_pos, wavelength)
+
+        # Store ideal phases
+        self.current_phases = phases
+
+        return phases
+
+    def quantize_phases(self):
+        """Quantize current ideal phases to discrete levels based on bits
+
+        Returns:
+            (quantized_phases, phase_states): Quantized phases and their integer states
+        """
+        from .physics import Physics
+
+        if self.current_phases is None:
+            return None, None
+
+        num_levels = 2 ** self.bits if self.bits > 0 else 1
+
+        # Quantize each phase
+        quantized = np.zeros_like(self.current_phases)
+        states = np.zeros(len(self.current_phases), dtype=int)
+
+        for i, phase in enumerate(self.current_phases):
+            quantized[i] = Physics.quantize_phase_to_bits(phase, self.bits)
+            # Convert to state index
+            if self.bits > 0:
+                phase_step = 2 * np.pi / num_levels
+                state_idx = int(np.round(quantized[i] / phase_step)) % num_levels
+                states[i] = state_idx
+
+        self.quantized_phases = quantized
+        self.phase_states = states
+
+        return quantized, states
+
+    def get_phase_grid(self):
+        """Get phases formatted as N×N grid for visualization
+
+        Returns:
+            Dict with ideal and quantized phase grids (in degrees)
+        """
+        if self.current_phases is None:
+            return None
+
+        ideal_deg = np.degrees(self.current_phases).reshape(self.N, self.N)
+
+        result = {
+            'ideal_deg': ideal_deg.tolist(),
+            'quantized_deg': None,
+            'phase_states': None
+        }
+
+        if self.quantized_phases is not None:
+            quantized_deg = np.degrees(self.quantized_phases).reshape(self.N, self.N)
+            result['quantized_deg'] = quantized_deg.tolist()
+
+        if self.phase_states is not None:
+            result['phase_states'] = self.phase_states.reshape(self.N, self.N).tolist()
+
+        return result
 
     def to_dict(self):
         d = super().to_dict()

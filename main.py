@@ -262,6 +262,34 @@ INDEX_HTML = r"""
           <div id="paths-list" class="text-sm"></div>
         </div>
 
+        <!-- RIS Phase Visualization Panel -->
+        <div class="bg-white rounded-lg shadow-lg p-4 mb-4">
+          <h3 class="font-bold text-gray-800 mb-3">RIS Phase Elements</h3>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Select RIS</label>
+              <select id="phase-ris-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                <option value="">Choose a RIS...</option>
+              </select>
+            </div>
+            <button onclick="loadPhases()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg">
+              Load Phase Grid
+            </button>
+            <div id="phase-stats" class="text-xs bg-gray-50 p-3 rounded hidden">
+              <div class="grid grid-cols-2 gap-2">
+                <div><span class="text-gray-600">Grid Size:</span> <span id="stat-grid" class="font-bold">--</span></div>
+                <div><span class="text-gray-600">Bits:</span> <span id="stat-bits" class="font-bold">--</span></div>
+                <div><span class="text-gray-600">States:</span> <span id="stat-states" class="font-bold">--</span></div>
+                <div><span class="text-gray-600">Total Elements:</span> <span id="stat-elements" class="font-bold">--</span></div>
+              </div>
+            </div>
+            <div id="phase-grid-container" class="bg-gray-50 p-3 rounded overflow-x-auto hidden">
+              <div class="text-xs font-medium text-gray-700 mb-2">Quantized Phases (degrees)</div>
+              <canvas id="phase-canvas" width="300" height="300" style="border: 1px solid #ccc;"></canvas>
+            </div>
+          </div>
+        </div>
+
         <!-- Results Panel -->
         <div class="bg-white rounded-lg shadow-lg p-4">
           <h3 class="font-bold text-gray-800 mb-3">Results</h3>
@@ -292,7 +320,112 @@ function api(path, opts){
 async function refresh(){
   const data = await api('/api/nodes');
   window.nodes = data.nodes;
+  updateRISSelectOptions();
   draw();
+}
+
+async function updateRISSelectOptions(){
+  const select = document.getElementById('phase-ris-select');
+  const nodes = window.nodes || [];
+  const risNodes = nodes.filter(n => n.type === 'RIS');
+
+  // Keep current selection if valid
+  const currentVal = select.value;
+  select.innerHTML = '<option value="">Choose a RIS...</option>';
+
+  risNodes.forEach(ris => {
+    const opt = document.createElement('option');
+    opt.value = ris.name;
+    opt.textContent = ris.name;
+    select.appendChild(opt);
+  });
+
+  if(currentVal && risNodes.find(r => r.name === currentVal)){
+    select.value = currentVal;
+  }
+}
+
+async function loadPhases(){
+  const risName = document.getElementById('phase-ris-select').value;
+  if(!risName) { alert('Select a RIS first'); return; }
+
+  try {
+    const response = await fetch(`/api/ris/${risName}/phases`);
+    const data = await response.json();
+
+    if(!response.ok) {
+      alert('Error: ' + data.error);
+      return;
+    }
+
+    // Show stats
+    document.getElementById('stat-grid').textContent = data.grid_size;
+    document.getElementById('stat-bits').textContent = data.bits;
+    document.getElementById('stat-states').textContent = data.phase_states;
+    document.getElementById('stat-elements').textContent = data.total_elements;
+    document.getElementById('phase-stats').classList.remove('hidden');
+
+    // Draw phase grid
+    drawPhaseGrid(data);
+    document.getElementById('phase-grid-container').classList.remove('hidden');
+
+  } catch(e) {
+    alert('Failed to load phases: ' + e.message);
+  }
+}
+
+function drawPhaseGrid(data){
+  const canvas = document.getElementById('phase-canvas');
+  const ctx = canvas.getContext('2d');
+  const grid = data.phase_grid.quantized_deg || data.phase_grid.ideal_deg;
+  const N = data.grid_size;
+
+  if(!grid || grid.length === 0) {
+    ctx.fillStyle = '#999';
+    ctx.fillText('No phase data', 10, 20);
+    return;
+  }
+
+  const cellSize = Math.floor(canvas.width / N);
+  const maxPhase = 360;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.font = '11px monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  for(let i = 0; i < N; i++) {
+    for(let j = 0; j < N; j++) {
+      const phase = grid[i][j];
+      const hue = (phase / maxPhase) * 360;
+
+      // Draw cell with color gradient based on phase
+      ctx.fillStyle = `hsl(${hue}, 70%, 50%)`;
+      ctx.fillRect(j * cellSize, i * cellSize, cellSize, cellSize);
+
+      // Draw border
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 0.5;
+      ctx.strokeRect(j * cellSize, i * cellSize, cellSize, cellSize);
+
+      // Draw phase value text (only for larger grids where readable)
+      if(N <= 8) {
+        ctx.fillStyle = '#000';
+        ctx.fillText(Math.round(phase), j * cellSize + cellSize/2, i * cellSize + cellSize/2);
+      }
+    }
+  }
+
+  // Draw legend
+  const legendY = canvas.height + 15;
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'left';
+  ctx.font = '10px monospace';
+  ctx.fillText('0°', canvas.width * 0 / 6, legendY);
+  ctx.fillText('90°', canvas.width * 1.5 / 6, legendY);
+  ctx.fillText('180°', canvas.width * 3 / 6, legendY);
+  ctx.fillText('270°', canvas.width * 4.5 / 6, legendY);
+  ctx.fillText('360°', canvas.width * 6 / 6 - 15, legendY);
 }
 
 async function addNode(){
@@ -665,6 +798,69 @@ def api_config():
             _config.set(key, value)
         return jsonify({'ok': True})
 
+@app.route('/api/ris/<ris_name>/phases')
+def api_ris_phases(ris_name):
+    """Get RIS phase element values for a specific RIS"""
+    ris = _net.get(ris_name)
+    if not ris:
+        return jsonify({'error': f'RIS {ris_name} not found'}), 404
+    if not hasattr(ris, 'get_phase_grid'):
+        return jsonify({'error': f'{ris_name} is not a RIS node'}), 400
+
+    phase_grid = ris.get_phase_grid()
+    if phase_grid is None:
+        return jsonify({'error': 'No phase configuration computed yet. Run connect() first.'}), 400
+
+    return jsonify({
+        'ris_name': ris_name,
+        'grid_size': ris.N,
+        'total_elements': ris.N * ris.N,
+        'bits': ris.bits,
+        'phase_states': 2 ** ris.bits,
+        'phase_grid': phase_grid
+    })
+
+@app.route('/api/ris/<ris_name>/phases/summary')
+def api_ris_phases_summary(ris_name):
+    """Get summary statistics of RIS phase configuration"""
+    ris = _net.get(ris_name)
+    if not ris:
+        return jsonify({'error': f'RIS {ris_name} not found'}), 404
+    if not hasattr(ris, 'current_phases') or ris.current_phases is None:
+        return jsonify({'error': 'No phase configuration computed yet. Run connect() first.'}), 400
+
+    import numpy as np
+
+    ideal_deg = np.degrees(ris.current_phases)
+    stats = {
+        'ris_name': ris_name,
+        'grid_size': ris.N,
+        'bits': ris.bits,
+        'ideal_phases': {
+            'min_deg': float(np.min(ideal_deg)),
+            'max_deg': float(np.max(ideal_deg)),
+            'mean_deg': float(np.mean(ideal_deg)),
+            'std_deg': float(np.std(ideal_deg))
+        }
+    }
+
+    if ris.quantized_phases is not None:
+        quantized_deg = np.degrees(ris.quantized_phases)
+        quant_error_deg = ideal_deg - quantized_deg
+        stats['quantized_phases'] = {
+            'min_deg': float(np.min(quantized_deg)),
+            'max_deg': float(np.max(quantized_deg)),
+            'mean_deg': float(np.mean(quantized_deg)),
+            'std_deg': float(np.std(quantized_deg))
+        }
+        stats['quantization_error'] = {
+            'max_error_deg': float(np.max(np.abs(quant_error_deg))),
+            'mean_error_deg': float(np.mean(np.abs(quant_error_deg))),
+            'rms_error_deg': float(np.sqrt(np.mean(quant_error_deg ** 2)))
+        }
+
+    return jsonify(stats)
+
 # =====================================================================
 # CLI Interface
 # =====================================================================
@@ -933,7 +1129,7 @@ class RISNetCLI(cmd.Cmd):
         print(f"RIS Node Shell: {ris_node.name}")
         print(f"{'='*60}")
         self._print_ris_status(ris_node)
-        print("\nAvailable commands: help, status, config, info, exit")
+        print("\nAvailable commands: help, status, config, info, phases, exit")
         print("Type 'help' for more information\n")
 
         while True:
@@ -973,6 +1169,8 @@ class RISNetCLI(cmd.Cmd):
             self._print_ris_config(ris_node, args)
         elif cmd == 'phase':
             self._ris_phase_command(ris_node, args)
+        elif cmd == 'phases':
+            self._ris_phases_display(ris_node, args)
         elif cmd == 'beam':
             self._ris_beam_command(ris_node, args)
         else:
@@ -987,6 +1185,7 @@ RIS Node Commands:
   info              - Show detailed RIS information
   config            - Show RIS configuration
   phase [angle]     - Set or get phase configuration
+  phases [format]   - Display phase element values (grid, compact, or stats)
   beam [angles]     - Set beam configuration
   exit              - Exit RIS shell (interactive mode only)
 
@@ -994,6 +1193,8 @@ Examples:
   R1 help           - Show help for RIS node R1
   R1 status         - Show status of R1
   R1 phase 45       - Set phase angle to 45 degrees
+  R1 phases grid    - Show phase grid visualization
+  R1 phases stats   - Show phase statistics
   R1                - Enter interactive shell for R1
   (in shell) status - Show status while in interactive mode
         """
@@ -1081,6 +1282,101 @@ Examples:
                 print(f"✓ Beam angles set to {angles} for {ris_node.name}")
             except ValueError:
                 print("Invalid angles. Usage: beam <angle1> <angle2> ...")
+
+    def _ris_phases_display(self, ris_node, args):
+        """Display RIS phase element values"""
+        if ris_node.current_phases is None:
+            print(f"✗ No phase configuration computed yet.")
+            print(f"  Run 'connect' command first to compute phases.")
+            return
+
+        format_type = args[0].lower() if args else 'grid'
+
+        if format_type == 'stats':
+            self._print_phase_stats(ris_node)
+        elif format_type == 'compact':
+            self._print_phase_compact(ris_node)
+        else:  # 'grid' or default
+            self._print_phase_grid(ris_node)
+
+    def _print_phase_stats(self, ris_node):
+        """Print phase statistics"""
+        import numpy as np
+        ideal_deg = np.degrees(ris_node.current_phases)
+
+        print(f"\n{ris_node.name} Phase Statistics:")
+        print(f"  Ideal Phases (degrees):")
+        print(f"    Min:  {np.min(ideal_deg):7.2f}°")
+        print(f"    Max:  {np.max(ideal_deg):7.2f}°")
+        print(f"    Mean: {np.mean(ideal_deg):7.2f}°")
+        print(f"    Std:  {np.std(ideal_deg):7.2f}°")
+
+        if ris_node.quantized_phases is not None:
+            quantized_deg = np.degrees(ris_node.quantized_phases)
+            quant_error = ideal_deg - quantized_deg
+
+            print(f"\n  Quantized Phases (degrees):")
+            print(f"    Min:  {np.min(quantized_deg):7.2f}°")
+            print(f"    Max:  {np.max(quantized_deg):7.2f}°")
+            print(f"    Mean: {np.mean(quantized_deg):7.2f}°")
+            print(f"    Std:  {np.std(quantized_deg):7.2f}°")
+
+            print(f"\n  Quantization Error (ideal - quantized):")
+            print(f"    Max Error:  {np.max(np.abs(quant_error)):7.2f}°")
+            print(f"    Mean Error: {np.mean(np.abs(quant_error)):7.2f}°")
+            print(f"    RMS Error:  {np.sqrt(np.mean(quant_error**2)):7.2f}°")
+
+    def _print_phase_compact(self, ris_node):
+        """Print phases in compact format"""
+        import numpy as np
+        phases = np.degrees(ris_node.current_phases)
+
+        print(f"\n{ris_node.name} Phases (compact, degrees):")
+        print("  [", end="")
+        for i, p in enumerate(phases):
+            if i > 0 and i % 8 == 0:
+                print("\n   ", end="")
+            print(f"{p:6.1f}°", end=" ")
+        print("]")
+
+    def _print_phase_grid(self, ris_node):
+        """Print phases as N×N grid with ASCII art"""
+        import numpy as np
+
+        if ris_node.quantized_phases is not None:
+            phases = np.degrees(ris_node.quantized_phases)
+            title = "Quantized Phases"
+        else:
+            phases = np.degrees(ris_node.current_phases)
+            title = "Ideal Phases"
+
+        phases_grid = phases.reshape(ris_node.N, ris_node.N)
+
+        print(f"\n{ris_node.name} {title} Grid ({ris_node.N}×{ris_node.N}):")
+        print(f"  Bits: {ris_node.bits}, States: {2**ris_node.bits}\n")
+
+        # Print column headers
+        print("     ", end="")
+        for j in range(ris_node.N):
+            print(f"  [Col{j:2d}] ", end="")
+        print()
+
+        # Print grid with row headers
+        for i in range(ris_node.N):
+            print(f"[R{i:2d}]", end="")
+            for j in range(ris_node.N):
+                phase = phases_grid[i][j]
+                # Color code based on phase value
+                if phase < 90:
+                    bar = "▂"
+                elif phase < 180:
+                    bar = "▄"
+                elif phase < 270:
+                    bar = "▆"
+                else:
+                    bar = "█"
+                print(f" {phase:6.1f}° {bar}", end="")
+            print()
 
     # =====================================================================
     # Access Point (AP) Commands
@@ -1346,8 +1642,8 @@ Examples:
         # Add nodes
         print("  ✓ Adding AP...")
         self.net.add_ap('ap1', 0, 0, 0)
-        print("  ✓ Adding RIS (16×16, 2-bit)...")
-        self.net.add_ris('ris1', 5, 0, 0, N=16, bits=2)
+        print("  ✓ Adding RIS (16×16, 1-bit)...")
+        self.net.add_ris('ris1', 5, 0, 0, N=16, bits=1)
         print("  ✓ Adding UE...")
         self.net.add_ue('ue1', 10, 3, 0)
 
@@ -1379,7 +1675,7 @@ Examples:
             print(f"    AP Antenna Gain: 3.0 dBi")
             print(f"    UE Antenna Gain: 3.0 dBi")
             print(f"    RIS Array: {ris.N}×{ris.N} = {ris.N**2} elements")
-            print(f"    RIS Bits: {ris.bits}-bit phase shifters")
+            print(f"    RIS Bits: {ris.bits}-bit phase shifters ({2**ris.bits} states: 0°, 180°)")
             print(f"    RIS Freq: {ris.freq/1e9:.1f} GHz")
             print(f"    System BW: 100 MHz")
             print(f"    Receiver NF: 6 dB")
@@ -1403,6 +1699,48 @@ Examples:
             print(f"\n  RIS Effects:")
             print(f"    RIS Gain: {ris_gain_dB:.1f} dB (linear: {ris_gain:.1f}x)")
             print(f"    Quantization Loss: {abs(quant_loss_dB):.4f} dB (subtracted)")
+
+            # Display RIS phase element configuration
+            print(f"\n  RIS Phase Element Configuration:")
+            if ris.current_phases is not None:
+                ideal_deg = np.degrees(ris.current_phases)
+                quantized_deg = np.degrees(ris.quantized_phases)
+                error_deg = ideal_deg - quantized_deg
+
+                print(f"    Ideal Phases:")
+                print(f"      Min: {np.min(ideal_deg):7.2f}°, Max: {np.max(ideal_deg):7.2f}°, Mean: {np.mean(ideal_deg):7.2f}°")
+                print(f"    Quantized Phases (2-bit):")
+                print(f"      Min: {np.min(quantized_deg):7.2f}°, Max: {np.max(quantized_deg):7.2f}°, Mean: {np.mean(quantized_deg):7.2f}°")
+                print(f"    Quantization Error (ideal - quantized):")
+                print(f"      Max: {np.max(np.abs(error_deg)):7.2f}°, RMS: {np.sqrt(np.mean(error_deg**2)):7.2f}°")
+
+                # Show phase states grid
+                phases_grid = quantized_deg.reshape(ris.N, ris.N)
+
+                if ris.bits == 1:
+                    print(f"\n    Phase States ({ris.N}×{ris.N}) - 1-bit: 0=0°, 1=180°:")
+                    print("          ", end="")
+                    for j in range(ris.N):
+                        print(f"[C{j:2d}] ", end="")
+                    print()
+                    for i in range(ris.N):
+                        print(f"      [R{i:2d}] ", end="")
+                        for j in range(ris.N):
+                            state = int(phases_grid[i,j] / 180.0) % 2
+                            print(f"  {state}   ", end="")
+                        print()
+                else:
+                    # For multi-bit, show degrees
+                    print(f"\n    Full Phase Grid ({ris.N}×{ris.N}, degrees):")
+                    print("        ", end="")
+                    for j in range(ris.N):
+                        print(f"[C{j:2d}] ", end="")
+                    print()
+                    for i in range(ris.N):
+                        print(f"      [R{i:2d}]", end="")
+                        for j in range(ris.N):
+                            print(f"{phases_grid[i,j]:6.1f}°", end="")
+                        print()
 
             # Calculate SNR with all gains included
             ap_ant_gain = 3.0  # dBi
@@ -1451,24 +1789,28 @@ Examples:
             # Test quantization models (NEW)
             print("\n[4/5] Testing improved quantization models...")
 
-            # Standard model
-            loss_standard = Physics.quantization_loss_dB(2, model='standard')
-            print(f"  ✓ Standard quantization loss (2-bit): {loss_standard:.4f} dB")
+            # 1-bit model (used in testall)
+            loss_1bit = Physics.quantization_loss_dB(1, model='standard')
+            print(f"  ✓ Standard quantization loss (1-bit): {loss_1bit:.4f} dB")
+
+            # 2-bit model (for comparison)
+            loss_2bit_standard = Physics.quantization_loss_dB(2, model='standard')
+            print(f"  ✓ Standard quantization loss (2-bit): {loss_2bit_standard:.4f} dB")
 
             # Legacy model (for comparison)
-            loss_legacy = Physics.quantization_loss_dB(2, model='legacy')
-            print(f"  ✓ Legacy quantization loss (2-bit):   {loss_legacy:.4f} dB")
-            print(f"  ✓ Difference: {abs(loss_standard - loss_legacy):.4f} dB")
+            loss_2bit_legacy = Physics.quantization_loss_dB(2, model='legacy')
+            print(f"  ✓ Legacy quantization loss (2-bit):   {loss_2bit_legacy:.4f} dB")
+            print(f"  ✓ 1-bit vs 2-bit difference: {abs(loss_1bit - loss_2bit_standard):.4f} dB")
 
             # Per-element error (RMS magnitude)
-            error_rad = Physics.phase_error_per_element(0, 256, 2, seed=42)
+            error_rad = Physics.phase_error_per_element(0, 256, 1, seed=42)
             error_deg_rms = np.degrees(np.abs(error_rad))
             print(f"  ✓ RMS per-element phase error: {error_deg_rms:.2f}°")
 
             # State-dependent loss
-            loss_state0 = Physics.quantization_loss_with_state(2, 0.0)
-            loss_state1 = Physics.quantization_loss_with_state(2, 0.25)
-            print(f"  ✓ State-dependent loss variation: {abs(loss_state0 - loss_state1):.4f} dB")
+            loss_state0 = Physics.quantization_loss_with_state(1, 0.0)
+            loss_state1 = Physics.quantization_loss_with_state(1, 0.5)
+            print(f"  ✓ State-dependent loss variation (1-bit): {abs(loss_state0 - loss_state1):.4f} dB")
 
         except Exception as e:
             print(f"\n  ✗ Test failed: {e}")
