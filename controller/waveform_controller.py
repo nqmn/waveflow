@@ -164,8 +164,11 @@ class WaveformController:
 
         # Effective SNR considering waveform impairments
         # Correctly compute phase error wrapped to [-π, π]
+        # Phase error in radians (wrapping to principal value)
         phase_error_raw = ris_model.current_phases - ris_model.quantized_phases
-        phase_error = np.angle(np.exp(1j * phase_error_raw))
+        phase_error = np.angle(np.exp(1j * phase_error_raw))  # Wraps to [-π, π]
+
+        # RMS phase error in degrees (with proper wrapping to [-180°, 180°])
         quant_error_rms = np.degrees(np.sqrt(np.mean(phase_error**2)))
 
         # Guard against invalid SNR values

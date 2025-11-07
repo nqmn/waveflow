@@ -3,7 +3,6 @@ Node classes for RIS network simulation
 """
 import numpy as np
 from .physics import C
-from .quantization import get_quantizer
 
 class Node:
     """Base class for all network nodes"""
@@ -45,8 +44,7 @@ class RIS(Node):
     """Reconfigurable Intelligent Surface with phase control"""
 
     def __init__(self, name, x, y, z=0.0, N=32, bits=2, spacing=None,
-                 freq=10e9, max_angle_deg=60, active_mode=False, amplifier_gain=1.0,
-                 quantizer_name='uniform'):
+                 freq=10e9, max_angle_deg=60, active_mode=False, amplifier_gain=1.0):
         super().__init__(name, x, y, z)
         self.N = int(N)  # Array size (will create N x N grid)
         self.bits = int(bits)  # Phase quantization bits
@@ -68,19 +66,14 @@ class RIS(Node):
         self.P_tx_dBm = 20  # Default transmit power
         self.noise_floor = -90  # Noise floor in dBm
 
-        # Quantization strategy
-        self.quantizer_name = quantizer_name
-        self.quantizer = get_quantizer(quantizer_name)
-        if self.quantizer is None:
-            # Fallback to uniform if requested quantizer not found
-            self.quantizer = get_quantizer('uniform')
-            self.quantizer_name = 'uniform'
-
         # Current configuration
         self.current_phases = None  # Ideal phases (radians)
         self.quantized_phases = None  # Quantized phases (radians)
         self.current_beam_angle = None
         self.phase_states = None  # Integer states (0 to 2^bits - 1)
+
+        # Phase manager (lazy-loaded on demand)
+        self._phase_manager = None
 
         self.update_geometry()
 
@@ -136,10 +129,17 @@ class RIS(Node):
 
         return phases
 
+    def _get_phase_manager(self):
+        """Lazy-load phase manager from controller module"""
+        if self._phase_manager is None:
+            from controller.ris_phase import RISPhaseManager
+            self._phase_manager = RISPhaseManager(self)
+        return self._phase_manager
+
     def quantize_phases(self):
         """Quantize current ideal phases to discrete levels based on bits
 
-        Uses the configured quantizer strategy to quantize phases.
+        Uses the controller phase quantization system.
 
         Returns:
             (quantized_phases, phase_states): Quantized phases and their integer states
@@ -147,31 +147,15 @@ class RIS(Node):
         if self.current_phases is None:
             return None, None
 
-        # Use modular quantizer
-        quantized, states = self.quantizer.quantize(self.current_phases, self.bits)
+        # Use controller phase quantization
+        phase_manager = self._get_phase_manager()
+        result = phase_manager.quantize_phases()
 
-        self.quantized_phases = quantized
-        self.phase_states = states
+        if result.get('status') == 'success':
+            # Phases already updated by quantizer
+            return self.quantized_phases, self.phase_states
 
-        return quantized, states
-
-    def set_quantizer(self, quantizer_name):
-        """Change the quantization strategy
-
-        Args:
-            quantizer_name: Name of registered quantizer
-
-        Returns:
-            True if successful, False if quantizer not found
-        """
-        quantizer = get_quantizer(quantizer_name)
-        if quantizer is None:
-            print(f"Quantizer '{quantizer_name}' not found")
-            return False
-
-        self.quantizer = quantizer
-        self.quantizer_name = quantizer_name
-        return True
+        return None, None
 
     def get_phase_grid(self):
         """Get phases formatted as N×N grid for visualization
@@ -210,7 +194,7 @@ class RIS(Node):
             'amplifier_gain': self.amplifier_gain,
             'total_elements': self.N * self.N,
             'current_beam_angle': self.current_beam_angle,
-            'quantizer': self.quantizer_name
+            'phase_manager': 'controller.ris_phase.RISPhaseManager'
         })
         return d
 

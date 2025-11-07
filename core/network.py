@@ -114,12 +114,18 @@ class RISNetwork:
         # Quantization loss
         quant_loss = Physics.quantization_loss_dB(ris.bits)
 
-        # Total path loss
-        total_loss_dB = pl_ap_ris + pl_ris_ue + quant_loss - gain_dBi
+        # AP and UE antenna gains (default 3 dBi each for omnidirectional)
+        ap_antenna_gain_dBi = 3.0
+        ue_antenna_gain_dBi = 3.0
 
-        # SNR calculation
-        snr_dB = Physics.compute_snr_dB(ap.power_dBm, total_loss_dB, 0, 20)
-        pwr_dBm = ap.power_dBm - total_loss_dB
+        # Received power calculation (coherent link):
+        # Pr = Pt + G_AP + G_UE + G_RIS - PL_AP_RIS - PL_RIS_UE - |quant_loss|
+        # Note: quant_loss is returned as negative dB (already a loss), so subtract it (double negative = add loss)
+        pwr_dBm = ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi - pl_ap_ris - pl_ris_ue - quant_loss
+
+        # SNR calculation (100 MHz bandwidth, 6 dB NF gives -88 dBm noise floor)
+        noise_floor_dBm = -88.0
+        snr_dB = pwr_dBm - noise_floor_dBm
 
         # Apply fading
         fading_coeff = Physics.rician_fading(ris.K_db)

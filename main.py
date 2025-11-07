@@ -2248,6 +2248,57 @@ Examples:
         except Exception as e:
             print(f"  ✗ Beam sweep failed: {e}")
 
+        # Test adaptive center-out beam sweeping
+        print("\n[6/6] Testing adaptive center-out beam sweep...")
+        try:
+            from controller.beamsweeping import adaptive_center_out_beam_sweep, compute_snr
+
+            ap = self.net.get('AP1')
+            ris = self.net.get('R1')
+            ue = self.net.get('UE1')
+
+            print(f"  Setting up adaptive sweep...")
+            print(f"    RIS position: [{ris.pos[0]:.1f}, {ris.pos[1]:.1f}, {ris.pos[2]:.1f}]")
+            print(f"    Target position: [{ue.pos[0]:.1f}, {ue.pos[1]:.1f}, {ue.pos[2]:.1f}]")
+            print(f"    AP position: [{ap.pos[0]:.1f}, {ap.pos[1]:.1f}, {ap.pos[2]:.1f}]")
+
+            # Run adaptive sweep
+            adaptive_result = adaptive_center_out_beam_sweep(
+                ris_position=ris.pos,
+                target_position=ue.pos,
+                ap_position=ap.pos,
+                max_angle=60.0,
+                coarse_step=10.0,
+                fine_step=1.0,
+                compute_snr_fn=compute_snr,
+                is_ris_node=True,
+                verbose=True
+            )
+
+            print(f"\n  ✓ Adaptive sweep complete!")
+            print(f"    Best deflection angle: {adaptive_result['angle']:.2f}°")
+            print(f"    Absolute beam angle: {adaptive_result['absoluteAngle']:.2f}°")
+            print(f"    Peak SNR: {adaptive_result['SNR_dB']:.2f} dB (linear: {adaptive_result['SNR']:.2f})")
+            print(f"    Total measurements: {adaptive_result['numMeasurements']}")
+            print(f"    Efficiency: {adaptive_result['efficiency']*100:.1f}% (vs exhaustive)")
+            print(f"    Specular angle: {adaptive_result['specularAngle']:.2f}°")
+
+            # Efficiency comparison
+            coarse_exhaustive = int(2 * 60 / 10) + 1  # 13 beams
+            fine_exhaustive = int(2 * 5 / 1) + 1       # 11 beams
+            total_exhaustive = coarse_exhaustive + fine_exhaustive
+            savings = ((total_exhaustive - adaptive_result['numMeasurements']) / total_exhaustive) * 100
+
+            print(f"\n    Efficiency Analysis:")
+            print(f"      Exhaustive search would need: {total_exhaustive} measurements")
+            print(f"      Adaptive search used: {adaptive_result['numMeasurements']} measurements")
+            print(f"      Savings: {savings:.1f}%")
+
+        except Exception as e:
+            print(f"  ✗ Adaptive beam sweep failed: {e}")
+            import traceback
+            traceback.print_exc()
+
         print("\n✓ All tests completed successfully!")
 
 

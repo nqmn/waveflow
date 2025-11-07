@@ -79,7 +79,12 @@ class Physics:
             model: 'standard' (uniform quantization theory) or 'legacy' (original RISNet)
 
         Returns:
-            Quantization loss in dB
+            Quantization loss in dB (negative value, e.g., -1.67 dB means subtract 1.67 dB from gain)
+
+        Notes:
+            - Return value is NEGATIVE (e.g., -1.67 dB for 1-bit)
+            - When used in link budget: Pr = Pt + G - PL - |loss| = Pt + G - PL - loss
+            - To use in calculations: subtract the returned value (double negative = add loss)
 
         References:
             - Brookner, "Phased Array Handbook" (standard model)
