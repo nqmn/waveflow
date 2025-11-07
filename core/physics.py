@@ -551,3 +551,46 @@ class Physics:
         snr_linear = 10 ** (snr_dB / 10)
         capacity = bandwidth_Hz * np.log2(1 + snr_linear)
         return capacity
+
+    @staticmethod
+    def validate_quantization_error(ideal_phases_rad, quantized_phases_rad, bits):
+        """Validate that quantization error is physically reasonable
+
+        Quantization error must be ≤ phase_step / 2 after wrapping to [-π, π].
+
+        Args:
+            ideal_phases_rad: Ideal phases (radians)
+            quantized_phases_rad: Quantized phases (radians)
+            bits: Number of quantization bits
+
+        Returns:
+            Dict with validation result and error statistics
+
+        Raises:
+            ValueError: If quantization error exceeds theoretical maximum
+        """
+        # Wrap errors to [-π, π]
+        error = np.angle(np.exp(1j * (ideal_phases_rad - quantized_phases_rad)))
+
+        # Max error should be ≤ phase_step / 2
+        phase_step = 2 * np.pi / (2 ** bits)
+        max_allowed_error = phase_step / 2
+
+        max_error = np.max(np.abs(error))
+        mean_error = np.mean(np.abs(error))
+        rms_error = np.sqrt(np.mean(error ** 2))
+
+        # Allow 1% tolerance for floating-point errors
+        if max_error > max_allowed_error * 1.01:
+            raise ValueError(
+                f"Quantization error {np.degrees(max_error):.1f}° exceeds "
+                f"maximum {np.degrees(max_allowed_error):.1f}° for {bits}-bit quantizer"
+            )
+
+        return {
+            'status': 'valid',
+            'max_error_deg': np.degrees(max_error),
+            'mean_error_deg': np.degrees(mean_error),
+            'rms_error_deg': np.degrees(rms_error),
+            'max_allowed_deg': np.degrees(max_allowed_error)
+        }

@@ -255,13 +255,17 @@ class QuantizationAnalyzer:
             rms_error = QuantizationAnalyzer.compute_rms_error(ideal_phases, quantized)
             loss_db = QuantizationAnalyzer.compute_quantization_loss_db(rms_error)
 
+            # FIXED: Wrap error to [-π, π] before computing max (issue: raw diff can exceed ±π)
+            error_wrapped = np.angle(np.exp(1j * (ideal_phases - quantized)))
+            max_error_deg = np.degrees(np.max(np.abs(error_wrapped)))
+
             results[bits] = {
                 'num_levels': 2 ** bits,
                 'phase_step_deg': (2 * np.pi / (2 ** bits)) * 180 / np.pi,
                 'rms_error_rad': rms_error,
                 'rms_error_deg': np.degrees(rms_error),
                 'quantization_loss_dB': loss_db,
-                'max_error_deg': np.degrees(np.max(np.abs(ideal_phases - quantized)))
+                'max_error_deg': max_error_deg
             }
 
         return results
