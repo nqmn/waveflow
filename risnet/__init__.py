@@ -203,6 +203,19 @@ class RISnet:
 
         return self.network.connect(ap_name, ris_name, ue_name, beam_angle)
 
+    def directLink(self, ap, ue, bandwidth_MHz=None,
+                   apply_extra_loss=True, apply_blockage=True):
+        """Compute direct AP->UE link budget using network impairments."""
+        ap_name = ap if isinstance(ap, str) else ap.name
+        ue_name = ue if isinstance(ue, str) else ue.name
+        return self.network.direct_link(
+            ap_name,
+            ue_name,
+            bandwidth_MHz=bandwidth_MHz,
+            apply_extra_loss=apply_extra_loss,
+            apply_blockage=apply_blockage
+        )
+
     def sweep(self, ap, ris, ue, fov=60, step=10):
         """Perform beam sweep
 

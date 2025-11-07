@@ -202,6 +202,68 @@ class RISNetwork:
             "evm_percent": float(Physics.snr_to_evm(snr_dB))
         }
 
+    def direct_link(self, ap_name: str, ue_name: str,
+                    bandwidth_MHz: Optional[float] = None,
+                    apply_extra_loss: bool = True,
+                    apply_blockage: bool = True) -> Dict:
+        """Compute direct AP→UE link budget without RIS assistance.
+
+        Args:
+            ap_name: Access point name
+            ue_name: UE name
+            bandwidth_MHz: Optional bandwidth override
+            apply_extra_loss: Apply global extra_path_loss_dB impairment
+            apply_blockage: Apply direct_blockage_dB impairment
+
+        Returns:
+            Dict with distance, losses, SNR, and RSSI.
+        """
+        ap = self.get(ap_name)
+        ue = self.get(ue_name)
+
+        if ap is None or ue is None:
+            raise ValueError("Invalid node name in direct_link")
+
+        distance = float(np.linalg.norm(ue.pos - ap.pos))
+        path_loss_dB = float(Physics.path_loss_dB(distance, ap.freq))
+
+        extra_loss = float(self.impairments.get('extra_path_loss_dB', 0.0)) if apply_extra_loss else 0.0
+        blockage_loss = 0.0
+        if apply_blockage:
+            blockage_loss = float(self.impairments.get('direct_blockage_dB', extra_loss))
+
+        total_loss_dB = path_loss_dB + extra_loss + blockage_loss
+
+        ap_gain = float(getattr(ap, 'antenna_gain_dBi', 3.0))
+        ue_gain = float(getattr(ue, 'antenna_gain_dBi', 3.0))
+        total_gain_dBi = ap_gain + ue_gain
+
+        if bandwidth_MHz is None:
+            bandwidth_MHz = float(getattr(ap, 'bandwidth_MHz', 20.0))
+
+        noise_figure_dB = float(getattr(ue, 'noise_figure_dB', 6.0))
+
+        rx_power_dBm = ap.power_dBm + total_gain_dBi - total_loss_dB
+        snr_dB = Physics.compute_snr_dB(
+            tx_power_dBm=ap.power_dBm,
+            total_loss_dB=total_loss_dB,
+            gain_dBi=total_gain_dBi,
+            bandwidth_MHz=bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB
+        )
+
+        return {
+            "distance_m": distance,
+            "path_loss_dB": path_loss_dB,
+            "extra_loss_dB": extra_loss if apply_extra_loss else 0.0,
+            "blockage_loss_dB": blockage_loss if apply_blockage else 0.0,
+            "total_loss_dB": total_loss_dB,
+            "rx_power_dBm": float(rx_power_dBm),
+            "rssi_dBm": float(rx_power_dBm),
+            "snr_dB": float(snr_dB),
+            "gain_dBi": total_gain_dBi
+        }
+
     def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, fine_span=5, fine_res=1, seed=0):
         """Coarse and fine beam sweep with deterministic SNR measurement
 

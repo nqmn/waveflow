@@ -116,40 +116,6 @@ def pick_first(nodes: Dict[str, List[str]], key: str) -> str:
     return nodes[key][0]
 
 
-def compute_direct_link(net: RISNetwork, ap_name: str, ue_name: str,
-                        extra_loss_dB: float = 0.0,
-                        blockage_loss_dB: float = 0.0) -> Dict:
-    """Compute direct AP→UE link budget for comparison."""
-    ap = net.get(ap_name)
-    ue = net.get(ue_name)
-    distance = np.linalg.norm(ue.pos - ap.pos)
-    path_loss = Physics.path_loss_dB(distance, ap.freq)
-
-    ap_gain = getattr(ap, "antenna_gain_dBi", 3.0)
-    ue_gain = getattr(ue, "antenna_gain_dBi", 3.0)
-    noise_figure = getattr(ue, "noise_figure_dB", 6.0)
-    bandwidth = getattr(ap, "bandwidth_MHz", 20.0)
-
-    total_loss = path_loss + extra_loss_dB + blockage_loss_dB
-    total_gain = ap_gain + ue_gain
-
-    rx_power = ap.power_dBm + total_gain - total_loss
-    snr = Physics.compute_snr_dB(
-        tx_power_dBm=ap.power_dBm,
-        total_loss_dB=total_loss,
-        gain_dBi=total_gain,
-        bandwidth_MHz=bandwidth,
-        noise_figure_dB=noise_figure,
-    )
-
-    return {
-        "distance_m": float(distance),
-        "path_loss_dB": float(path_loss),
-        "rx_power_dBm": float(rx_power),
-        "snr_dB": float(snr),
-    }
-
-
 def run(topology: Path) -> None:
     net, nodes, data = build_network_from_json(topology)
     ap_name = pick_first(nodes, "ap")
@@ -195,9 +161,7 @@ def run(topology: Path) -> None:
     # Direct (RIS-off) reference for comparison with the paper
     print("\n--- Direct vs RIS (System Level) ---")
     impairments = data.get("impairments", {}) or {}
-    extra_loss = impairments.get("extra_path_loss_dB", 0.0)
-    blockage_loss = impairments.get("direct_blockage_dB", extra_loss)
-    direct = compute_direct_link(net, ap_name, ue_name, extra_loss, blockage_loss)
+    direct = net.direct_link(ap_name, ue_name)
     direct_evm = Physics.snr_to_evm(direct["snr_dB"])
     ris_evm = Physics.snr_to_evm(link["snr_dB"])
     snr_gain = link["snr_dB"] - direct["snr_dB"]
