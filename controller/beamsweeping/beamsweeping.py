@@ -374,12 +374,12 @@ def compute_snr(
     beam_angle: float,
     specular_angle: float,
     ris_reflectors: int = 16,
-    frequency_ghz: float = 28.0,
-    bandwidth_mhz: float = 1000.0,
-    transmit_power_dbm: float = 30.0,
-    noise_figure_db: float = 5.0,
-    active_ris_mode: bool = True,
-    amplifier_gain: float = 10.0
+    frequency_ghz: float = 10.0,
+    bandwidth_mhz: float = 100.0,
+    transmit_power_dbm: float = 20.0,
+    noise_figure_db: float = 6.0,
+    active_ris_mode: bool = False,
+    amplifier_gain: float = 0.0
 ) -> float:
     """
     Compute SNR for a given beam angle.
@@ -398,8 +398,8 @@ def compute_snr(
         bandwidth_mhz: Signal bandwidth in MHz
         transmit_power_dbm: Transmit power in dBm
         noise_figure_db: Noise figure in dB
-        active_ris_mode: Whether RIS is in active mode
-        amplifier_gain: RIS amplifier gain
+        active_ris_mode: Whether RIS is in active mode (default: passive RIS)
+        amplifier_gain: RIS amplifier gain in dB (only used if active_ris_mode=True)
 
     Returns:
         SNR in linear scale
@@ -423,11 +423,14 @@ def compute_snr(
     if node1 == 'AP' and node2.startswith('R'):
         # AP→RIS: Direct link with known RIS location
         N = ris_reflectors * ris_reflectors
-        G = amplifier_gain if active_ris_mode else 1.0
-        theoretical_gain_dbi = 20 * np.log10(G * N)
+        # RIS array gain: 20*log10(N)
+        theoretical_gain_dbi = 20 * np.log10(N)
         insertion_loss = 2.0  # dB
         reflection_loss = 1.0  # dB
         gain_dbi = theoretical_gain_dbi - insertion_loss - reflection_loss
+        # Add amplifier gain separately (if active RIS)
+        if active_ris_mode:
+            gain_dbi += amplifier_gain
 
     elif node1.startswith('R') and (node2 == 'H' or node2.startswith('R') or node2 == 'target'):
         # RIS→target/RIS: Blind beam steering - angle matters
@@ -456,17 +459,23 @@ def compute_snr(
         # Target within 5° of beam: aligned
         if angle_error < 5:
             N = ris_reflectors * ris_reflectors
-            G = amplifier_gain if active_ris_mode else 1.0
-            theoretical_gain_dbi = 20 * np.log10(G * N)
+            # RIS array gain: 20*log10(N)
+            theoretical_gain_dbi = 20 * np.log10(N)
             insertion_loss = 2.0  # dB
             reflection_loss = 1.0  # dB
             gain_dbi = theoretical_gain_dbi - insertion_loss - reflection_loss
+            # Add amplifier gain separately (if active RIS)
+            if active_ris_mode:
+                gain_dbi += amplifier_gain
         else:
             # Misaligned: reduced gain (10% efficiency)
             N = ris_reflectors * ris_reflectors
-            G = amplifier_gain if active_ris_mode else 1.0
-            theoretical_gain_dbi = 20 * np.log10(G * N)
+            # RIS array gain: 20*log10(N)
+            theoretical_gain_dbi = 20 * np.log10(N)
             gain_dbi = theoretical_gain_dbi * 0.1
+            # Add amplifier gain separately if active, but at reduced efficiency
+            if active_ris_mode:
+                gain_dbi += amplifier_gain * 0.1
 
         # RIS→RIS: Apply relay efficiency penalty
         if node2.startswith('R'):
