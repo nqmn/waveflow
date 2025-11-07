@@ -372,3 +372,177 @@ class Physics:
         snr_linear = 10 ** (snr_dB / 10)
         evm = (1 / np.sqrt(snr_linear)) * 100
         return evm
+
+    # =====================================================================
+    # Waveform-Level Physics Functions
+    # =====================================================================
+
+    @staticmethod
+    def directional_gain_from_position(source_pos, target_pos, array_type='ula',
+                                      num_elements=16, element_spacing=0.5,
+                                      center_freq=10e9, element_gain_dBi=3.0):
+        """Calculate directional antenna gain based on geometry
+
+        Args:
+            source_pos: Source position (3D array)
+            target_pos: Target position (3D array)
+            array_type: 'ula' or 'isotropic'
+            num_elements: Number of array elements
+            element_spacing: Element spacing in wavelengths
+            center_freq: Center frequency in Hz
+            element_gain_dBi: Per-element gain in dBi
+
+        Returns:
+            Directional gain in dB
+        """
+        from .waveform import AntennaArray
+
+        wavelength = C / center_freq
+        spacing_m = element_spacing * wavelength
+
+        array = AntennaArray(array_type=array_type,
+                           num_elements=num_elements,
+                           spacing=spacing_m / wavelength,
+                           center_freq=center_freq)
+
+        # Direction from source to target
+        direction = target_pos - source_pos
+        direction_norm = np.linalg.norm(direction)
+        if direction_norm == 0:
+            return 0.0
+
+        direction_unit = direction / direction_norm
+
+        # Calculate angles (simplified: assuming linear array)
+        theta = np.arctan2(direction_unit[2], np.sqrt(direction_unit[0]**2 +
+                                                      direction_unit[1]**2))
+        phi = np.arctan2(direction_unit[1], direction_unit[0])
+
+        return array.get_directional_gain_dB(theta, phi, element_gain_dBi)
+
+    @staticmethod
+    def multipath_ris_gain(paths_info: list, ris_phases: np.ndarray,
+                          element_spacing=0.5, center_freq=10e9):
+        """Calculate RIS gain considering multipath contributions
+
+        Args:
+            paths_info: List of path dicts with 'amplitude', 'phase', 'delay'
+            ris_phases: RIS phase configuration (radians)
+            element_spacing: RIS element spacing in wavelengths
+            center_freq: Center frequency in Hz
+
+        Returns:
+            Effective RIS gain in dB
+        """
+        k = 2 * np.pi * center_freq / C
+        wavelength = C / center_freq
+
+        # Calculate contribution from each path
+        total_power = 0.0
+
+        for path_info in paths_info:
+            amplitude = path_info.get('amplitude', 1.0)
+            phase = path_info.get('phase', 0.0)
+
+            # Apply RIS phase response
+            ris_response = np.sum(np.exp(1j * ris_phases))
+            path_contribution = amplitude * np.abs(ris_response)**2
+
+            total_power += path_contribution
+
+        # Normalize by number of elements
+        num_elements = len(ris_phases)
+        gain_linear = total_power / (num_elements**2)
+        gain_dB = 10 * np.log10(max(gain_linear, 1e-10))
+
+        return gain_dB
+
+    @staticmethod
+    def effective_snr_with_waveform_distortion(ideal_snr_dB, quantization_error_rms_deg,
+                                              papr_dB=8.0, equalization_error_dB=0.5):
+        """Calculate SNR reduction due to waveform impairments
+
+        Args:
+            ideal_snr_dB: SNR without impairments
+            quantization_error_rms_deg: RMS phase quantization error in degrees
+            papr_dB: Peak-to-Average Power Ratio in dB
+            equalization_error_dB: Channel equalization error in dB
+
+        Returns:
+            Effective SNR in dB
+        """
+        # Phase quantization penalty
+        quant_error_rad = np.radians(quantization_error_rms_deg)
+        sinc_val = np.sinc(quant_error_rad / np.pi)
+        # Clamp to prevent log10 of zero/negative
+        sinc_val = np.clip(sinc_val, 1e-10, 1.0)
+        quant_loss_dB = 20 * np.log10(sinc_val)
+
+        # PAPR clipping loss (approximation)
+        papr_loss_dB = -papr_dB / 5  # Empirical factor
+
+        # Equalization loss
+        eq_loss_dB = equalization_error_dB
+
+        # Total effective SNR
+        effective_snr_dB = ideal_snr_dB + quant_loss_dB + papr_loss_dB - eq_loss_dB
+
+        return effective_snr_dB
+
+    @staticmethod
+    def ris_coupling_loss_dB(element_spacing_wavelengths, num_elements,
+                            coupling_model='simplified'):
+        """Calculate RIS coupling and mismatch losses
+
+        Args:
+            element_spacing_wavelengths: Element spacing in wavelengths
+            num_elements: Total number of elements
+            coupling_model: 'simplified' or 'detailed'
+
+        Returns:
+            Total coupling loss in dB
+        """
+        if coupling_model == 'simplified':
+            # Spacing-dependent coupling loss
+            if element_spacing_wavelengths <= 0.5:
+                spacing_loss = 2.0
+            elif element_spacing_wavelengths <= 0.7:
+                spacing_loss = 1.0
+            else:
+                spacing_loss = 0.1
+
+            # Element count dependent efficiency
+            count_factor = 20 * np.log10(np.sqrt(num_elements) / 16)
+
+            return spacing_loss + count_factor
+
+        else:  # detailed
+            # More complex model considering mutual coupling matrix
+            k = 2 * np.pi / element_spacing_wavelengths
+            coupling_loss = 0.0
+
+            for i in range(num_elements):
+                for j in range(i+1, num_elements):
+                    dist = abs(i - j) * element_spacing_wavelengths
+                    # Distance-dependent coupling
+                    coupling_coeff = 0.1 * np.exp(-dist / 2)
+                    # Phase mismatch
+                    phase_diff = k * dist
+                    coupling_loss += 0.1 * np.abs(coupling_coeff * np.exp(1j * phase_diff))**2
+
+            return 10 * np.log10(coupling_loss / num_elements + 0.01)
+
+    @staticmethod
+    def compute_channel_capacity_bps(snr_dB, bandwidth_Hz):
+        """Shannon capacity calculation
+
+        Args:
+            snr_dB: SNR in dB
+            bandwidth_Hz: Bandwidth in Hz
+
+        Returns:
+            Capacity in bits per second
+        """
+        snr_linear = 10 ** (snr_dB / 10)
+        capacity = bandwidth_Hz * np.log2(1 + snr_linear)
+        return capacity

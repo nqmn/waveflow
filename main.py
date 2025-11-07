@@ -1970,6 +1970,110 @@ Examples:
 
 
 # =====================================================================
+# Waveform-Level API Routes (Flask)
+# =====================================================================
+
+@app.route('/api/waveform/snr', methods=['POST'])
+def api_waveform_snr():
+    """Compute SNR at waveform level"""
+    data = request.get_json() or {}
+    ap_name = data.get('ap')
+    ris_name = data.get('ris')
+    ue_name = data.get('ue')
+    num_symbols = int(data.get('num_symbols', 10))
+
+    try:
+        from controller.waveform_controller import WaveformController
+        waveform_ctrl = WaveformController(_net, _net.environment)
+        result = waveform_ctrl.compute_waveform_snr(ap_name, ris_name, ue_name, num_symbols)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/waveform/compare', methods=['POST'])
+def api_waveform_compare():
+    """Compare system-level vs waveform-level results"""
+    data = request.get_json() or {}
+    ap_name = data.get('ap')
+    ris_name = data.get('ris')
+    ue_name = data.get('ue')
+
+    try:
+        from controller.waveform_controller import WaveformController
+        waveform_ctrl = WaveformController(_net, _net.environment)
+        result = waveform_ctrl.compare_system_vs_waveform(ap_name, ris_name, ue_name)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/waveform/optimize', methods=['POST'])
+def api_waveform_optimize():
+    """Optimize RIS phases at waveform level"""
+    data = request.get_json() or {}
+    ap_name = data.get('ap')
+    ris_name = data.get('ris')
+    ue_name = data.get('ue')
+    num_iterations = int(data.get('num_iterations', 10))
+
+    try:
+        from controller.waveform_controller import WaveformController
+        waveform_ctrl = WaveformController(_net, _net.environment)
+        result = waveform_ctrl.optimize_ris_phases_waveform(ap_name, ris_name, ue_name, num_iterations)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/waveform/beam_sweep', methods=['POST'])
+def api_waveform_beam_sweep():
+    """Perform beam sweep at waveform level"""
+    data = request.get_json() or {}
+    ap_name = data.get('ap')
+    ris_name = data.get('ris')
+    ue_name = data.get('ue')
+    angle_range = float(data.get('angle_range', 60))
+    angle_step = float(data.get('angle_step', 5))
+
+    try:
+        from controller.waveform_controller import WaveformController
+        waveform_ctrl = WaveformController(_net, _net.environment)
+        result = waveform_ctrl.compute_beam_sweep_waveform(ap_name, ris_name, ue_name, angle_range, angle_step)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/waveform/config', methods=['POST'])
+def api_waveform_config():
+    """Configure OFDM parameters"""
+    data = request.get_json() or {}
+    bandwidth = float(data.get('bandwidth', 100e6))
+    num_subcarriers = int(data.get('num_subcarriers', 256))
+    center_freq = float(data.get('center_freq', 10e9))
+
+    try:
+        from controller.waveform_controller import WaveformController
+        waveform_ctrl = WaveformController(_net, _net.environment)
+        waveform_ctrl.set_ofdm_config(bandwidth, num_subcarriers, center_freq)
+        return jsonify({
+            'ok': True,
+            'bandwidth': bandwidth,
+            'num_subcarriers': num_subcarriers,
+            'center_freq': center_freq
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/waveform/validate', methods=['GET'])
+def api_waveform_validate():
+    """Validate network topology"""
+    try:
+        from core.validation import WaveformValidator
+        validator = WaveformValidator(_net)
+        result = validator.validate_topology()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+# =====================================================================
 # Main
 # =====================================================================
 
