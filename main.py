@@ -1185,7 +1185,8 @@ RIS Node Commands:
   info              - Show detailed RIS information
   config            - Show RIS configuration
   phase [angle]     - Set or get phase configuration
-  phases [format]   - Display phase element values (grid, compact, or stats)
+  phases [format]   - Display phase element values
+                      Formats: grid, compact, stats, plot, export
   beam [angles]     - Set beam configuration
   exit              - Exit RIS shell (interactive mode only)
 
@@ -1193,8 +1194,11 @@ Examples:
   R1 help           - Show help for RIS node R1
   R1 status         - Show status of R1
   R1 phase 45       - Set phase angle to 45 degrees
-  R1 phases grid    - Show phase grid visualization
+  R1 phases grid    - Show phase grid (ASCII text)
+  R1 phases compact - Show phases in compact format
   R1 phases stats   - Show phase statistics
+  R1 phases plot    - Export heatmap to PNG (auto-named)
+  R1 phases export myplot.png  - Export to specific PNG file
   R1                - Enter interactive shell for R1
   (in shell) status - Show status while in interactive mode
         """
@@ -1296,6 +1300,9 @@ Examples:
             self._print_phase_stats(ris_node)
         elif format_type == 'compact':
             self._print_phase_compact(ris_node)
+        elif format_type == 'plot' or format_type == 'export':
+            filename = args[1] if len(args) > 1 else None
+            self._plot_phase_grid(ris_node, filename)
         else:  # 'grid' or default
             self._print_phase_grid(ris_node)
 
@@ -1329,9 +1336,16 @@ Examples:
     def _print_phase_compact(self, ris_node):
         """Print phases in compact format"""
         import numpy as np
-        phases = np.degrees(ris_node.current_phases)
 
-        print(f"\n{ris_node.name} Phases (compact, degrees):")
+        # Use quantized phases if available, otherwise use ideal phases
+        if ris_node.quantized_phases is not None:
+            phases = np.degrees(ris_node.quantized_phases)
+            title = "Quantized Phases"
+        else:
+            phases = np.degrees(ris_node.current_phases)
+            title = "Ideal Phases"
+
+        print(f"\n{ris_node.name} {title} (compact, degrees):")
         print("  [", end="")
         for i, p in enumerate(phases):
             if i > 0 and i % 8 == 0:
@@ -1377,6 +1391,130 @@ Examples:
                     bar = "█"
                 print(f" {phase:6.1f}° {bar}", end="")
             print()
+
+    def _plot_phase_grid(self, ris_node, filename=None):
+        """Plot RIS phase grid as heatmap using matplotlib"""
+        import numpy as np
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.patches as mpatches
+        except ImportError:
+            print("✗ matplotlib not installed. Install with: pip install matplotlib")
+            return
+
+        if ris_node.quantized_phases is not None:
+            phases = np.degrees(ris_node.quantized_phases)
+            title_suffix = "Quantized Phases"
+        else:
+            phases = np.degrees(ris_node.current_phases)
+            title_suffix = "Ideal Phases"
+
+        phases_grid = phases.reshape(ris_node.N, ris_node.N)
+
+        # Create figure with subplots
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+
+        # Plot 1: Heatmap
+        im = axes[0].imshow(phases_grid, cmap='hsv', vmin=0, vmax=360, aspect='auto')
+        axes[0].set_title(f'{ris_node.name} - {title_suffix} Heatmap\n({ris_node.N}×{ris_node.N}, {ris_node.bits}-bit)',
+                         fontsize=12, fontweight='bold')
+        axes[0].set_xlabel('Column')
+        axes[0].set_ylabel('Row')
+
+        # Add text annotations
+        for i in range(ris_node.N):
+            for j in range(ris_node.N):
+                phase = phases_grid[i, j]
+                axes[0].text(j, i, f'{phase:.0f}°', ha='center', va='center',
+                           color='white' if (phase > 90 and phase < 270) else 'black',
+                           fontsize=8)
+
+        cbar = plt.colorbar(im, ax=axes[0])
+        cbar.set_label('Phase (degrees)', rotation=270, labelpad=20)
+
+        # Plot 2: Statistics and phase distribution
+        axes[1].axis('off')
+
+        # Calculate statistics
+        if ris_node.quantized_phases is not None:
+            ideal_deg = np.degrees(ris_node.current_phases)
+            quantized_deg = np.degrees(ris_node.quantized_phases)
+            quant_error = ideal_deg - quantized_deg
+
+            stats_text = f"""
+RIS NODE: {ris_node.name}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONFIGURATION:
+  Grid Size (N):     {ris_node.N}×{ris_node.N}
+  Total Elements:    {ris_node.N * ris_node.N}
+  Phase Bits:        {ris_node.bits}
+  Quantization States: {2**ris_node.bits}
+  Phase Step:        {360 / (2**ris_node.bits):.2f}°
+
+IDEAL PHASES (radians → degrees):
+  Min:    {np.min(ideal_deg):7.2f}°
+  Max:    {np.max(ideal_deg):7.2f}°
+  Mean:   {np.mean(ideal_deg):7.2f}°
+  Std:    {np.std(ideal_deg):7.2f}°
+
+QUANTIZED PHASES:
+  Min:    {np.min(quantized_deg):7.2f}°
+  Max:    {np.max(quantized_deg):7.2f}°
+  Mean:   {np.mean(quantized_deg):7.2f}°
+  Std:    {np.std(quantized_deg):7.2f}°
+
+QUANTIZATION ERROR:
+  Max Error:  {np.max(np.abs(quant_error)):7.2f}°
+  Mean Error: {np.mean(np.abs(quant_error)):7.2f}°
+  RMS Error:  {np.sqrt(np.mean(quant_error**2)):7.2f}°
+            """
+        else:
+            ideal_deg = np.degrees(ris_node.current_phases)
+            stats_text = f"""
+RIS NODE: {ris_node.name}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONFIGURATION:
+  Grid Size (N):     {ris_node.N}×{ris_node.N}
+  Total Elements:    {ris_node.N * ris_node.N}
+  Phase Bits:        {ris_node.bits}
+  Quantization States: {2**ris_node.bits}
+  Phase Step:        {360 / (2**ris_node.bits):.2f}°
+
+IDEAL PHASES:
+  Min:    {np.min(ideal_deg):7.2f}°
+  Max:    {np.max(ideal_deg):7.2f}°
+  Mean:   {np.mean(ideal_deg):7.2f}°
+  Std:    {np.std(ideal_deg):7.2f}°
+
+(No quantization applied)
+            """
+
+        axes[1].text(0.05, 0.95, stats_text, transform=axes[1].transAxes,
+                    fontsize=10, verticalalignment='top', fontfamily='monospace',
+                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+
+        plt.tight_layout()
+
+        # Save or display
+        if filename:
+            plt.savefig(filename, dpi=150, bbox_inches='tight')
+            print(f"✓ Phase grid exported to: {filename}")
+        else:
+            # Generate default filename
+            import os
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            default_filename = f"{ris_node.name}_phases_{timestamp}.png"
+            plt.savefig(default_filename, dpi=150, bbox_inches='tight')
+            print(f"✓ Phase grid exported to: {default_filename}")
+
+        # Try to display if interactive
+        try:
+            plt.show()
+        except:
+            pass
 
     # =====================================================================
     # Access Point (AP) Commands
@@ -1639,13 +1777,13 @@ Examples:
         print("\n[1/5] Setting up test network...")
         self.net.nodes.clear()
 
-        # Add nodes
+        # Add nodes with default naming convention
         print("  ✓ Adding AP...")
-        self.net.add_ap('ap1', 0, 0, 0)
+        self.net.add_ap('AP1', 0, 0, 0)
         print("  ✓ Adding RIS (16×16, 1-bit)...")
-        self.net.add_ris('ris1', 5, 0, 0, N=16, bits=1)
+        self.net.add_ris('R1', 5, 0, 0, N=16, bits=1)
         print("  ✓ Adding UE...")
-        self.net.add_ue('ue1', 10, 3, 0)
+        self.net.add_ue('UE1', 10, 3, 0)
 
         # List nodes
         print("\n[2/5] Network nodes:")
@@ -1654,12 +1792,12 @@ Examples:
         # Test basic connection
         print("\n[3/5] Testing connectivity (AP -> RIS -> UE)...")
         try:
-            result = self.net.connect('ap1', 'ris1', 'ue1')
+            result = self.net.connect('AP1', 'R1', 'UE1')
 
             # Calculate distances
-            ap = self.net.get('ap1')
-            ris = self.net.get('ris1')
-            ue = self.net.get('ue1')
+            ap = self.net.get('AP1')
+            ris = self.net.get('R1')
+            ue = self.net.get('UE1')
 
             d_ap_ris = np.linalg.norm(ris.pos - ap.pos)
             d_ris_ue = np.linalg.norm(ue.pos - ris.pos)
@@ -1820,7 +1958,7 @@ Examples:
         # Test beam sweeping
         print("\n[5/5] Testing beam sweep algorithm...")
         try:
-            sweep_result = self.net.sweep('ap1', 'ris1', 'ue1', fov=60, step=10)
+            sweep_result = self.net.sweep('AP1', 'R1', 'UE1', fov=60, step=10)
             print(f"  ✓ Coarse sweep: {len(sweep_result['local_coarse'])} angles tested")
             print(f"  ✓ Fine sweep: {len(sweep_result['local_fine'])} angles tested")
             print(f"  ✓ Best SNR: {sweep_result['best_snr_fine']:.2f} dB")
@@ -1828,9 +1966,7 @@ Examples:
         except Exception as e:
             print(f"  ✗ Beam sweep failed: {e}")
 
-        print("\n" + "="*70)
-        print("✓ All tests completed successfully!")
-        print("="*70 + "\n")
+        print("\n✓ All tests completed successfully!")
 
 
 # =====================================================================
