@@ -22,6 +22,7 @@ import pprint
 
 # Import core modules
 from core import RISNetwork, AccessPoint, RIS, UE, Environment, Physics
+from controller.beamsweeping import SweepAlgorithmLoader
 from controller import PathfindingEngine, BeamformingEngine, RISController
 from cli import run_testall
 from config import Config
@@ -1296,21 +1297,139 @@ class RISNetCLI(cmd.Cmd):
         pprint.pprint(res)
 
     def do_sweep(self, arg):
-        """sweep ap ris ue [fov step]
-        Example: sweep ap1 ris1 ue1 60 10
+        """sweep ap ris ue [fov step] [--algo algorithm]
+        Sweep beam angles to find optimal direction.
+
+        Args:
+            ap: Access point name
+            ris: RIS node name
+            ue: User equipment name
+            fov: Field of view in degrees (default: 60)
+            step: Step size in degrees (default: 10)
+            --algo: Algorithm to use (default: linear)
+                   Available: linear, brute-force, adaptive, center-out
+
+        Examples:
+            sweep AP1 R1 UE1
+            sweep AP1 R1 UE1 60 10
+            sweep AP1 R1 UE1 60 10 --algo adaptive
         """
         parts = shlex.split(arg)
         if len(parts) < 3:
-            print('usage: sweep ap ris ue [fov step]')
+            print('usage: sweep ap ris ue [fov step] [--algo algorithm]')
+            print('Available algorithms: linear, adaptive, brute-force, center-out')
             return
+
         ap, ris, ue = parts[0], parts[1], parts[2]
+
+        # Parse algorithm option first to filter it out
+        algo_name = 'linear'
+        if '--algo' in parts:
+            idx = parts.index('--algo')
+            if idx + 1 < len(parts):
+                algo_name = parts[idx + 1]
+            # Remove --algo and its argument from parts
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse positional arguments (fov and step)
         fov = float(parts[3]) if len(parts) > 3 else 60.0
         step = float(parts[4]) if len(parts) > 4 else 10.0
-        out = self.net.sweep(ap, ris, ue, fov=fov, step=step)
-        print('coarse local angles:', out['local_coarse'])
-        print('coarse SNR:', out['snr_coarse'])
-        print('best refined local angle:', out['best_local_fine'])
-        print('best refined SNR:', out['best_snr_fine'])
+
+        # Get algorithm
+        try:
+            algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+
+        # Validate nodes exist
+        if self.net.get(ap) is None or self.net.get(ris) is None or self.net.get(ue) is None:
+            print(f"Error: Invalid node names (AP: {ap}, RIS: {ris}, UE: {ue})")
+            return
+
+        # Display sweep parameters
+        print('\n' + '='*70)
+        print('BEAM SWEEP INITIALIZATION')
+        print('='*70)
+        print(f'\nAlgorithm:        {algo.name}')
+        print(f'Description:      {algo.description}')
+        print(f'\nParameters:')
+        print(f'  Access Point:   {ap}')
+        print(f'  RIS Node:       {ris}')
+        print(f'  User Equipment: {ue}')
+        print(f'  Field of View:  {fov}°')
+        print(f'  Step Size:      {step}°')
+
+        # Execute sweep
+        try:
+            print(f'\n' + '-'*70)
+            print('EXECUTING SWEEP...')
+            print('-'*70)
+            out = algo.sweep(ap, ris, ue, fov=fov, step=step)
+        except ValueError as e:
+            print(f"Sweep failed: {e}")
+            return
+
+        # Display detailed coarse phase results
+        print(f'\n[PHASE 1] COARSE SEARCH')
+        print('-'*70)
+        local_coarse = out.get('local_coarse', [])
+        snr_coarse = out.get('snr_coarse', [])
+        pwr_coarse = out.get('pwr_coarse', [])
+
+        if local_coarse and snr_coarse:
+            print(f'Total angles tested: {len(local_coarse)}\n')
+            print(f'{"Angle (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}')
+            print('-'*70)
+
+            best_coarse_idx = 0
+            best_coarse_snr = snr_coarse[0]
+
+            for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
+                pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
+                marker = " <-- BEST" if snr > best_coarse_snr else ""
+                print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+                if snr > best_coarse_snr:
+                    best_coarse_snr = snr
+                    best_coarse_idx = i
+
+            print('-'*70)
+            print(f'Best coarse angle: {local_coarse[best_coarse_idx]:.2f}° with SNR = {best_coarse_snr:.2f} dB')
+
+        # Display detailed fine phase results
+        print(f'\n[PHASE 2] FINE REFINEMENT')
+        print('-'*70)
+        local_fine = out.get('local_fine', [])
+        snr_fine = out.get('snr_fine', [])
+
+        if local_fine and snr_fine:
+            print(f'Refined angles tested: {len(local_fine)}\n')
+            print(f'{"Angle (°)":<12} {"SNR (dB)":<15}')
+            print('-'*70)
+
+            best_fine_idx = int(np.argmax(snr_fine))
+            best_fine_snr = snr_fine[best_fine_idx]
+
+            for i, (angle, snr) in enumerate(zip(local_fine, snr_fine)):
+                marker = " <-- OPTIMAL" if i == best_fine_idx else ""
+                print(f'{angle:>11.1f}  {snr:>13.2f}{marker}')
+
+            print('-'*70)
+
+        # Display final summary
+        print(f'\n' + '='*70)
+        print('SWEEP RESULTS SUMMARY')
+        print('='*70)
+        best_local_fine = out.get('best_local_fine', 0.0)
+        best_snr_fine = out.get('best_snr_fine', 0.0)
+        total_angles_tested = len(local_coarse) + len(local_fine)
+
+        print(f'\nOptimal Beam Configuration:')
+        print(f'  Local Angle:       {best_local_fine:>10.2f}°')
+        print(f'  Maximum SNR:       {best_snr_fine:>10.2f} dB')
+        print(f'  Total Angles:      {total_angles_tested:>10} tested')
+        print(f'  Efficiency:        {(len(local_fine) / total_angles_tested * 100):>10.1f}% refined')
+        print('\n' + '='*70 + '\n')
 
     def default(self, line):
         """Handle node commands (e.g., R1, AP1, UE1, etc.)"""
@@ -2150,12 +2269,17 @@ Examples:
             print(f"Error: {e}")
 
     def do_quit(self, arg):
-        """quit"""
-        print('bye')
+        """quit - Clear topology and exit the CLI"""
+        if self.net.nodes:
+            print("Clearing topology...")
+            self.net.nodes.clear()
+            self._save_network()
+            print("✓ Topology cleared")
+        print('Exiting RISNet CLI')
         return True
 
     def do_exit(self, arg):
-        """exit"""
+        """exit - Clear topology and exit the CLI (alias for quit)"""
         return self.do_quit(arg)
 
     def do_testall(self, arg):
@@ -2342,7 +2466,12 @@ def main():
         try:
             cli.cmdloop()
         except KeyboardInterrupt:
-            print('\nexiting')
+            print('\nClearing topology...')
+            if _net.nodes:
+                _net.nodes.clear()
+                cli._save_network()
+                print('✓ Topology cleared')
+            print('Exiting RISNet CLI')
 
 if __name__ == '__main__':
     main()

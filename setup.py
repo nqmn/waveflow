@@ -132,7 +132,7 @@ class RISNetSetup:
         """Test if risnet command works"""
         self.print_header("Testing RISNet Command")
 
-        # Test 1: Via python
+        # Test 1: Via main.py
         print("Test 1: Via main.py")
         try:
             result = subprocess.run(
@@ -148,8 +148,70 @@ class RISNetSetup:
         except Exception as e:
             print(f"⚠ main.py test failed: {e}\n")
 
-        # Test 2: Load topology
-        print("Test 2: Load topology")
+        # Test 2: Via risnet wrapper script (with PATH setup)
+        print("Test 2: Via risnet script")
+        risnet_script = self.bin_dir / "risnet"
+
+        if not risnet_script.exists():
+            print(f"❌ risnet script not found: {risnet_script}")
+            print("Setup cannot continue without risnet script\n")
+            return False
+
+        # Try to run risnet with updated PATH
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Create environment with PATH including bin directory
+                env = os.environ.copy()
+                env['PATH'] = f"{self.bin_dir}:{env.get('PATH', '')}"
+
+                # Try running risnet directly first
+                if attempt == 0:
+                    print(f"  Attempt {attempt + 1}: Using python3 bin/risnet")
+                    result = subprocess.run(
+                        [sys.executable, str(risnet_script), "list"],
+                        capture_output=True,
+                        timeout=5,
+                        cwd=self.project_root,
+                        env=env,
+                    )
+                else:
+                    print(f"  Attempt {attempt + 1}: Using risnet with updated PATH")
+                    result = subprocess.run(
+                        ["risnet", "list"],
+                        capture_output=True,
+                        timeout=5,
+                        cwd=self.project_root,
+                        env=env,
+                    )
+
+                if result.returncode == 0:
+                    print("✓ risnet script works\n")
+                    break
+                else:
+                    stderr = result.stderr.decode() if result.stderr else ""
+                    if attempt < max_retries - 1:
+                        print(f"  ⚠ Attempt {attempt + 1} failed, retrying...\n")
+                    else:
+                        print(f"❌ risnet script failed after {max_retries} attempts")
+                        print(f"  Error: {stderr}\n")
+                        return False
+            except FileNotFoundError as e:
+                if attempt < max_retries - 1:
+                    print(f"  ⚠ risnet not found in PATH (attempt {attempt + 1}), retrying...\n")
+                else:
+                    print(f"❌ risnet command not accessible even with updated PATH")
+                    print(f"  Error: {e}\n")
+                    return False
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"  ⚠ Unexpected error (attempt {attempt + 1}): {e}, retrying...\n")
+                else:
+                    print(f"❌ risnet script test failed: {e}\n")
+                    return False
+
+        # Test 3: Load topology
+        print("Test 3: Load topology")
         topology_file = (
             self.project_root
             / "examples/json/example_1_simple.json"
@@ -213,10 +275,22 @@ class RISNetSetup:
 
         print("QUICK START:")
         print(f"\n1. From project directory:")
-        print(f"   cd {self.project_root}")
-        print(f"   python3 main.py --topology examples/json/example_1_simple.json list\n")
+        print(f"   cd {self.project_root}\n")
+        print("   Using risnet command (recommended):")
+        print("   risnet --topology examples/json/example_1_simple.json list\n")
+        print("   Or using python3:")
+        print("   python3 main.py --topology examples/json/example_1_simple.json list\n")
 
-        print("USEFUL COMMANDS:")
+        print("USEFUL COMMANDS (using risnet):")
+        print("   risnet                        # Interactive mode")
+        print("   risnet list                   # List nodes")
+        print("   risnet add ap                 # Add access point")
+        print("   risnet add ris                # Add RIS surface")
+        print("   risnet add ue                 # Add user equipment")
+        print("   risnet save network.json      # Save topology")
+        print("   risnet --topology examples/json/example_1_simple.json list\n")
+
+        print("USEFUL COMMANDS (using python3):")
         print("   python3 main.py               # Interactive mode")
         print("   python3 main.py list          # List nodes")
         print("   python3 main.py add ap        # Add access point")
@@ -225,10 +299,6 @@ class RISNetSetup:
         print("   python3 main.py save network.json  # Save topology")
         print("   python3 main.py --topology examples/json/example_1_simple.json list")
 
-        print("\nDOCUMENTATION:")
-        print("   - docs_archive/SETUP.md       # Setup guide")
-        print("   - examples/json/README.md")
-        print("   - examples/json/LOADING_GUIDE.md")
 
     def run(self):
         """Run complete setup"""

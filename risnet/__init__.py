@@ -235,12 +235,13 @@ class RISnet:
 
         return self.network.sweep(ap_name, ris_name, ue_name, fov, step)
 
-    def ping(self, src, dst):
+    def ping(self, src, dst, verbose=False):
         """Ping-like test between two nodes
 
         Args:
             src: Source node
             dst: Destination node
+            verbose: If True, print detailed link budget breakdown
 
         Returns:
             Dict with connectivity info
@@ -251,24 +252,30 @@ class RISnet:
             return {'reachable': False, 'snr_dB': -float('inf')}
 
         best_path = paths[0]
-        return {
+        result = {
             'reachable': True,
             'snr_dB': best_path['snr_dB'],
             'hops': best_path['hops'],
             'path': best_path['path']
         }
 
-    def iperf(self, src, dst):
+        if verbose:
+            self._print_path_details(best_path)
+
+        return result
+
+    def iperf(self, src, dst, verbose=False):
         """iPerf-like throughput test
 
         Args:
             src: Source node
             dst: Destination node
+            verbose: If True, print detailed link budget and capacity calculation
 
         Returns:
             Estimated throughput
         """
-        result = self.ping(src, dst)
+        result = self.ping(src, dst, verbose=False)
 
         if not result['reachable']:
             return {'throughput_Mbps': 0}
@@ -278,11 +285,108 @@ class RISnet:
         bandwidth_MHz = self.config.get('environment.bandwidth_MHz', 20)
         capacity_Mbps = bandwidth_MHz * np.log2(1 + snr_linear)
 
-        return {
+        output = {
             'throughput_Mbps': capacity_Mbps,
             'snr_dB': result['snr_dB'],
             'bandwidth_MHz': bandwidth_MHz
         }
+
+        if verbose:
+            self._print_throughput_details(output, snr_linear, result['path'])
+
+        return output
+
+    def _print_path_details(self, path_info):
+        """Print detailed path and link budget information"""
+        path = path_info['path']
+        snr_dB = path_info['snr_dB']
+
+        print(f"  Path: {' → '.join(path)}")
+        print(f"  Path type: {'direct' if len(path) == 2 else 'multi-hop (via RIS)' if 'R' in path[1:-1] else 'relay'}")
+
+        if len(path) > 2:
+            for i in range(len(path) - 1):
+                node1, node2 = path[i], path[i + 1]
+                pos1 = self._get_node_position(node1)
+                pos2 = self._get_node_position(node2)
+                distance = np.linalg.norm(np.array(pos2) - np.array(pos1))
+                link_info = self._get_link_budget(node1, node2, pos1, pos2)
+                print(f"  Hop {i + 1}: {node1}→{node2}")
+                print(f"    Distance: {distance:.2f} m")
+                print(f"    Path loss: {link_info['path_loss_dB']:.2f} dB")
+                print(f"    Atm loss: {link_info['atm_loss_dB']:.2f} dB")
+                if link_info['ris']:
+                    print(f"    RIS elements: {link_info['ris']['N']}x{link_info['ris']['N']}")
+                    print(f"    Phase bits: {link_info['ris']['bits']}")
+                    print(f"    Array gain: {link_info['gain_dBi']:.2f} dBi")
+                    print(f"    Quantization loss: {link_info['quant_loss_dB']:.2f} dB")
+
+        print(f"  Total SNR: {snr_dB:.2f} dB")
+        print(f"  TX power: {self._get_tx_power():.2f} dBm")
+        print(f"  Noise figure: 10.0 dB")
+
+    def _print_throughput_details(self, output, snr_linear, path):
+        """Print detailed throughput and capacity calculation"""
+        snr_dB = output['snr_dB']
+        bandwidth_MHz = output['bandwidth_MHz']
+        throughput_Mbps = output['throughput_Mbps']
+
+        print(f"  SNR: {snr_dB:.2f} dB ({snr_linear:.1f} linear)")
+        print(f"  Bandwidth: {bandwidth_MHz} MHz")
+        print(f"  Shannon formula: {bandwidth_MHz} × log₂(1 + {snr_linear:.1f}) = {throughput_Mbps:.1f} Mbps")
+
+    def _get_node_position(self, node_name):
+        """Get position of a node"""
+        for ap in self.aps.values():
+            if ap.name == node_name:
+                return ap.pos
+        for ris in self.riss.values():
+            if ris.name == node_name:
+                return ris.pos
+        for ue in self.ues.values():
+            if ue.name == node_name:
+                return ue.pos
+        return np.array([0, 0, 0])
+
+    def _get_link_budget(self, node1, node2, pos1, pos2):
+        """Get detailed link budget for a connection"""
+        from core.physics import Physics
+
+        distance = np.linalg.norm(np.array(pos2) - np.array(pos1))
+        freq = 10e9
+        ap = next(iter(self.aps.values()), None)
+        if ap:
+            freq = ap.freq
+
+        path_loss_dB = Physics.path_loss_dB(distance, freq)
+        atm_loss_dB = Physics.atmospheric_loss_dB(distance, freq / 1e9)
+        gain_dBi = 0
+        quant_loss_dB = 0
+        ris_info = None
+
+        if node1.lower().startswith('r') or node2.lower().startswith('r'):
+            ris_name = node1 if node1.lower().startswith('r') else node2
+            ris = self.riss.get(ris_name)
+            if ris:
+                N = ris.N
+                gain_dBi = Physics.array_gain_dBi(N * N, 1.0)
+                quant_loss_dB = Physics.quantization_loss_dB(ris.bits)
+                ris_info = {'N': N, 'bits': ris.bits}
+
+        return {
+            'path_loss_dB': path_loss_dB,
+            'atm_loss_dB': atm_loss_dB,
+            'gain_dBi': gain_dBi,
+            'quant_loss_dB': quant_loss_dB,
+            'ris': ris_info
+        }
+
+    def _get_tx_power(self):
+        """Get transmission power from first AP"""
+        ap = next(iter(self.aps.values()), None)
+        if ap:
+            return ap.power_dBm
+        return 20.0
 
     def CLI(self):
         """Launch interactive CLI"""
