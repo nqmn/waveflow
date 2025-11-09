@@ -1125,7 +1125,108 @@ class RISNetCLI(cmd.Cmd):
 
     def do_list(self, arg):
         """list nodes"""
+        self._print_topology_view()
+        print()
         self.net.list_nodes()
+
+    def _print_topology_view(self):
+        """Print ASCII topology view with node positions"""
+        if not self.net.nodes:
+            print("Network is empty")
+            return
+
+        nodes = self.net.nodes
+        positions = {name: node.pos for name, node in nodes.items()}
+
+        # Get bounds
+        if not positions:
+            return
+
+        xs = [pos[0] for pos in positions.values()]
+        ys = [pos[1] for pos in positions.values()]
+
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+
+        # Add padding to ranges to avoid edge placement
+        x_range = max(x_max - x_min, 1.0)
+        y_range = max(y_max - y_min, 1.0)
+
+        x_min -= x_range * 0.1
+        x_max += x_range * 0.1
+        y_min -= y_range * 0.1
+        y_max += y_range * 0.1
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+
+        # Scale to fit in 50x20 character grid
+        width, height = 50, 20
+        x_scale = (width - 2) / x_range if x_range > 0 else 1
+        y_scale = (height - 2) / y_range if y_range > 0 else 1
+
+        # Create mapping from node name to single character identifier
+        name_to_char = {}
+        char_index = 0
+        char_pool = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+        for name in sorted(nodes.keys()):
+            if char_index < len(char_pool):
+                name_to_char[name] = char_pool[char_index]
+                char_index += 1
+            else:
+                name_to_char[name] = "?"
+
+        # Create grid - use list of lists to store node names
+        grid = [[None for _ in range(width)] for _ in range(height)]
+
+        # Place nodes on grid with node names
+        node_positions = {}
+        for name, pos in positions.items():
+            node = nodes[name]
+
+            x_char = int((pos[0] - x_min) * x_scale + 1)
+            y_char = int((y_max - pos[1]) * y_scale + 1)
+
+            x_char = max(1, min(x_char, width - 2))
+            y_char = max(1, min(y_char, height - 2))
+
+            grid[y_char][x_char] = name
+            node_positions[name] = (x_char, y_char)
+
+        # Print topology
+        print("\nTopology View (ASCII):")
+        print("=" * 52)
+
+        # Print legend
+        legend = "Legend: "
+        for name in sorted(nodes.keys()):
+            legend += f"{name_to_char[name]}={name}  "
+        print(legend)
+        print("-" * 52)
+
+        for row in grid:
+            line = "| "
+            for cell in row:
+                if cell is None:
+                    line += "."
+                else:
+                    line += name_to_char[cell]
+            line += " |"
+            print(line)
+
+        print("-" * 52)
+
+        # Print coordinate info for each node
+        print("\nNode Coordinates:")
+        print(f"{'Name':<12} {'Type':<15} {'Position (x,y,z)':<25}")
+        print("-" * 52)
+        for name in sorted(nodes.keys()):
+            node = nodes[name]
+            node_type = type(node).__name__
+            x, y, z = node.pos[0], node.pos[1], node.pos[2]
+            print(f"{name:<12} {node_type:<15} ({x:6.2f}, {y:6.2f}, {z:6.2f})")
+        print("=" * 52)
 
     def do_save(self, arg):
         """save [filename] - Save network state to disk
@@ -1251,7 +1352,7 @@ class RISNetCLI(cmd.Cmd):
                     K_db = node_info.get('K_db', 10.0)
                     noise_floor = node_info.get('noise_floor', -90.0)
                     self.net.add_ris(
-                        name, x, y, z, N, bits, freq, max_angle,
+                        name, x, y, z, N, bits, freq, max_angle_deg=max_angle,
                         active_mode=active_mode, amplifier_gain=amplifier_gain,
                         element_efficiency=element_efficiency,
                         phase_error_std_deg=phase_error,
@@ -1272,19 +1373,31 @@ class RISNetCLI(cmd.Cmd):
             if impairments:
                 self.net.set_impairments(impairments)
         except Exception as e:
-            pass  # Silently fail if file can't be loaded
+            print(f"Warning: Failed to load network from {filepath}: {e}")
+            import traceback
+            traceback.print_exc()
 
     def do_connect(self, arg):
-        """connect ap ris ue [beam_angle_deg] [seed]
+        """connect ap ris ue [beam_angle_deg] [seed] [--no-feedback]
         Example: connect ap1 ris1 ue1 30
-                 connect ap1 ris1 ue1 45 0   # deterministic seed
+                 connect ap1 ris1 ue1 45 0              # deterministic seed
+                 connect ap1 ris1 ue1 45 0 --no-feedback # disable feedback
         If beam angle omitted, auto-steer geometrically.
+        Uses closed-loop feedback by default (real hardware behavior).
         """
         parts = shlex.split(arg)
         if len(parts) < 3:
-            print('usage: connect ap ris ue [beam_angle] [seed]')
+            print('usage: connect ap ris ue [beam_angle] [seed] [--no-feedback]')
             return
+
         ap, ris, ue = parts[0], parts[1], parts[2]
+        enable_feedback = True  # Default: feedback enabled (real hardware behavior)
+
+        # Parse feedback flag
+        if '--no-feedback' in parts:
+            enable_feedback = False
+            parts.remove('--no-feedback')
+
         angle = float(parts[3]) if len(parts) > 3 else None
         seed = None
         if len(parts) > 4:
@@ -1293,7 +1406,14 @@ class RISNetCLI(cmd.Cmd):
             except ValueError:
                 print('Seed must be an integer')
                 return
-        res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed)
+
+        # Call connect with feedback enabled by default
+        res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
+                              enable_feedback=enable_feedback, max_feedback_iterations=3)
+
+        # Pretty print results
+        print(f"\nConnection Result (Feedback: {'Enabled' if enable_feedback else 'Disabled'}):")
+        print("=" * 70)
         pprint.pprint(res)
 
     def do_sweep(self, arg):
@@ -1316,20 +1436,26 @@ class RISNetCLI(cmd.Cmd):
         """
         parts = shlex.split(arg)
         if len(parts) < 3:
-            print('usage: sweep ap ris ue [fov step] [--algo algorithm]')
+            print('usage: sweep ap ris ue [fov step] [--algo algorithm] [--no-feedback]')
             print('Available algorithms: linear, adaptive, brute-force, center-out')
             return
 
         ap, ris, ue = parts[0], parts[1], parts[2]
 
-        # Parse algorithm option first to filter it out
+        # Parse flags
         algo_name = 'linear'
+        enable_feedback = True  # Default: feedback enabled (real hardware behavior)
+
         if '--algo' in parts:
             idx = parts.index('--algo')
             if idx + 1 < len(parts):
                 algo_name = parts[idx + 1]
             # Remove --algo and its argument from parts
             parts = parts[:idx] + parts[idx+2:]
+
+        if '--no-feedback' in parts:
+            enable_feedback = False
+            parts.remove('--no-feedback')
 
         # Parse positional arguments (fov and step)
         fov = float(parts[3]) if len(parts) > 3 else 60.0
@@ -1359,50 +1485,54 @@ class RISNetCLI(cmd.Cmd):
         print(f'  User Equipment: {ue}')
         print(f'  Field of View:  {fov}°')
         print(f'  Step Size:      {step}°')
+        print(f'  Feedback:       {"Enabled (closed-loop)" if enable_feedback else "Disabled"}')
 
         # Execute sweep
         try:
             print(f'\n' + '-'*70)
             print('EXECUTING SWEEP...')
             print('-'*70)
-            out = algo.sweep(ap, ris, ue, fov=fov, step=step)
+            out = algo.sweep(ap, ris, ue, fov=fov, step=step,
+                           enable_feedback=enable_feedback, max_feedback_iterations=3)
         except ValueError as e:
             print(f"Sweep failed: {e}")
             return
 
-        # Display detailed coarse phase results
-        print(f'\n[PHASE 1] COARSE SEARCH')
-        print('-'*70)
+        # Check if this is single-phase (linear) or two-phase (adaptive) algorithm
         local_coarse = out.get('local_coarse', [])
         snr_coarse = out.get('snr_coarse', [])
         pwr_coarse = out.get('pwr_coarse', [])
-
-        if local_coarse and snr_coarse:
-            print(f'Total angles tested: {len(local_coarse)}\n')
-            print(f'{"Angle (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}')
-            print('-'*70)
-
-            best_coarse_idx = 0
-            best_coarse_snr = snr_coarse[0]
-
-            for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
-                pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
-                marker = " <-- BEST" if snr > best_coarse_snr else ""
-                print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
-                if snr > best_coarse_snr:
-                    best_coarse_snr = snr
-                    best_coarse_idx = i
-
-            print('-'*70)
-            print(f'Best coarse angle: {local_coarse[best_coarse_idx]:.2f}° with SNR = {best_coarse_snr:.2f} dB')
-
-        # Display detailed fine phase results
-        print(f'\n[PHASE 2] FINE REFINEMENT')
-        print('-'*70)
         local_fine = out.get('local_fine', [])
         snr_fine = out.get('snr_fine', [])
 
+        # Display results based on whether fine phase exists
         if local_fine and snr_fine:
+            # Two-phase display (adaptive algorithm)
+            print(f'\n[PHASE 1] COARSE SEARCH')
+            print('-'*70)
+
+            if local_coarse and snr_coarse:
+                print(f'Total angles tested: {len(local_coarse)}\n')
+                print(f'{"Angle (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}')
+                print('-'*70)
+
+                best_coarse_idx = 0
+                best_coarse_snr = snr_coarse[0]
+
+                for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
+                    pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
+                    marker = " <-- BEST" if snr > best_coarse_snr else ""
+                    print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+                    if snr > best_coarse_snr:
+                        best_coarse_snr = snr
+                        best_coarse_idx = i
+
+                print('-'*70)
+                print(f'Best coarse angle: {local_coarse[best_coarse_idx]:.2f}° with SNR = {best_coarse_snr:.2f} dB')
+
+            # Display fine phase
+            print(f'\n[PHASE 2] FINE REFINEMENT')
+            print('-'*70)
             print(f'Refined angles tested: {len(local_fine)}\n')
             print(f'{"Angle (°)":<12} {"SNR (dB)":<15}')
             print('-'*70)
@@ -1415,6 +1545,25 @@ class RISNetCLI(cmd.Cmd):
                 print(f'{angle:>11.1f}  {snr:>13.2f}{marker}')
 
             print('-'*70)
+        else:
+            # Single-phase display (linear algorithm)
+            print(f'\n[SWEEP RESULTS]')
+            print('-'*70)
+
+            if local_coarse and snr_coarse:
+                print(f'Total angles tested: {len(local_coarse)}\n')
+                print(f'{"Angle (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}')
+                print('-'*70)
+
+                best_idx = int(np.argmax(snr_coarse))
+                best_snr = snr_coarse[best_idx]
+
+                for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
+                    pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
+                    marker = " <-- OPTIMAL" if i == best_idx else ""
+                    print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+
+                print('-'*70)
 
         # Display final summary
         print(f'\n' + '='*70)
@@ -2267,6 +2416,168 @@ Examples:
                         print(f"  Distances: AP→RIS={d['ap_to_ris_m']:.2f}m, RIS→UE={d['ris_to_ue_m']:.2f}m")
         except Exception as e:
             print(f"Error: {e}")
+
+    # =====================================================================
+    # Adaptive Control Commands
+    # =====================================================================
+
+    def do_adaptive(self, arg):
+        """adaptive <enable|disable|status|control> [AP_name] [RIS_name] [UE_name]
+        Manage closed-loop adaptive control (power + rate adaptation)
+
+        Subcommands:
+          adaptive enable AP1 R1 UE1          - Enable adaptive control for AP1
+          adaptive enable AP1 R1 UE1 --power-only   - Power control only
+          adaptive enable AP1 R1 UE1 --rate-only    - Rate adaptation only
+          adaptive disable AP1                - Disable adaptive control
+          adaptive status AP1                 - Show current state
+          adaptive control AP1 R1 UE1 [iter]  - Run control loop (default 10 iterations)
+          adaptive control AP1 R1 UE1 20      - Run 20 iterations
+          adaptive history AP1 [last_n]       - Show last N iterations (default all)
+        """
+        parts = shlex.split(arg)
+        if not parts:
+            print("Usage: adaptive <enable|disable|status|control|history> ...")
+            return
+
+        subcmd = parts[0].lower()
+
+        if subcmd == 'enable':
+            if len(parts) < 4:
+                print("Usage: adaptive enable <AP> <RIS> <UE> [--power-only|--rate-only]")
+                return
+            ap_name, ris_name, ue_name = parts[1], parts[2], parts[3]
+            ap = self.net.get(ap_name)
+            if not ap or not hasattr(ap, 'power_control_enabled'):
+                print(f"Error: {ap_name} is not a valid AP")
+                return
+
+            power_only = '--power-only' in parts
+            rate_only = '--rate-only' in parts
+
+            from controller.adaptive_controller import AdaptiveController
+            if not hasattr(self, '_adaptive_controller'):
+                self._adaptive_controller = AdaptiveController(self.net)
+
+            power_ctrl = True if not rate_only else False
+            rate_adapt = True if not power_only else False
+
+            self._adaptive_controller.enable_adaptation(
+                ap_name,
+                power_control=power_ctrl,
+                rate_adaptation=rate_adapt,
+                target_snr_dB=20.0
+            )
+
+            print(f"✓ Adaptive control enabled for {ap_name}")
+            print(f"  Power Control: {power_ctrl}")
+            print(f"  Rate Adaptation: {rate_adapt}")
+            print(f"  Target SNR: 20.0 dB")
+
+        elif subcmd == 'disable':
+            if len(parts) < 2:
+                print("Usage: adaptive disable <AP>")
+                return
+            ap_name = parts[1]
+            if not hasattr(self, '_adaptive_controller'):
+                print("No active adaptive controller")
+                return
+            self._adaptive_controller.disable_adaptation(ap_name)
+            print(f"✓ Adaptive control disabled for {ap_name}")
+
+        elif subcmd == 'status':
+            if len(parts) < 2:
+                print("Usage: adaptive status <AP>")
+                return
+            ap_name = parts[1]
+            if not hasattr(self, '_adaptive_controller'):
+                print("No active adaptive controller")
+                return
+            status = self._adaptive_controller.get_link_status(ap_name)
+            print(f"\nAdaptive Control Status: {ap_name}")
+            print(f"  Enabled: {status.get('enabled', False)}")
+            print(f"  Iterations: {status.get('iterations', 0)}")
+            print(f"  Converged: {status.get('converged', False)}")
+            print(f"  Elapsed Time: {status.get('elapsed_time', 0):.2f}s")
+            print(f"  Current Power: {status.get('current_power_dBm', '-')} dBm")
+            print(f"  Current MCS: {status.get('current_mcs', '-')}")
+
+        elif subcmd == 'control':
+            if len(parts) < 4:
+                print("Usage: adaptive control <AP> <RIS> <UE> [max_iterations]")
+                return
+            ap_name, ris_name, ue_name = parts[1], parts[2], parts[3]
+            max_iter = int(parts[4]) if len(parts) > 4 else 10
+
+            if not hasattr(self, '_adaptive_controller'):
+                self._adaptive_controller = AdaptiveController(self.net)
+
+            ap = self.net.get(ap_name)
+            if not ap or not hasattr(ap, 'power_control_enabled'):
+                print(f"Error: {ap_name} is not a valid AP")
+                return
+
+            if not ap.power_control_enabled and not ap.rate_adaptation_enabled:
+                print(f"Error: Adaptive control not enabled for {ap_name}")
+                return
+
+            def simple_snr_measure(ap_n, ris_n, ue_n):
+                ap_obj = self.net.get(ap_n)
+                if ap_obj:
+                    base_snr = 15.0 + (ap_obj.power_dBm - ap_obj.power_dBm_init)
+                    return {'snr_dB': np.clip(base_snr, 0, 40)}
+                return {'snr_dB': 15.0}
+
+            print(f"\nRunning adaptive control loop ({max_iter} iterations max)...\n")
+
+            result = self._adaptive_controller.full_control_loop(
+                ap_name, ris_name, ue_name,
+                max_iterations=max_iter,
+                measure_snr_callback=simple_snr_measure
+            )
+
+            self._adaptive_controller.print_summary(ap_name)
+
+            print(f"Final State:")
+            print(f"  Power: {result['final_state']['power_dBm']:.1f} dBm")
+            print(f"  MCS: {result['final_state']['mcs']}")
+            print(f"  SNR: {result['final_state']['snr_dB']:.1f} dB")
+            print(f"  Efficiency: {result['final_state']['efficiency_bps_hz']:.1f} bits/Hz")
+            print(f"  Converged: {result['converged']}")
+
+        elif subcmd == 'history':
+            if len(parts) < 2:
+                print("Usage: adaptive history <AP> [last_n]")
+                return
+            ap_name = parts[1]
+            last_n = int(parts[2]) if len(parts) > 2 else None
+
+            if not hasattr(self, '_adaptive_controller'):
+                print("No active adaptive controller")
+                return
+
+            history = self._adaptive_controller.get_history(ap_name, last_n)
+            if not history:
+                print(f"No history for {ap_name}")
+                return
+
+            print(f"\nAdaptive Control History ({ap_name}):")
+            print(f"{'Iter':<5} {'SNR(dB)':<10} {'Power(dBm)':<12} {'MCS':<18} {'Status':<12}")
+            print("-" * 70)
+
+            for h in history:
+                snr = h.get('measured_snr_dB', '-')
+                power = h.get('post_control', {}).get('power_dBm', '-')
+                mcs = h.get('post_control', {}).get('mcs', '-')
+                status = h.get('convergence_status', '-')
+
+                snr_str = f"{snr:.1f}" if isinstance(snr, (int, float)) else str(snr)
+                power_str = f"{power:.1f}" if isinstance(power, (int, float)) else str(power)
+
+                print(f"{h['iteration']:<5} {snr_str:<10} {power_str:<12} {mcs:<18} {status:<12}")
+
+        else:
+            print(f"Unknown adaptive subcommand: {subcmd}")
 
     def do_quit(self, arg):
         """quit - Clear topology and exit the CLI"""

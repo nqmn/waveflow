@@ -1,11 +1,11 @@
 """Linear Brute-Force Beam Sweep Algorithm
 
 Tests all beam angles across the field of view in equal steps.
-Uses specular reflection reference angle (same as adaptive) for physically
-correct RIS beam steering. Differs from adaptive only in search strategy
-(linear vs. center-out), not in reference frame.
+Single-phase exhaustive search - simple and straightforward.
+Uses specular reflection reference angle for physically correct RIS beam steering.
 
-Note: Adaptive algorithm is the reference implementation for RIS physics.
+This is the simplest sweep algorithm: test all angles at specified resolution,
+find the best. No two-phase complexity needed for exhaustive search.
 """
 
 import numpy as np
@@ -22,33 +22,36 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
     @property
     def description(self) -> str:
-        return "Tests all beam angles across FOV in equal steps. Two-phase: coarse + fine refinement."
+        return "Simple exhaustive search: tests all beam angles across FOV at specified resolution."
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
-              fov: float = 60.0, step: float = 10.0,
-              fine_span: float = 10.0, fine_res: float = 1.0,
-              seed: int = 42) -> Dict:
-        """Execute linear brute-force sweep
+              fov: float = 60.0, step: float = 1.0,
+              seed: int = 42, enable_feedback: bool = True,
+              max_feedback_iterations: int = 3) -> Dict:
+        """Execute linear brute-force sweep with optional closed-loop feedback
 
         Args:
             ap_name: Access Point name
             ris_name: RIS name
             ue_name: User Equipment name
             fov: Field of view in degrees (default: 60)
-            step: Coarse step size in degrees (default: 10)
-            fine_span: Fine search span around best coarse angle (default: 10)
-            fine_res: Fine resolution in degrees (default: 1)
+            step: Angle step size in degrees (default: 1)
             seed: Random seed for reproducibility
+            enable_feedback: If True, use closed-loop feedback for each angle (default: False)
+            max_feedback_iterations: Max iterations for feedback loop (default: 3)
 
         Returns:
             Dictionary with sweep results:
-                - local_coarse: Local angles tested in coarse phase
-                - snr_coarse: SNR values for coarse angles
-                - pwr_coarse: Power values for coarse angles
-                - local_fine: Local angles tested in fine phase
-                - snr_fine: SNR values for fine angles
-                - best_local_fine: Best local angle
-                - best_snr_fine: Best SNR in dB
+                - angles: Local angles tested
+                - snr: SNR values for each angle
+                - power: Power values for each angle
+                - best_angle: Best local angle
+                - best_snr: Best SNR in dB
+                - best_power: Power at best angle
+                - specular_angle: Reference specular angle
+                - num_angles_tested: Total angles tested
+                - feedback_enabled: Whether feedback was used
+                - feedback_details: List of feedback iteration results (if enabled)
         """
         ap = self.network.get(ap_name)
         ris = self.network.get(ris_name)
@@ -57,54 +60,59 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         if ap is None or ris is None or ue is None:
             raise ValueError("Invalid node name in sweep")
 
-        # Calculate specular reflection angle (same as adaptive for consistent reference)
+        # Calculate specular reflection angle
         incident_vec = ap.pos - ris.pos
-        incident_angle = np.degrees(np.arctan2(incident_vec[1], incident_vec[0]))
-
-        # Specular reflection: mirror the incident ray
         reflected_vec = -incident_vec
         specular_angle = np.degrees(np.arctan2(reflected_vec[1], reflected_vec[0]))
 
-        # Phase 1: Coarse sweep
-        local_coarse = np.arange(-fov, fov + 1, step)
-        abs_angles = specular_angle + local_coarse
+        # Single phase: test all angles from -FOV to +FOV at specified resolution
+        angles = np.arange(-fov, fov + step, step)
+        abs_angles = specular_angle + angles
 
-        snr_coarse = []
-        pwr_coarse = []
+        snr_values = []
+        power_values = []
+        feedback_details = [] if enable_feedback else None
 
-        # Test each coarse angle
-        for abs_a in abs_angles:
+        # Test each angle
+        for i, abs_a in enumerate(abs_angles):
             res = self.network.connect(ap_name, ris_name, ue_name,
-                                      beam_angle_deg=abs_a, seed=seed)
-            snr_coarse.append(res['snr_dB'])
-            pwr_coarse.append(res['pwr_dBm'])
+                                      beam_angle_deg=abs_a, seed=seed,
+                                      enable_feedback=enable_feedback,
+                                      max_feedback_iterations=max_feedback_iterations)
+            snr_values.append(res['snr_dB'])
+            power_values.append(res['pwr_dBm'])
 
-        # Find best coarse angle
-        best_idx = int(np.argmax(snr_coarse))
-        best_local = local_coarse[best_idx]
+            # Store feedback details if enabled
+            if enable_feedback and 'feedback_info' in res:
+                feedback_details.append({
+                    'angle': float(abs_a),
+                    'local_angle': float(angles[i]),
+                    'feedback_info': res['feedback_info']
+                })
 
-        # Phase 2: Fine sweep around best coarse angle (constrained within original FOV)
-        fine_start = max(best_local - fine_span, -fov)
-        fine_end = min(best_local + fine_span, fov)
-        local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
-        abs_angles_fine = specular_angle + local_fine
-        snr_fine = []
-
-        for abs_a in abs_angles_fine:
-            r = self.network.connect(ap_name, ris_name, ue_name,
-                                    beam_angle_deg=abs_a, seed=seed)
-            snr_fine.append(r['snr_dB'])
-
-        best_fine_idx = int(np.argmax(snr_fine))
-        best_local_fine = local_fine[best_fine_idx]
+        # Find best angle
+        best_idx = int(np.argmax(snr_values))
+        best_angle = angles[best_idx]
+        best_snr = snr_values[best_idx]
+        best_power = power_values[best_idx]
 
         return {
-            'local_coarse': local_coarse.tolist(),
-            'snr_coarse': np.array(snr_coarse).tolist(),
-            'pwr_coarse': np.array(pwr_coarse).tolist(),
-            'local_fine': local_fine.tolist(),
-            'snr_fine': np.array(snr_fine).tolist(),
-            'best_local_fine': float(best_local_fine),
-            'best_snr_fine': float(np.max(snr_fine)),
-            'specular_angle': float(specular_angle)
+            'angles': angles.tolist(),
+            'snr': np.array(snr_values).tolist(),
+            'power': np.array(power_values).tolist(),
+            'best_angle': float(best_angle),
+            'best_snr': float(best_snr),
+            'best_power': float(best_power),
+            'specular_angle': float(specular_angle),
+            'num_angles_tested': len(angles),
+            'feedback_enabled': enable_feedback,
+            'feedback_details': feedback_details,
+            # Keep legacy keys for backward compatibility with adaptive algorithm output
+            'local_coarse': angles.tolist(),
+            'snr_coarse': np.array(snr_values).tolist(),
+            'pwr_coarse': np.array(power_values).tolist(),
+            'local_fine': [],
+            'snr_fine': [],
+            'best_local_fine': float(best_angle),
+            'best_snr_fine': float(best_snr)
         }

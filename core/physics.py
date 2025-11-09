@@ -337,11 +337,28 @@ class Physics:
         Returns:
             Angle loss in dB
         """
-        angular_deviation = abs(beam_angle_deg - target_angle_deg)
-        # Normalize to [-180, 180]
-        while angular_deviation > 180:
-            angular_deviation = 360 - angular_deviation
-        return min(angular_deviation * sensitivity, 12.0)
+        # Compute shortest angular distance between two angles
+        delta = (beam_angle_deg - target_angle_deg) % 360
+        if delta > 180:
+            angular_deviation = 360 - delta
+        else:
+            angular_deviation = delta
+
+        # Use realistic beamformer pattern loss model
+        # Based on sinc^2 pattern of linear array
+        # This represents the true directivity pattern without artificial capping
+        normalized_angle = angular_deviation / 90.0
+        if normalized_angle > 2.0:
+            normalized_angle = 2.0
+
+        # Sinc-squared pattern: loss = 20*log10(|sinc(π*normalized_angle)|)
+        # This gives realistic nulls and sidelobes
+        sinc_arg = np.pi * normalized_angle / 2.0
+        # Avoid exact zeros in sinc
+        sinc_val = np.sinc(sinc_arg / np.pi)
+        loss_dB = -20 * np.log10(np.abs(sinc_val) + 1e-10)
+
+        return min(loss_dB, 30.0)
 
     @staticmethod
     def compute_snr_dB(tx_power_dBm, total_loss_dB, gain_dBi,

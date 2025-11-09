@@ -92,8 +92,8 @@ class RISNetwork:
 
     # Basic connectivity (legacy method, kept for compatibility)
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
-                bandwidth_MHz=None, seed=None):
-        """Compute cascaded AP->RIS->UE link with proper SNR calculation
+                bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10):
+        """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
             ap_name: AP node name
@@ -103,9 +103,11 @@ class RISNetwork:
             compute_phases: Whether to compute and quantize RIS phases
             bandwidth_MHz: Signal bandwidth in MHz for noise floor calculation
             seed: Random seed for reproducibility (None = use random fading each call)
+            enable_feedback: If True, UE sends CSI feedback to AP for closed-loop adaptation
+            max_feedback_iterations: Maximum iterations for feedback loop (default 10)
 
         Returns:
-            Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB
+            Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
         """
         # Set seed for reproducibility if provided
         if seed is not None:
@@ -116,7 +118,15 @@ class RISNetwork:
         ue = self.get(ue_name)
 
         if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in connect")
+            missing = []
+            if ap is None:
+                missing.append(f"AP '{ap_name}'")
+            if ris is None:
+                missing.append(f"RIS '{ris_name}'")
+            if ue is None:
+                missing.append(f"UE '{ue_name}'")
+            available = ", ".join(self.nodes.keys()) if self.nodes else "none"
+            raise ValueError(f"Invalid node name(s): {', '.join(missing)}. Available nodes: {available}")
 
         # Auto-compute beam angle if not provided
         if beam_angle_deg is None:
@@ -191,7 +201,7 @@ class RISNetwork:
 
         gain_linear = 10 ** (gain_dBi / 10)
 
-        return {
+        result = {
             "snr_dB": float(snr_dB),
             "pwr_dBm": float(pwr_dBm),
             "rssi_dBm": float(pwr_dBm),
@@ -200,6 +210,108 @@ class RISNetwork:
             "quant_loss_dB": float(quant_loss_dB),
             "beam_angle": float(beam_angle_deg),
             "evm_percent": float(Physics.snr_to_evm(snr_dB))
+        }
+
+        # Automatic CSI feedback and closed-loop adaptation
+        if enable_feedback:
+            result["feedback_info"] = self._run_adaptive_feedback_loop(
+                ap_name, ris_name, ue_name, snr_dB, max_feedback_iterations,
+                bandwidth_MHz, seed
+            )
+
+        return result
+
+    def _run_adaptive_feedback_loop(self, ap_name, ris_name, ue_name, initial_snr_dB,
+                                    max_iterations, bandwidth_MHz, seed):
+        """Run closed-loop feedback between UE and AP for adaptation
+
+        Mimics real hardware: UE measures SNR and sends feedback to AP,
+        AP adapts power/modulation, then transmits again.
+        """
+        ap = self.get(ap_name)
+        ue = self.get(ue_name)
+
+        if not ap or not ue:
+            return {"error": "Invalid AP or UE"}
+
+        # Enable adaptive features (respect explicit user overrides)
+        was_power_enabled = ap.power_control_enabled
+        was_rate_enabled = ap.rate_adaptation_enabled
+        power_override = getattr(ap, 'power_control_override_active', lambda: True)()
+        rate_override = getattr(ap, 'rate_adaptation_override_active', lambda: True)()
+
+        auto_enabled_power = False
+        auto_enabled_rate = False
+
+        if not was_power_enabled and not power_override:
+            ap.set_power_control_enabled(True, user_override=None)
+            auto_enabled_power = True
+
+        if not was_rate_enabled and not rate_override:
+            ap.set_rate_adaptation_enabled(True, user_override=None)
+            auto_enabled_rate = True
+
+        feedback_iterations = []
+
+        for iteration in range(max_iterations):
+            # Iteration 0 uses initial SNR from first transmission
+            if iteration == 0:
+                snr_measured = initial_snr_dB
+            else:
+                # Re-compute link with adapted power
+                link_result = self.connect(
+                    ap_name, ris_name, ue_name,
+                    compute_phases=True,
+                    bandwidth_MHz=bandwidth_MHz,
+                    seed=seed,
+                    enable_feedback=False
+                )
+                snr_measured = link_result["snr_dB"]
+
+            # UE measures SNR and generates feedback
+            ue.estimate_snr_from_waveform(
+                rx_signal=np.random.randn(1000) + 1j * np.random.randn(1000),
+                noise_power=0.01
+            )
+            ue.snr_measurement_dB = snr_measured
+
+            csi_feedback = ue.generate_csi_feedback(snr_dB=snr_measured)
+
+            # AP receives feedback and adapts
+            control_action = ap.process_csi_feedback(csi_feedback)
+
+            snr_error = abs(ap.target_snr_dB - snr_measured)
+            converged = snr_error < 1.0
+
+            iteration_info = {
+                "iteration": iteration,
+                "measured_snr_dB": snr_measured,
+                "ap_power_dBm": ap.power_dBm,
+                "ap_mcs": ap.get_current_mcs()["name"],
+                "snr_error_dB": snr_error,
+                "converged": converged,
+                "control_action": control_action
+            }
+
+            feedback_iterations.append(iteration_info)
+
+            if converged:
+                break
+
+        # Restore original settings only if we auto-enabled them
+        if auto_enabled_power:
+            ap.set_power_control_enabled(was_power_enabled, user_override=None)
+
+        if auto_enabled_rate:
+            ap.set_rate_adaptation_enabled(was_rate_enabled, user_override=None)
+
+        return {
+            "iterations": feedback_iterations,
+            "converged": feedback_iterations[-1]["converged"] if feedback_iterations else False,
+            "num_iterations": len(feedback_iterations),
+            "final_power_dBm": ap.power_dBm,
+            "final_mcs": ap.get_current_mcs()["name"],
+            "final_snr_dB": feedback_iterations[-1]["measured_snr_dB"] if feedback_iterations else None
         }
 
     def direct_link(self, ap_name: str, ue_name: str,

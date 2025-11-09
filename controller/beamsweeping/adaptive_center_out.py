@@ -26,8 +26,9 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
               fine_span: float = 10.0, fine_res: float = 1.0,
-              seed: int = 42) -> Dict:
-        """Execute adaptive center-out sweep
+              seed: int = 42, enable_feedback: bool = True,
+              max_feedback_iterations: int = 3) -> Dict:
+        """Execute adaptive center-out sweep with optional closed-loop feedback
 
         Args:
             ap_name: Access Point name
@@ -38,6 +39,8 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
             fine_span: Fine search span around best coarse angle (default: 10)
             fine_res: Fine resolution in degrees (default: 1)
             seed: Random seed for reproducibility
+            enable_feedback: If True, use closed-loop feedback for each angle (default: False)
+            max_feedback_iterations: Max iterations for feedback loop (default: 3)
 
         Returns:
             Dictionary with sweep results
@@ -64,6 +67,7 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
 
         snr_coarse = []
         pwr_coarse = []
+        feedback_details = [] if enable_feedback else None
 
         # Adaptive center-out: test center first, then expand
         center_idx = len(local_coarse) // 2
@@ -82,9 +86,20 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
 
         for idx in test_order:
             res = self.network.connect(ap_name, ris_name, ue_name,
-                                      beam_angle_deg=abs_angles[idx], seed=seed)
+                                      beam_angle_deg=abs_angles[idx], seed=seed,
+                                      enable_feedback=enable_feedback,
+                                      max_feedback_iterations=max_feedback_iterations)
             snr_array[idx] = res['snr_dB']
             pwr_array[idx] = res['pwr_dBm']
+
+            # Store feedback details if enabled
+            if enable_feedback and 'feedback_info' in res:
+                feedback_details.append({
+                    'angle': float(abs_angles[idx]),
+                    'local_angle': float(local_coarse[idx]),
+                    'phase': 'coarse',
+                    'feedback_info': res['feedback_info']
+                })
 
         snr_coarse = snr_array.tolist()
         pwr_coarse = pwr_array.tolist()
@@ -100,10 +115,21 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         abs_angles_fine = specular_angle + local_fine
         snr_fine = []
 
-        for abs_a in abs_angles_fine:
+        for i, abs_a in enumerate(abs_angles_fine):
             r = self.network.connect(ap_name, ris_name, ue_name,
-                                    beam_angle_deg=abs_a, seed=seed)
+                                    beam_angle_deg=abs_a, seed=seed,
+                                    enable_feedback=enable_feedback,
+                                    max_feedback_iterations=max_feedback_iterations)
             snr_fine.append(r['snr_dB'])
+
+            # Store feedback details if enabled
+            if enable_feedback and 'feedback_info' in r:
+                feedback_details.append({
+                    'angle': float(abs_a),
+                    'local_angle': float(local_fine[i]),
+                    'phase': 'fine',
+                    'feedback_info': r['feedback_info']
+                })
 
         best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
@@ -116,5 +142,7 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
             'snr_fine': np.array(snr_fine).tolist(),
             'best_local_fine': float(best_local_fine),
             'best_snr_fine': float(np.max(snr_fine)),
-            'specular_angle': float(specular_angle)
+            'specular_angle': float(specular_angle),
+            'feedback_enabled': enable_feedback,
+            'feedback_details': feedback_details
         }

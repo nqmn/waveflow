@@ -2,6 +2,7 @@
 Node classes for RIS network simulation
 """
 import numpy as np
+from typing import Dict, Optional
 from .physics import C
 
 class Node:
@@ -24,17 +25,209 @@ class Node:
 
 
 class AccessPoint(Node):
-    """Access Point (AP) node with transmission and RF impairments"""
+    """Access Point (AP) node with adaptive power control and rate adaptation"""
+
+    MCS_TABLE = [
+        {'name': 'BPSK-1/2', 'modulation': 'BPSK', 'coding_rate': 0.5,
+         'bits_per_symbol': 1, 'req_snr_dB': 0.0, 'efficiency_bps_hz': 0.5},
+        {'name': 'QPSK-1/2', 'modulation': 'QPSK', 'coding_rate': 0.5,
+         'bits_per_symbol': 2, 'req_snr_dB': 3.0, 'efficiency_bps_hz': 1.0},
+        {'name': 'QPSK-3/4', 'modulation': 'QPSK', 'coding_rate': 0.75,
+         'bits_per_symbol': 2, 'req_snr_dB': 7.0, 'efficiency_bps_hz': 1.5},
+        {'name': '16QAM-1/2', 'modulation': '16QAM', 'coding_rate': 0.5,
+         'bits_per_symbol': 4, 'req_snr_dB': 10.0, 'efficiency_bps_hz': 2.0},
+        {'name': '16QAM-3/4', 'modulation': '16QAM', 'coding_rate': 0.75,
+         'bits_per_symbol': 4, 'req_snr_dB': 14.0, 'efficiency_bps_hz': 3.0},
+        {'name': '64QAM-2/3', 'modulation': '64QAM', 'coding_rate': 0.667,
+         'bits_per_symbol': 6, 'req_snr_dB': 18.0, 'efficiency_bps_hz': 4.0},
+        {'name': '64QAM-5/6', 'modulation': '64QAM', 'coding_rate': 0.833,
+         'bits_per_symbol': 6, 'req_snr_dB': 22.0, 'efficiency_bps_hz': 5.0},
+    ]
 
     def __init__(self, name, x, y, z=0.0, power_dBm=20.0, freq=5.8e9,
                  bandwidth_MHz=20.0, antenna_gain_dBi=3.0,
                  noise_figure_dB=6.0):
         super().__init__(name, x, y, z)
         self.power_dBm = power_dBm
+        self.power_dBm_init = power_dBm
         self.freq = freq
         self.bandwidth_MHz = bandwidth_MHz
         self.antenna_gain_dBi = antenna_gain_dBi
         self.noise_figure_dB = noise_figure_dB
+
+        # Adaptive power control parameters
+        self.target_snr_dB = 20.0
+        self.power_dBm_max = 30.0
+        self.power_dBm_min = 10.0
+        self.power_step_dB = 1.0
+        self._power_control_enabled = False
+        self._power_control_override = False
+
+        # Rate adaptation parameters
+        self.current_mcs_index = 2
+        self.mcs_hysteresis_dB = 2.0
+        self._rate_adaptation_enabled = False
+        self._rate_adaptation_override = False
+
+        # Feedback from UE
+        self.last_csi_feedback = None
+        self.csi_history = []
+
+    def set_power_control_enabled(self, enabled: bool,
+                                  user_override: Optional[bool] = True):
+        """Set power-control flag, tracking whether user explicitly overrode it."""
+        self._power_control_enabled = bool(enabled)
+        if user_override is True:
+            self._power_control_override = True
+        elif user_override is False:
+            self._power_control_override = False
+
+    @property
+    def power_control_enabled(self) -> bool:
+        return self._power_control_enabled
+
+    @power_control_enabled.setter
+    def power_control_enabled(self, enabled: bool):
+        self.set_power_control_enabled(enabled, user_override=True)
+
+    def power_control_override_active(self) -> bool:
+        return self._power_control_override
+
+    def set_rate_adaptation_enabled(self, enabled: bool,
+                                    user_override: Optional[bool] = True):
+        """Set rate-adaptation flag, tracking user overrides."""
+        self._rate_adaptation_enabled = bool(enabled)
+        if user_override is True:
+            self._rate_adaptation_override = True
+        elif user_override is False:
+            self._rate_adaptation_override = False
+
+    @property
+    def rate_adaptation_enabled(self) -> bool:
+        return self._rate_adaptation_enabled
+
+    @rate_adaptation_enabled.setter
+    def rate_adaptation_enabled(self, enabled: bool):
+        self.set_rate_adaptation_enabled(enabled, user_override=True)
+
+    def rate_adaptation_override_active(self) -> bool:
+        return self._rate_adaptation_override
+
+    def closed_loop_power_control(self, measured_snr_dB: float) -> Dict:
+        """Adjust transmit power based on SNR feedback
+
+        Args:
+            measured_snr_dB: SNR measured by UE (dB)
+
+        Returns:
+            Control action dict with power change info
+        """
+        if not self.power_control_enabled:
+            return {'status': 'disabled'}
+
+        snr_error = self.target_snr_dB - measured_snr_dB
+        power_adjustment = 0.5 * snr_error
+
+        old_power = self.power_dBm
+        new_power = self.power_dBm + power_adjustment
+        new_power = np.clip(new_power, self.power_dBm_min, self.power_dBm_max)
+
+        if abs(new_power - old_power) >= self.power_step_dB:
+            self.power_dBm = new_power
+            return {
+                'status': 'updated',
+                'old_power_dBm': old_power,
+                'new_power_dBm': new_power,
+                'adjustment_dB': new_power - old_power,
+                'snr_error_dB': snr_error
+            }
+        else:
+            return {
+                'status': 'converged',
+                'current_power_dBm': self.power_dBm,
+                'snr_error_dB': snr_error
+            }
+
+    def select_mcs(self, measured_snr_dB: float) -> Dict:
+        """Select modulation and coding scheme based on SNR
+
+        Args:
+            measured_snr_dB: SNR measured by UE (dB)
+
+        Returns:
+            MCS selection dict
+        """
+        if not self.rate_adaptation_enabled:
+            current_mcs = self.MCS_TABLE[self.current_mcs_index]
+            return {
+                'status': 'disabled',
+                'mcs': current_mcs['name'],
+                'efficiency_bps_hz': current_mcs['efficiency_bps_hz']
+            }
+
+        current_req_snr = self.MCS_TABLE[self.current_mcs_index]['req_snr_dB']
+
+        old_index = self.current_mcs_index
+
+        if (measured_snr_dB > current_req_snr + self.mcs_hysteresis_dB and
+            self.current_mcs_index < len(self.MCS_TABLE) - 1):
+            self.current_mcs_index += 1
+
+        elif (measured_snr_dB < current_req_snr - self.mcs_hysteresis_dB and
+              self.current_mcs_index > 0):
+            self.current_mcs_index -= 1
+
+        current_mcs = self.MCS_TABLE[self.current_mcs_index]
+
+        return {
+            'status': 'updated' if old_index != self.current_mcs_index else 'unchanged',
+            'mcs': current_mcs['name'],
+            'modulation': current_mcs['modulation'],
+            'coding_rate': current_mcs['coding_rate'],
+            'bits_per_symbol': current_mcs['bits_per_symbol'],
+            'efficiency_bps_hz': current_mcs['efficiency_bps_hz'],
+            'old_index': old_index,
+            'new_index': self.current_mcs_index
+        }
+
+    def process_csi_feedback(self, csi_feedback: Dict) -> Dict:
+        """Process CSI feedback from UE
+
+        Args:
+            csi_feedback: CSI report from UE
+
+        Returns:
+            Processed feedback with control actions
+        """
+        if csi_feedback is None:
+            return {'error': 'No CSI feedback received'}
+
+        self.last_csi_feedback = csi_feedback
+        self.csi_history.append(csi_feedback)
+
+        snr_dB = csi_feedback.get('snr_dB')
+        if snr_dB is None:
+            return {'error': 'No SNR in CSI feedback'}
+
+        result = {
+            'ue_name': csi_feedback.get('ue_name'),
+            'snr_dB': snr_dB,
+            'power_control': self.closed_loop_power_control(snr_dB),
+            'rate_adaptation': self.select_mcs(snr_dB)
+        }
+
+        return result
+
+    def get_current_mcs(self) -> Dict:
+        """Get currently configured MCS"""
+        return self.MCS_TABLE[self.current_mcs_index].copy()
+
+    def reset_adaptation(self):
+        """Reset adaptation to initial state"""
+        self.power_dBm = self.power_dBm_init
+        self.current_mcs_index = 2
+        self.last_csi_feedback = None
+        self.csi_history.clear()
 
     def to_dict(self):
         d = super().to_dict()
@@ -43,7 +236,11 @@ class AccessPoint(Node):
             'freq': self.freq,
             'bandwidth_MHz': self.bandwidth_MHz,
             'antenna_gain_dBi': self.antenna_gain_dBi,
-            'noise_figure_dB': self.noise_figure_dB
+            'noise_figure_dB': self.noise_figure_dB,
+            'current_mcs': self.get_current_mcs(),
+            'power_control_enabled': self.power_control_enabled,
+            'rate_adaptation_enabled': self.rate_adaptation_enabled,
+            'target_snr_dB': self.target_snr_dB
         })
         return d
 
@@ -218,7 +415,7 @@ class RIS(Node):
 
 
 class UE(Node):
-    """User Equipment (receiver) node with customizable impairments"""
+    """User Equipment (receiver) node with customizable impairments and CSI estimation"""
 
     def __init__(self, name, x, y, z=0.0, antenna_gain_dBi=3.0,
                  noise_figure_dB=6.0):
@@ -226,10 +423,69 @@ class UE(Node):
         self.antenna_gain_dBi = antenna_gain_dBi
         self.noise_figure_dB = noise_figure_dB
 
+        # CSI feedback mechanism
+        self.csi_report = None
+        self.snr_measurement_dB = None
+        self.channel_estimate = None
+        self.last_feedback_time = None
+        self.feedback_enabled = True
+
+    def estimate_snr_from_waveform(self, rx_signal: np.ndarray,
+                                   noise_power: float = 0.01) -> float:
+        """Estimate SNR from received waveform samples
+
+        Args:
+            rx_signal: Complex baseband signal samples
+            noise_power: Estimated noise power
+
+        Returns:
+            SNR in dB
+        """
+        signal_power = np.mean(np.abs(rx_signal)**2)
+        noise_power = np.clip(noise_power, 1e-20, np.inf)
+
+        if signal_power <= 1e-20:
+            self.snr_measurement_dB = -120.0
+        else:
+            snr_linear = signal_power / noise_power
+            snr_linear = np.clip(snr_linear, 1e-12, 1e12)
+            self.snr_measurement_dB = 10 * np.log10(snr_linear)
+            self.snr_measurement_dB = np.clip(self.snr_measurement_dB, -120.0, 120.0)
+
+        return self.snr_measurement_dB
+
+    def generate_csi_feedback(self, channel_est: np.ndarray = None,
+                            snr_dB: float = None) -> Dict:
+        """Generate CSI feedback report for transmission to AP
+
+        Args:
+            channel_est: Estimated channel (optional)
+            snr_dB: Measured SNR in dB (optional, uses internal measurement if not provided)
+
+        Returns:
+            CSI feedback dictionary
+        """
+        import time
+
+        feedback = {
+            'ue_name': self.name,
+            'timestamp': time.time(),
+            'snr_dB': snr_dB if snr_dB is not None else self.snr_measurement_dB,
+            'channel_estimate': channel_est,
+            'antenna_gain_dBi': self.antenna_gain_dBi,
+            'noise_figure_dB': self.noise_figure_dB
+        }
+
+        self.csi_report = feedback
+        self.last_feedback_time = feedback['timestamp']
+        return feedback
+
     def to_dict(self):
         d = super().to_dict()
         d.update({
             'antenna_gain_dBi': self.antenna_gain_dBi,
-            'noise_figure_dB': self.noise_figure_dB
+            'noise_figure_dB': self.noise_figure_dB,
+            'snr_measurement_dB': self.snr_measurement_dB,
+            'feedback_enabled': self.feedback_enabled
         })
         return d
