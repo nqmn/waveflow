@@ -60,14 +60,14 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         if ap is None or ris is None or ue is None:
             raise ValueError("Invalid node name in sweep")
 
-        # Calculate specular reflection angle
-        incident_vec = ap.pos - ris.pos
-        reflected_vec = -incident_vec
-        specular_angle = np.degrees(np.arctan2(reflected_vec[1], reflected_vec[0]))
+        # Calculate base direction (UE direction from RIS)
+        # This is the optimal beamforming direction for AP->RIS->UE link
+        ue_vec = ue.pos - ris.pos
+        base_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
 
         # Single phase: test all angles from -FOV to +FOV at specified resolution
         angles = np.arange(-fov, fov + step, step)
-        abs_angles = specular_angle + angles
+        abs_angles = base_angle + angles
 
         snr_values = []
         power_values = []
@@ -75,12 +75,21 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
         # Test each angle
         for i, abs_a in enumerate(abs_angles):
-            res = self.network.connect(ap_name, ris_name, ue_name,
-                                      beam_angle_deg=abs_a, seed=seed,
-                                      enable_feedback=enable_feedback,
-                                      max_feedback_iterations=max_feedback_iterations)
-            snr_values.append(res['snr_dB'])
-            power_values.append(res['pwr_dBm'])
+            with self._ap_state_guard(ap):
+                res = self.network.connect(
+                    ap_name, ris_name, ue_name,
+                    beam_angle_deg=abs_a, seed=seed,
+                    enable_feedback=enable_feedback,
+                    max_feedback_iterations=max_feedback_iterations
+                )
+
+            # For sweep comparison, use INITIAL SNR (before feedback control converges)
+            # This shows the true link quality at each angle without feedback masking differences
+            snr = res['snr_dB']
+            pwr = res['pwr_dBm']
+
+            snr_values.append(snr)
+            power_values.append(pwr)
 
             # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in res:
@@ -103,7 +112,7 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
             'best_angle': float(best_angle),
             'best_snr': float(best_snr),
             'best_power': float(best_power),
-            'specular_angle': float(specular_angle),
+            'base_angle': float(base_angle),
             'num_angles_tested': len(angles),
             'feedback_enabled': enable_feedback,
             'feedback_details': feedback_details,

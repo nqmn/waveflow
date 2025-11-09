@@ -157,6 +157,16 @@ class RISNetwork:
         # RIS gain (total elements = N × N)
         N_total = ris.N * ris.N
         target_angle = np.degrees(np.arctan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0]))
+
+        # Enforce max_angle_deg constraint - clamp target angle to within RIS capability
+        max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        if abs(target_angle) > max_angle:
+            # Clamp to the nearest valid angle within [-max_angle, +max_angle]
+            if target_angle > max_angle:
+                target_angle = max_angle
+            elif target_angle < -max_angle:
+                target_angle = -max_angle
+
         angle_loss = Physics.angle_loss_dB(beam_angle_deg, target_angle)
         gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=angle_loss)
 

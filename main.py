@@ -1058,10 +1058,49 @@ class RISNetCLI(cmd.Cmd):
         for cmd_name, description in sorted(command_docs):
             print(f"  {cmd_name:<{pad}}{description}")
 
+    def _generate_position_within_angle_constraint(self, max_angle_deg=60.0, distance_range=(5, 15)):
+        """Generate a random position within angle constraints relative to any existing RIS
+
+        If RIS exists, position AP/UE within ±max_angle_deg from RIS reference.
+        If no RIS, generate position in unconstrained area.
+
+        Args:
+            max_angle_deg: Maximum angle offset from RIS (default 60 degrees)
+            distance_range: (min_distance, max_distance) from RIS
+
+        Returns:
+            (x, y) tuple
+        """
+        ris_nodes = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+
+        if not ris_nodes:
+            # No RIS yet, generate unconstrained position
+            x = np.random.uniform(0, 15)
+            y = np.random.uniform(0, 15)
+            return x, y
+
+        # Use first RIS as reference
+        ris = ris_nodes[0]
+        ris_x, ris_y = ris.pos[0], ris.pos[1]
+
+        # Generate random angle within [-max_angle_deg, +max_angle_deg]
+        angle_deg = np.random.uniform(-max_angle_deg, max_angle_deg)
+        angle_rad = np.radians(angle_deg)
+
+        # Generate random distance from RIS
+        distance = np.random.uniform(distance_range[0], distance_range[1])
+
+        # Convert to Cartesian coordinates relative to RIS
+        x = ris_x + distance * np.cos(angle_rad)
+        y = ris_y + distance * np.sin(angle_rad)
+
+        return x, y
+
     def do_add(self, arg):
         """add <ap|ris|ue> [name]
         Auto-generates random positions and parameters.
         Auto naming format: APx, RIx, UEx (where x is auto-incrementing number)
+        AP/UE positions are constrained within +/-60 degrees from RIS reference.
         Examples:
           add ap          -> Creates AP1
           add ap MyAP     -> Creates MyAP
@@ -1099,19 +1138,22 @@ class RISNetCLI(cmd.Cmd):
                     return
 
             # Auto-generate random positions
-            x = np.random.uniform(0, 15)
-            y = np.random.uniform(0, 15)
             z = 0.0
 
             if typ == 'ap':
+                x, y = self._generate_position_within_angle_constraint()
                 self.net.add_ap(name, x, y, z)
                 print(f"added AP {name} at ({x:.2f}, {y:.2f})")
             elif typ == 'ris':
+                # RIS placement unconstrained
+                x = np.random.uniform(0, 15)
+                y = np.random.uniform(0, 15)
                 N = 16  # Default RIS grid size
                 bits = 1  # Default phase bits
                 self.net.add_ris(name, x, y, z, N, bits)
                 print(f"added RIS {name} at ({x:.2f}, {y:.2f}) (N={N}, bits={bits})")
             elif typ == 'ue':
+                x, y = self._generate_position_within_angle_constraint()
                 self.net.add_ue(name, x, y, z)
                 print(f"added UE {name} at ({x:.2f}, {y:.2f})")
             else:
@@ -1552,16 +1594,23 @@ class RISNetCLI(cmd.Cmd):
 
             if local_coarse and snr_coarse:
                 print(f'Total angles tested: {len(local_coarse)}\n')
-                print(f'{"Angle (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}')
+
+                # Get base angle (UE direction) if available
+                base_angle = out.get('base_angle', 0)
+
+                print(f'{"Local (°)":<12} {"Absolute (°)":<14} {"SNR (dB)":<15} {"Power (dBm)":<15}')
                 print('-'*70)
 
                 best_idx = int(np.argmax(snr_coarse))
                 best_snr = snr_coarse[best_idx]
 
                 for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
+                    abs_angle = base_angle + angle
                     pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
                     marker = " <-- OPTIMAL" if i == best_idx else ""
-                    print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+                    # Highlight UE direction (0° local = base_angle absolute)
+                    marker_ue = " (UE DIR)" if abs(angle) < 0.1 else ""
+                    print(f'{angle:>11.1f}  {abs_angle:>12.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}{marker_ue}')
 
                 print('-'*70)
 
@@ -1572,9 +1621,18 @@ class RISNetCLI(cmd.Cmd):
         best_local_fine = out.get('best_local_fine', 0.0)
         best_snr_fine = out.get('best_snr_fine', 0.0)
         total_angles_tested = len(local_coarse) + len(local_fine)
+        base_angle_summary = out.get('specular_angle', out.get('base_angle', None))
+        if base_angle_summary is not None:
+            best_abs_angle = base_angle_summary + best_local_fine
+        else:
+            best_abs_angle = None
 
         print(f'\nOptimal Beam Configuration:')
-        print(f'  Local Angle:       {best_local_fine:>10.2f}°')
+        if best_abs_angle is None:
+            print(f'  Best Angle:        {best_local_fine:>10.2f}° (local)')
+        else:
+            print(f'  Best Angle:        {best_local_fine:>10.2f}° local / {best_abs_angle:>10.2f}° absolute')
+            print(f'  Phase to RIS:      {best_abs_angle:>10.2f}°')
         print(f'  Maximum SNR:       {best_snr_fine:>10.2f} dB')
         print(f'  Total Angles:      {total_angles_tested:>10} tested')
         print(f'  Efficiency:        {(len(local_fine) / total_angles_tested * 100):>10.1f}% refined')
@@ -2735,6 +2793,8 @@ def main():
     parser.add_argument('--cli', action='store_true', help='Run CLI interface (default)')
     parser.add_argument('--config', type=str, help='Config file path')
     parser.add_argument('--topology', type=str, help='Load topology from JSON file')
+    parser.add_argument('--exec-only', action='store_true',
+                        help='Execute provided command(s) and exit without starting the interactive CLI')
     parser.add_argument('command', nargs='*', help='CLI command to execute (e.g., testall, add ap ap1 0 0)')
     args = parser.parse_args()
 
@@ -2758,10 +2818,26 @@ def main():
             print(f"✓ Topology loaded: {args.topology}")
 
         command_str = ' '.join(args.command)
+        exit_requested = False
         try:
-            cli.onecmd(command_str)
+            exit_requested = bool(cli.onecmd(command_str))
         except Exception as e:
             print(f"Error: {e}")
+            exit_requested = True
+
+        if not args.exec_only and not exit_requested:
+            print("\n" + "-" * 70)
+            print("Continuing in interactive CLI (type 'help' for commands, 'quit' to exit)")
+            print("-" * 70 + "\n")
+            try:
+                cli.cmdloop()
+            except KeyboardInterrupt:
+                print('\nClearing topology...')
+                if _net.nodes:
+                    _net.nodes.clear()
+                    cli._save_network()
+                    print('✓ Topology cleared')
+                print('Exiting RISNet CLI')
     else:
         # Default to interactive CLI interface
         cli = RISNetCLI(_net)

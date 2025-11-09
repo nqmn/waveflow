@@ -52,13 +52,9 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         if ap is None or ris is None or ue is None:
             raise ValueError("Invalid node name in sweep")
 
-        # Calculate specular reflection angle
-        incident_vec = ap.pos - ris.pos
-        incident_angle = np.degrees(np.arctan2(incident_vec[1], incident_vec[0]))
-
-        # Specular reflection: mirror the incident ray
-        reflected_vec = -incident_vec
-        specular_angle = np.degrees(np.arctan2(reflected_vec[1], reflected_vec[0]))
+        # Use UE direction as the reference (same baseline as linear sweep/connect)
+        ue_vec = ue.pos - ris.pos
+        specular_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
 
         # Generate codebook centered on specular angle
         num_steps = int(2 * fov / step) + 1
@@ -85,10 +81,13 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         pwr_array = np.zeros(len(local_coarse))
 
         for idx in test_order:
-            res = self.network.connect(ap_name, ris_name, ue_name,
-                                      beam_angle_deg=abs_angles[idx], seed=seed,
-                                      enable_feedback=enable_feedback,
-                                      max_feedback_iterations=max_feedback_iterations)
+            with self._ap_state_guard(ap):
+                res = self.network.connect(
+                    ap_name, ris_name, ue_name,
+                    beam_angle_deg=abs_angles[idx], seed=seed,
+                    enable_feedback=enable_feedback,
+                    max_feedback_iterations=max_feedback_iterations
+                )
             snr_array[idx] = res['snr_dB']
             pwr_array[idx] = res['pwr_dBm']
 
@@ -116,10 +115,13 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         snr_fine = []
 
         for i, abs_a in enumerate(abs_angles_fine):
-            r = self.network.connect(ap_name, ris_name, ue_name,
-                                    beam_angle_deg=abs_a, seed=seed,
-                                    enable_feedback=enable_feedback,
-                                    max_feedback_iterations=max_feedback_iterations)
+            with self._ap_state_guard(ap):
+                r = self.network.connect(
+                    ap_name, ris_name, ue_name,
+                    beam_angle_deg=abs_a, seed=seed,
+                    enable_feedback=enable_feedback,
+                    max_feedback_iterations=max_feedback_iterations
+                )
             snr_fine.append(r['snr_dB'])
 
             # Store feedback details if enabled
