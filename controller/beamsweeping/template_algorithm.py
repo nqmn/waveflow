@@ -44,7 +44,7 @@ class [TEMPLATE_CLASS_NAME](SweepAlgorithmBase):
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
               fine_span: float = 10.0, fine_res: float = 1.0,
-              seed: int = 42) -> Dict:
+              seed: int = 42, ml_angles=None) -> Dict:
         """Execute beam sweep
 
         This method implements the core sweep algorithm in two phases:

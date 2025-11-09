@@ -22,7 +22,7 @@ import pprint
 
 # Import core modules
 from core import RISNetwork, AccessPoint, RIS, UE, Environment, Physics
-from controller.beamsweeping import SweepAlgorithmLoader
+from controller.beamsweeping import SweepAlgorithmLoader, MLPredictorLoader
 from controller import PathfindingEngine, BeamformingEngine, RISController
 from cli import run_testall
 from config import Config
@@ -1487,6 +1487,8 @@ class RISNetCLI(cmd.Cmd):
         # Parse flags
         algo_name = 'linear'
         enable_feedback = True  # Default: feedback enabled (real hardware behavior)
+        ml_enabled = False
+        ml_name = None
 
         if '--algo' in parts:
             idx = parts.index('--algo')
@@ -1498,6 +1500,15 @@ class RISNetCLI(cmd.Cmd):
         if '--no-feedback' in parts:
             enable_feedback = False
             parts.remove('--no-feedback')
+
+        if '--ml' in parts:
+            idx = parts.index('--ml')
+            ml_enabled = True
+            if idx + 1 < len(parts) and not parts[idx + 1].startswith('--'):
+                ml_name = parts[idx + 1]
+                parts = parts[:idx] + parts[idx+2:]
+            else:
+                parts = parts[:idx] + parts[idx+1:]
 
         # Parse positional arguments (fov and step)
         fov = float(parts[3]) if len(parts) > 3 else 60.0
@@ -1515,6 +1526,19 @@ class RISNetCLI(cmd.Cmd):
             print(f"Error: Invalid node names (AP: {ap}, RIS: {ris}, UE: {ue})")
             return
 
+        ml_angles = None
+        ml_predictor_name = None
+        if ml_enabled:
+            try:
+                predictor = MLPredictorLoader.get_predictor(ml_name or 'default', self.net)
+                ml_predictor_name = predictor.name
+                ml_angles = predictor.predict_local_angles(ap, ris, ue, fov=fov, top_k=5)
+                if not ml_angles:
+                    ml_enabled = False
+            except ValueError as e:
+                print(f"ML predictor error: {e}")
+                ml_enabled = False
+
         # Display sweep parameters
         print('\n' + '='*70)
         print('BEAM SWEEP INITIALIZATION')
@@ -1528,14 +1552,19 @@ class RISNetCLI(cmd.Cmd):
         print(f'  Field of View:  {fov}°')
         print(f'  Step Size:      {step}°')
         print(f'  Feedback:       {"Enabled (closed-loop)" if enable_feedback else "Disabled"}')
+        print(f'  ML Prior:       {ml_predictor_name if ml_enabled else "Disabled"}')
 
         # Execute sweep
         try:
             print(f'\n' + '-'*70)
             print('EXECUTING SWEEP...')
             print('-'*70)
-            out = algo.sweep(ap, ris, ue, fov=fov, step=step,
-                           enable_feedback=enable_feedback, max_feedback_iterations=3)
+            out = algo.sweep(
+                ap, ris, ue, fov=fov, step=step,
+                enable_feedback=enable_feedback,
+                max_feedback_iterations=3,
+                ml_angles=ml_angles
+            )
         except ValueError as e:
             print(f"Sweep failed: {e}")
             return

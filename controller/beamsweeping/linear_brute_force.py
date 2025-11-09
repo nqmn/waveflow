@@ -27,7 +27,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 1.0,
               seed: int = 42, enable_feedback: bool = True,
-              max_feedback_iterations: int = 3) -> Dict:
+              max_feedback_iterations: int = 3,
+              ml_angles=None) -> Dict:
         """Execute linear brute-force sweep with optional closed-loop feedback
 
         Args:
@@ -69,12 +70,14 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         angles = np.arange(-fov, fov + step, step)
         abs_angles = base_angle + angles
 
-        snr_values = []
-        power_values = []
+        snr_values = [None] * len(angles)
+        power_values = [None] * len(angles)
         feedback_details = [] if enable_feedback else None
 
-        # Test each angle
-        for i, abs_a in enumerate(abs_angles):
+        def measure_index(idx: int):
+            if snr_values[idx] is not None:
+                return
+            abs_a = abs_angles[idx]
             with self._ap_state_guard(ap):
                 res = self.network.connect(
                     ap_name, ris_name, ue_name,
@@ -82,22 +85,32 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     enable_feedback=enable_feedback,
                     max_feedback_iterations=max_feedback_iterations
                 )
+            snr_values[idx] = res['snr_dB']
+            power_values[idx] = res['pwr_dBm']
 
-            # For sweep comparison, use INITIAL SNR (before feedback control converges)
-            # This shows the true link quality at each angle without feedback masking differences
-            snr = res['snr_dB']
-            pwr = res['pwr_dBm']
-
-            snr_values.append(snr)
-            power_values.append(pwr)
-
-            # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in res:
                 feedback_details.append({
                     'angle': float(abs_a),
-                    'local_angle': float(angles[i]),
+                    'local_angle': float(angles[idx]),
                     'feedback_info': res['feedback_info']
                 })
+
+        def local_angle_to_index(local_angle: float) -> int:
+            clamped = max(-fov, min(fov, local_angle))
+            rel = (clamped + fov) / step
+            idx = int(round(rel))
+            idx = max(0, min(len(angles) - 1, idx))
+            return idx
+
+        # Measure ML-suggested angles first (if provided)
+        if ml_angles:
+            for suggested in ml_angles:
+                idx = local_angle_to_index(float(suggested))
+                measure_index(idx)
+
+        # Test each angle
+        for idx in range(len(angles)):
+            measure_index(idx)
 
         # Find best angle
         best_idx = int(np.argmax(snr_values))

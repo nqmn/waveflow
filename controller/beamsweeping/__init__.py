@@ -8,6 +8,7 @@ from .base import SweepAlgorithmBase
 from .linear_brute_force import LinearBruteForceSweep
 from .adaptive_center_out import AdaptiveCenterOutSweep
 from .beamsweeping import compute_snr, adaptive_center_out_beam_sweep
+from .ml import MLPredictorLoader, SweepMLPredictor
 
 
 class SweepAlgorithmLoader:
@@ -80,6 +81,8 @@ __all__ = [
     'LinearBruteForceSweep',
     'AdaptiveCenterOutSweep',
     'SweepAlgorithmLoader',
+    'SweepMLPredictor',
+    'MLPredictorLoader',
     'compute_snr',
     'adaptive_center_out_beam_sweep',
 ]

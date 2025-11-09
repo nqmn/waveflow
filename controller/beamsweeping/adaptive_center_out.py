@@ -27,7 +27,8 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
               fov: float = 60.0, step: float = 10.0,
               fine_span: float = 10.0, fine_res: float = 1.0,
               seed: int = 42, enable_feedback: bool = True,
-              max_feedback_iterations: int = 3) -> Dict:
+              max_feedback_iterations: int = 3,
+              ml_angles=None) -> Dict:
         """Execute adaptive center-out sweep with optional closed-loop feedback
 
         Args:
@@ -77,10 +78,12 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
                 test_order.append(center_idx + offset)
 
         # Test angles in center-out order
-        snr_array = np.zeros(len(local_coarse))
-        pwr_array = np.zeros(len(local_coarse))
+        snr_array = np.full(len(local_coarse), np.nan)
+        pwr_array = np.full(len(local_coarse), np.nan)
 
-        for idx in test_order:
+        def measure_idx(idx: int):
+            if not np.isnan(snr_array[idx]):
+                return
             with self._ap_state_guard(ap):
                 res = self.network.connect(
                     ap_name, ris_name, ue_name,
@@ -91,7 +94,6 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
             snr_array[idx] = res['snr_dB']
             pwr_array[idx] = res['pwr_dBm']
 
-            # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in res:
                 feedback_details.append({
                     'angle': float(abs_angles[idx]),
@@ -99,6 +101,22 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
                     'phase': 'coarse',
                     'feedback_info': res['feedback_info']
                 })
+
+        def local_angle_to_index(local_angle: float) -> int:
+            clamped = max(-fov, min(fov, local_angle))
+            rel = (clamped + fov) / step
+            idx = int(round(rel))
+            idx = max(0, min(len(local_coarse) - 1, idx))
+            return idx
+
+        # Measure ML suggestions ahead of center-out traversal
+        if ml_angles:
+            for suggested in ml_angles:
+                idx = local_angle_to_index(float(suggested))
+                measure_idx(idx)
+
+        for idx in test_order:
+            measure_idx(idx)
 
         snr_coarse = snr_array.tolist()
         pwr_coarse = pwr_array.tolist()
