@@ -7,6 +7,7 @@ Each algorithm is implemented as a separate module and can be loaded dynamically
 from .base import SweepAlgorithmBase
 from .linear_brute_force import LinearBruteForceSweep
 from .adaptive_center_out import AdaptiveCenterOutSweep
+from .ml_sweep import MLGuidedSweep
 from .beamsweeping import compute_snr, adaptive_center_out_beam_sweep
 from .ml import MLPredictorLoader, SweepMLPredictor
 
@@ -19,6 +20,8 @@ class SweepAlgorithmLoader:
         'brute-force': LinearBruteForceSweep,
         'adaptive': AdaptiveCenterOutSweep,
         'center-out': AdaptiveCenterOutSweep,
+        'ml': MLGuidedSweep,
+        'ml-guided': MLGuidedSweep,
     }
 
     @classmethod
@@ -80,6 +83,7 @@ __all__ = [
     'SweepAlgorithmBase',
     'LinearBruteForceSweep',
     'AdaptiveCenterOutSweep',
+    'MLGuidedSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',
     'MLPredictorLoader',

@@ -164,15 +164,18 @@ class RISNetCLI(cmd.Cmd):
         pprint.pprint(res)
 
     def do_sweep(self, arg):
-        """sweep ap ris ue [fov step] [--algo algorithm]
+        """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type]
         Sweep beam angles to find optimal direction.
         Examples:
             sweep AP1 R1 UE1
             sweep AP1 R1 UE1 60 10 --algo adaptive
+            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb
+            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor zero
+        Available ML predictors: xgb (default), zero, default
         """
         parts = shlex.split(arg)
         if len(parts) < 3:
-            print('usage: sweep ap ris ue [fov step] [--algo algorithm]')
+            print('usage: sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type]')
             return
 
         ap, ris, ue = parts[0], parts[1], parts[2]
@@ -180,12 +183,18 @@ class RISNetCLI(cmd.Cmd):
         # Parse flags
         algo_name = 'linear'
         enable_feedback = True
-        ml_enabled = False
+        ml_predictor = 'xgb'
 
         if '--algo' in parts:
             idx = parts.index('--algo')
             if idx + 1 < len(parts):
                 algo_name = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
+        if '--ml-predictor' in parts:
+            idx = parts.index('--ml-predictor')
+            if idx + 1 < len(parts):
+                ml_predictor = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
         if '--no-feedback' in parts:
@@ -210,18 +219,73 @@ class RISNetCLI(cmd.Cmd):
         print('='*70)
 
         try:
-            out = algo.sweep(ap, ris, ue, fov=fov, step=step,
-                            enable_feedback=enable_feedback,
-                            max_feedback_iterations=3)
+            # Pass ML predictor to algorithm if it's ML-based
+            kwargs = {
+                'fov': fov,
+                'step': step,
+                'enable_feedback': enable_feedback,
+                'max_feedback_iterations': 3
+            }
+            if algo_name.lower() in ['ml', 'ml-guided']:
+                kwargs['ml_predictor'] = ml_predictor
 
-            print(f'\n[RESULTS]')
+            out = algo.sweep(ap, ris, ue, **kwargs)
+
+            # Extract algorithm info
+            algo_name = algo.name
+            has_fine_phase = 'local_fine' in out and len(out.get('local_fine', [])) > 0
+
+            print(f'\n[ALGORITHM: {algo_name}]')
             print('-'*70)
+
             local_coarse = out.get('local_coarse', [])
             snr_coarse = out.get('snr_coarse', [])
             pwr_coarse = out.get('pwr_coarse', [])
 
+            local_fine = out.get('local_fine', [])
+            snr_fine = out.get('snr_fine', [])
+
+            # Check if ML algorithm
+            ml_results = out.get('ml_results', [])
+            ml_suggestions = out.get('ml_suggestions', [])
+
+            # Calculate efficiency metrics
+            total_angles_tested = len(local_coarse)
+            if has_fine_phase:
+                total_angles_tested += len(local_fine)
+                exhaustive_count = int(2 * fov / step) + 1
+                efficiency = (1.0 - len(local_coarse) / exhaustive_count) * 100
+                if ml_results:
+                    print(f'[THREE-PHASE SWEEP: ML ({len(ml_results)} suggestions) + Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
+                    total_angles_tested += len(ml_results)
+                    print(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
+                else:
+                    print(f'[TWO-PHASE SWEEP: Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
+                    print(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
+            else:
+                print(f'[SINGLE-PHASE SWEEP]')
+                print(f'Total angles tested: {total_angles_tested}')
+            print()
+
+            # Show ML predictions if available
+            if ml_results:
+                print('ML PREDICTOR RESULTS:')
+                print('-'*70)
+                print(f'Predictor: {out.get("ml_predictor", "unknown")}')
+                print(f'Suggestions: {[f"{a:.1f}°" for a in ml_suggestions]}')
+                print()
+                header = f'{"Suggestion (°)":<18} {"SNR (dB)":<15} {"Power (dBm)":<15}'
+                print(header)
+                print('-'*70)
+                best_ml_idx = int(np.argmax([r["snr_dB"] for r in ml_results]))
+                for i, result in enumerate(ml_results):
+                    marker = " <-- BEST IN ML" if i == best_ml_idx else ""
+                    print(f'{result["local_angle"]:>16.1f}  {result["snr_dB"]:>13.2f}  {result["pwr_dBm"]:>13.2f}{marker}')
+                print()
+
             if local_coarse and snr_coarse:
-                print(f'Total angles tested: {len(local_coarse)}\n')
+                print('COARSE PHASE RESULTS:')
+                print('-'*70)
                 header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
                 print(header)
                 print('-'*70)
@@ -231,6 +295,57 @@ class RISNetCLI(cmd.Cmd):
                     pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
                     marker = " <-- BEST" if i == best_idx else ""
                     print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+                print()
+
+            # Show fine phase results if available
+            if has_fine_phase and local_fine and snr_fine:
+                print('FINE PHASE RESULTS:')
+                print('-'*70)
+                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
+                print(header)
+                print('-'*70)
+
+                best_fine_idx = int(np.argmax(snr_fine))
+                best_snr_fine = float(np.max(snr_fine))
+
+                for i, (angle, snr) in enumerate(zip(local_fine, snr_fine)):
+                    marker = " <-- BEST OVERALL" if snr == best_snr_fine else ""
+                    print(f'{angle:>11.1f}  {snr:>13.2f}  {" "*15}{marker}')
+                print()
+
+                # Show summary
+                best_coarse_snr = float(np.max(snr_coarse))
+                improvement = best_snr_fine - best_coarse_snr
+                print('SUMMARY:')
+                print('-'*70)
+                print(f'Best coarse SNR:        {best_coarse_snr:>8.2f} dB')
+                print(f'Best fine SNR:          {best_snr_fine:>8.2f} dB')
+                print(f'Improvement:            {improvement:>8.2f} dB')
+                print()
+
+            # Calculate final best beam angle
+            # Try to get the base/specular angle from the output
+            specular_angle = out.get('specular_angle', None)
+            if specular_angle is None:
+                specular_angle = out.get('base_angle', 0.0)
+
+            if has_fine_phase and local_fine and snr_fine:
+                best_final_local = local_fine[int(np.argmax(snr_fine))]
+                best_final_snr = float(np.max(snr_fine))
+            else:
+                best_final_local = local_coarse[int(np.argmax(snr_coarse))]
+                best_final_snr = float(np.max(snr_coarse))
+
+            best_final_abs = specular_angle + best_final_local
+
+            # Show recommendation for RIS
+            print('RECOMMENDATION TO SEND TO RIS:')
+            print('-'*70)
+            print(f'Beam Angle (Local):     {best_final_local:>8.2f}°')
+            print(f'Beam Angle (Absolute):  {best_final_abs:>8.2f}°')
+            print(f'Specular/Base Angle:    {specular_angle:>8.2f}°')
+            print(f'Expected SNR:           {best_final_snr:>8.2f} dB')
+            print()
 
             print('='*70 + '\n')
 
