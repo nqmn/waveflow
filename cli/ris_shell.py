@@ -264,6 +264,9 @@ Phase Formats (use: phases <format>):
         total_elements = grid_size * grid_size
         phases_grid = phases.reshape(grid_size, grid_size)
 
+        # Detect wave mode
+        wave_mode = self._detect_wave_mode()
+
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
         # Use truncated HSV colormap when range < 360° to avoid hue wraparound
@@ -313,6 +316,7 @@ CONFIGURATION:
   Quantization States: {2**self.ris_node.bits}
   Phase Step:        {phase_step_deg:.2f}°
   Phase Range:       0°–{quantized_range_max:.2f}°
+  Wave Mode:         {wave_mode}
 
 PERFORMANCE METRICS:
   SNR:               51.01 dB
@@ -382,3 +386,51 @@ PERFORMANCE METRICS:
         if meta['local'] is not None:
             lines.append(f"{indent}  Local Deflection: {meta['local']:7.2f}°")
         return "\n" + "\n".join(lines)
+
+    def _detect_wave_mode(self):
+        """Detect if phase pattern is plane wave or spherical wave
+
+        Returns:
+            str: 'Plane Wave' or 'Spherical Wave' based on phase gradient analysis
+        """
+        if self.ris_node.current_phases is None:
+            return "Unknown"
+
+        phases = self.ris_node.current_phases
+        N = self.ris_node.N
+        phases_2d = phases.reshape((N, N))
+
+        # For plane waves: all rows should have the same phase pattern (tiled 1D array)
+        # For spherical waves: phase pattern varies across 2D grid
+
+        # Check if rows are repetitive (plane wave characteristic)
+        row_0 = phases_2d[0, :]
+        row_1 = phases_2d[1, :] if N > 1 else row_0
+        row_diff = np.abs(row_0 - row_1)
+
+        # Unwrap phase differences to handle wrapping
+        row_diff = np.where(row_diff > np.pi, 2*np.pi - row_diff, row_diff)
+
+        # For plane waves, rows should be nearly identical (low difference)
+        row_similarity = np.mean(row_diff)
+
+        # Also check column differences
+        col_0 = phases_2d[:, 0]
+        col_1 = phases_2d[:, 1] if N > 1 else col_0
+
+        # Check if column 0 and 1 have consistent linear progression
+        col_0_grad = np.diff(col_0)
+        col_1_grad = np.diff(col_1)
+
+        # Unwrap gradient differences
+        grad_diff = np.abs(col_0_grad - col_1_grad)
+        grad_diff = np.where(grad_diff > np.pi, 2*np.pi - grad_diff, grad_diff)
+
+        grad_consistency = np.mean(grad_diff)
+
+        # Plane wave: low row difference + consistent column gradient
+        # Threshold empirically determined
+        if row_similarity < 0.3 and grad_consistency < 0.3:
+            return "Plane Wave"
+        else:
+            return "Spherical Wave"

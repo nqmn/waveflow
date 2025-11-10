@@ -250,19 +250,31 @@ class RealSignalMeasurer:
         return snr_dB
 
     @staticmethod
-    def measure_ser(tx_bits: np.ndarray, rx_bits: np.ndarray) -> float:
-        """Measure Symbol Error Rate
+    def measure_ser(tx_bits: np.ndarray, rx_bits: np.ndarray,
+                    bits_per_symbol: int = 1) -> float:
+        """Measure Symbol Error Rate (legacy name kept for compatibility)
 
         Args:
             tx_bits: Transmitted bits
             rx_bits: Received bits
+            bits_per_symbol: Modulation bits per symbol
 
         Returns:
-            SER as percentage
+            SER as percentage (falls back to BER if symbol grouping unavailable)
         """
-        errors = np.sum(tx_bits != rx_bits)
-        ser = (errors / len(tx_bits)) * 100
-        return ser
+        if bits_per_symbol <= 1:
+            errors = np.sum(tx_bits != rx_bits)
+            return (errors / max(len(tx_bits), 1)) * 100
+
+        num_symbols = len(tx_bits) // bits_per_symbol
+        if num_symbols == 0:
+            return 0.0
+
+        stop_idx = num_symbols * bits_per_symbol
+        tx_matrix = tx_bits[:stop_idx].reshape(num_symbols, bits_per_symbol)
+        rx_matrix = rx_bits[:stop_idx].reshape(num_symbols, bits_per_symbol)
+        symbol_errors = np.count_nonzero(np.any(tx_matrix != rx_matrix, axis=1))
+        return (symbol_errors / num_symbols) * 100
 
 
 class SignalLevelLink:
@@ -332,7 +344,11 @@ class SignalLevelLink:
         snr_dB = 10 * np.log10(snr_linear)
 
         # Measure SER
-        ser = RealSignalMeasurer.measure_ser(tx_bits, rx_bits)
+        ser = RealSignalMeasurer.measure_ser(
+            tx_bits,
+            rx_bits,
+            bits_per_symbol=self.modulator.bits_per_symbol
+        )
 
         # Count symbol errors (bit errors per symbol)
         bit_errors = np.sum(tx_bits != rx_bits)

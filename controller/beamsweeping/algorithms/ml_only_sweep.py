@@ -135,11 +135,15 @@ class MLOnlySweep(SweepAlgorithmBase):
                 'ser_percent': ser_val
             })
 
-            marker = " <-- BEST" if snr_val == max(snr_values) else ""
-            print(f"  idx={i}: {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
-
-        # Find best result
+        # Find best result first
         best_idx = int(np.argmax(snr_values))
+
+        # Now print with marker only for the best index
+        for i, snr_val in enumerate(snr_values):
+            ml_angle = local_angles[i]
+            abs_angle = specular_angle + ml_angle
+            marker = " <-- BEST" if i == best_idx else ""
+            print(f"  idx={i}: {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
         best_abs = specular_angle + best_local

@@ -157,7 +157,9 @@ class RISNetCLI(cmd.Cmd):
                 print(f"    Power:         {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"    Gain:          {link_info['gain_dBi']:>8.2f} dBi")
                 print(f"    Beam Angle:    {link_info['beam_angle']:>8.2f}°")
-                print(f"    Quant Loss:    {link_info['quant_loss_dB']:>8.2f} dB")
+                # Show as absolute penalty value (positive dB loss)
+                penalty = abs(link_info['quant_loss_dB'])
+                print(f"    Quant Penalty: {penalty:>8.2f} dB")
 
         print("\n" + "="*70 + "\n")
 
@@ -385,12 +387,16 @@ class RISNetCLI(cmd.Cmd):
             ("Gain (dBi)", "gain_dBi"),
             ("Gain (linear)", "gain_linear"),
             ("Beam Angle (deg)", "beam_angle"),
-            ("Quant Loss (dB)", "quant_loss_dB"),
+            ("Quant Penalty (dB)", "quant_loss_dB"),  # Shows absolute penalty value
             ("EVM (%)", "evm_percent"),
             ("SER (%)", "ser_percent")
         ]:
             if key in res:
-                physics_rows.append((label, res[key]))
+                value = res[key]
+                # Convert negative quantization loss to positive penalty
+                if key == "quant_loss_dB" and isinstance(value, (int, float)):
+                    value = abs(value)
+                physics_rows.append((label, value))
         _print_table("PHYSICS METRICS", physics_rows)
 
         if 'feedback_info' in res:
@@ -919,7 +925,7 @@ class RISNetCLI(cmd.Cmd):
         video_path = None
         modulation = "16QAM"
         chunk_limit = 6
-        num_symbols = 2000
+        num_symbols = 2000000  # 2M symbols × 6 chunks = ~6s total (more realistic for video)
         symbol_rate = 2e6
         sample_rate = 20e6
         sweep_fov = 80.0

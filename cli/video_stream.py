@@ -103,17 +103,25 @@ def transmit_chunk(bits: np.ndarray,
     valid_tx = bits[:payload_bits]
     valid_rx = rx_bits[:payload_bits]
 
-    ser = RealSignalMeasurer.measure_ser(valid_tx, valid_rx)
+    ser = RealSignalMeasurer.measure_ser(
+        valid_tx,
+        valid_rx,
+        bits_per_symbol=modulator.bits_per_symbol
+    )
     bit_errors = int(np.sum(valid_tx != valid_rx))
+    ber = (bit_errors / max(payload_bits, 1)) * 100.0
 
+    # SNR after equalization but before FEC decoding (post-CE, pre-FEC)
+    # Measured as signal_power / noise_power in symbol domain
     signal_power = channel.last_signal_power or float(np.mean(np.abs(tx_samples) ** 2))
     noise_power = channel.last_noise_power or 10 ** (noise_power_dB / 10)
     snr_linear = max(signal_power / max(noise_power, 1e-12), 1e-12)
     snr_dB = 10 * np.log10(snr_linear)
 
     return {
-        "snr_dB": float(snr_dB),
+        "snr_dB": float(snr_dB),  # Post-equalization, pre-decoder SNR in symbol domain
         "ser_percent": float(ser),
+        "ber_percent": float(ber),
         "bit_errors": bit_errors,
         "payload_bits": payload_bits,
         "total_bits": int(payload_bits),
@@ -145,9 +153,11 @@ def align_ris_with_controller(printer: Printer,
                               sweep_step: float) -> Dict:
     printer("\n[1] System-level connect (AP→RIS→UE)")
     connect_metrics = network.connect(ap_name, ris_name, ue_name, compute_phases=True)
+    quant_penalty = abs(connect_metrics['quant_loss_dB'])
     printer(f"    SNR={connect_metrics['snr_dB']:.2f} dB, "
             f"Gain={connect_metrics['gain_dBi']:.2f} dBi, "
-            f"Quant loss={connect_metrics['quant_loss_dB']:.2f} dB, "
+            f"Quantization penalty={quant_penalty:.2f} dB "
+            f"(ΔSNR={connect_metrics['quant_loss_dB']:.2f} dB), "
             f"Beam angle={connect_metrics['beam_angle']:.2f}°")
 
     printer("\n[2] Waveform beam sweep to refine steering")
@@ -315,7 +325,7 @@ def run_video_stream_workflow(network: RISNetwork,
     printer("\n[0] Direct AP→UE baseline (no RIS)")
     printer(f"    Distance={no_ris['distance_m']:.1f} m | "
             f"Path loss={no_ris['path_loss_dB']:.2f} dB | "
-            f"SNR={no_ris['snr_dB']:.2f} dB | "
+            f"SNR (direct, ideal receiver)={no_ris['snr_dB']:.2f} dB | "
             f"Capacity={no_ris['capacity_bps']/1e6:.2f} Mbps")
 
     link_state = align_ris_with_controller(
@@ -335,12 +345,16 @@ def run_video_stream_workflow(network: RISNetwork,
                                               num_symbols=config.waveform_symbols)
     snr_gain = baseline['snr_effective_dB'] - no_ris['snr_dB']
     capacity_gain = baseline['capacity_bps'] / max(no_ris['capacity_bps'], 1e-9)
-    printer(f"    RIS SNR={baseline['snr_ris_dB']:.2f} dB | "
-            f"Effective SNR={baseline['snr_effective_dB']:.2f} dB "
-            f"(Δ {snr_gain:+.2f} dB vs no RIS) | "
+    printer(f"    RIS SNR (pre-combiner)={baseline['snr_ris_dB']:.2f} dB | "
+            f"Effective SNR (post-equalization, with waveform impairments)={baseline['snr_effective_dB']:.2f} dB "
+            f"(Δ {snr_gain:+.2f} dB vs direct) | "
             f"Capacity={baseline['capacity_bps']/1e9:.3f} Gbps "
-            f"(×{capacity_gain:.1f} of no RIS) | "
+            f"({capacity_gain:.1f}× of direct) | "
             f"PAPR={baseline['papr_dB']:.2f} dB")
+    if snr_gain < 0:
+        printer(f"    Note: Effective SNR reduced by waveform impairments (phase quantization error, "
+                f"symbol-level distortion). Pre-combiner SNR ({baseline['snr_ris_dB']:.2f} dB) is the "
+                f"RIS-beamformed path quality before post-equalization processing.")
 
     video_source = VideoBitstreamSource(config.video_path)
     signal_cfg = SignalConfig(
@@ -357,11 +371,25 @@ def run_video_stream_workflow(network: RISNetwork,
     ue = network.get(ue_name)
 
     path_loss_dB = estimate_ris_path_loss(ap, ris, ue) - link_state["connect"]["quant_loss_dB"]
-    noise_power_dB = -92.0  # Approximate thermal noise for 100 MHz + NF margin
+    path_gain_linear = 10 ** (-path_loss_dB / 10)
+    target_snr_dB = baseline['snr_effective_dB']
+    target_snr_linear = max(10 ** (target_snr_dB / 10), 1e-12)
+    tx_symbol_power = float(np.mean(np.abs(modulator.constellation) ** 2))
+    received_symbol_power = max(tx_symbol_power * path_gain_linear, 1e-15)
+    noise_power_linear = max(received_symbol_power / target_snr_linear, 1e-15)
+    noise_power_dB = 10 * np.log10(noise_power_linear)
 
     chunk_idx = 0
     chunk_duration = signal_cfg.num_symbols / signal_cfg.symbol_rate
     delivered_bits = 0
+    snr_warning_thresholds = {
+        "QPSK": 6.0,
+        "16QAM": 12.0,
+        "64QAM": 18.0,
+    }
+    modulation_upper = signal_cfg.modulation.upper()
+    snr_guard_threshold = snr_warning_thresholds.get(modulation_upper, 10.0)
+    snr_warning_emitted = False
     printer("\n[5] Streaming chunks with programmed RIS phases:")
     while video_source.has_data() and chunk_idx < config.chunk_limit:
         bits, payload_bits = video_source.next_bits(bits_per_chunk)
@@ -381,33 +409,44 @@ def run_video_stream_workflow(network: RISNetwork,
         throughput_mbps = (useful_bits / chunk_duration) / 1e6
         delivered_bits += useful_bits
 
+        # Format: SNR post-equalization (before FEC), SER %, bit errors, throughput
+        ber_desc = (f"{metrics['bit_errors']:,d}/{metrics['payload_bits']:,d} bits")
         printer(
             f"  Chunk {chunk_idx+1:02d}: "
-            f"SNR={metrics['snr_dB']:.2f} dB | "
-            f"SER={metrics['ser_percent']:.3f} % | "
-            f"Errors={metrics['bit_errors']} | "
-            f"Throughput={throughput_mbps:.2f} Mbps"
+            f"SNR_postEQ={metrics['snr_dB']:.2f} dB | "
+            f"BER={metrics['ber_percent']:.3f}% ({ber_desc}) | "
+            f"SER={metrics['ser_percent']:.3f}% | "
+            f"Tput={throughput_mbps:.2f} Mbps"
         )
+
+        if (not snr_warning_emitted) and metrics['snr_dB'] < snr_guard_threshold:
+            printer(f"    [warn] Post-EQ SNR {metrics['snr_dB']:.2f} dB is below the typical "
+                    f"{signal_cfg.modulation} operating point (~{snr_guard_threshold:.1f} dB). "
+                    f"Check noise normalization or modulation settings.")
+            snr_warning_emitted = True
 
         chunk_idx += 1
 
     total_time = chunk_idx * chunk_duration
     avg_throughput = (delivered_bits / total_time) / 1e6 if total_time > 0 else 0.0
     printer("\nSummary:")
-    printer(f"  Chunks sent:        {chunk_idx}")
-    printer(f"  Delivered bits:     {delivered_bits}")
+    printer(f"  Chunks sent:        {chunk_idx:,d}")
+    printer(f"  Delivered bits:     {delivered_bits:,d}")
     printer(f"  Total time (s):     {total_time:.3f}")
     printer(f"  Avg throughput:     {avg_throughput:.2f} Mbps")
-    printer(f"  Config modulation:  {signal_cfg.modulation}")
+    printer(f"  Payload/chunk:      {bits_per_chunk:,d} bits ({bits_per_chunk/8:,.0f} bytes)")
+    printer(f"  Config modulation:  {signal_cfg.modulation} @ {signal_cfg.symbol_rate/1e6:.1f} MSym/s")
     printer(f"  RIS angle used:     {link_state['best_angle_deg']:.2f}°")
     if link_state["phase_error_deg"] is not None:
         printer(f"  Phase RMS error:    {link_state['phase_error_deg']:.2f}° "
-                f"({link_state['ris_elements']} elements)")
+                f"({link_state['ris_elements']:,d} elements)")
     improvement_pct = (baseline['snr_effective_dB'] - no_ris['snr_dB'])
     capacity_pct = (capacity_gain - 1.0) * 100 if no_ris['capacity_bps'] > 0 else float('nan')
     printer(f"  Waveform baseline:  {baseline['snr_effective_dB']:.2f} dB effective SNR "
-            f"(+{improvement_pct:.2f} dB vs no RIS)")
-    printer(f"  Capacity gain:      {capacity_gain:.2f}× | +{capacity_pct:.1f}% vs no RIS\n")
+            f"(+{improvement_pct:.2f} dB vs direct)")
+    printer(f"  Capacity gain:      {capacity_gain:.2f}× | +{capacity_pct:.1f}% vs direct")
+    bw_mhz = getattr(ap, 'bandwidth_MHz', 100.0) if ap else 100.0
+    printer(f"  Capacity model:     Shannon (C = BW × log₂(1+SNR)) with {bw_mhz:.0f} MHz BW\n")
     printer("  Beam sweep recap:")
     printer(f"    Linear brute-force best: {sweep_compare['linear']['best_absolute_deg']:.2f}° "
             f"({sweep_compare['linear']['best_snr_dB']:.2f} dB, "
@@ -427,6 +466,7 @@ def run_video_stream_workflow(network: RISNetwork,
             "avg_throughput_mbps": avg_throughput,
             "path_loss_dB": path_loss_dB,
             "noise_power_dB": noise_power_dB,
+            "target_snr_dB": target_snr_dB,
         },
         "config": {
             "video_path": str(config.video_path),
