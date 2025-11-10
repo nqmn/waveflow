@@ -62,7 +62,7 @@ class RISNetSetup:
         return missing
 
     def install_dependencies(self, packages):
-        """Install missing packages"""
+        """Install missing packages (supports Linux and Windows)"""
         if not packages:
             print("\n✓ All dependencies already installed")
             return True
@@ -71,9 +71,16 @@ class RISNetSetup:
         print(f"Installing: {', '.join(packages)}\n")
 
         try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "--break-system-packages"] + packages
-            )
+            # Try with --break-system-packages first (Linux with venv)
+            cmd = [sys.executable, "-m", "pip", "install", "--break-system-packages"] + packages
+            try:
+                subprocess.check_call(cmd)
+            except subprocess.CalledProcessError:
+                # Fallback: install without --break-system-packages (Windows, standard pip)
+                print("  Retrying without --break-system-packages flag...\n")
+                cmd = [sys.executable, "-m", "pip", "install"] + packages
+                subprocess.check_call(cmd)
+
             print("\n✓ Dependencies installed successfully")
             return True
         except subprocess.CalledProcessError as e:

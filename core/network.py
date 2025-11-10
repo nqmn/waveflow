@@ -16,6 +16,7 @@ class RISNetwork:
         self.environment = Environment()
         self._controller = None
         self.impairments = {}
+        self.active_links = {}  # Track active link connections
 
     def set_controller(self, controller):
         """Set network controller"""
@@ -99,6 +100,23 @@ class RISNetwork:
         """Remove node from network"""
         if name in self.nodes:
             del self.nodes[name]
+            # Remove associated links
+            self.active_links = {
+                link: info for link, info in self.active_links.items()
+                if name not in [info['ap'], info['ris'], info['ue']]
+            }
+
+    def get_active_links(self):
+        """Get all active links with their current status
+
+        Returns:
+            Dictionary of active links with metrics
+        """
+        return self.active_links
+
+    def clear_links(self):
+        """Clear all active link information"""
+        self.active_links = {}
 
     # Basic connectivity (legacy method, kept for compatibility)
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
@@ -238,6 +256,19 @@ class RISNetwork:
                 ap_name, ris_name, ue_name, snr_dB, max_feedback_iterations,
                 bandwidth_MHz, seed
             )
+
+        # Track active link
+        link_key = f"{ap_name}→{ris_name}→{ue_name}"
+        self.active_links[link_key] = {
+            'ap': ap_name,
+            'ris': ris_name,
+            'ue': ue_name,
+            'snr_dB': result['snr_dB'],
+            'pwr_dBm': result['pwr_dBm'],
+            'beam_angle': beam_angle_deg,
+            'gain_dBi': result.get('gain_dBi', 0.0),
+            'quant_loss_dB': result.get('quant_loss_dB', 0.0)
+        }
 
         return result
 

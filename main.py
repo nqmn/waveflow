@@ -21,13 +21,42 @@ from cli.main_shell import RISNetCLI
 def run_web(net, controller, host='127.0.0.1', port=5000):
     """Run WSGI web interface"""
     from waitress import serve as waitress_serve
+    from app.thread_safe_network import ThreadSafeNetwork, ThreadSafeController
+    from app.state_manager import WebStateManager
+    import signal
 
-    app = create_app(net, controller)
+    # Wrap with thread-safe versions for concurrent web access
+    net_safe = ThreadSafeNetwork(net)
+    controller_safe = ThreadSafeController(controller)
+
+    # Initialize state manager for persistence
+    state_mgr = WebStateManager()
+    state_mgr.load_network(net_safe)
+
+    app = create_app(net_safe, controller_safe, state_mgr)
 
     print(f'Using Waitress WSGI server (production-ready)')
     print(f'Server running on http://{host}:{port}')
     print('Press Ctrl+C to quit')
-    waitress_serve(app, host=host, port=port, threads=4)
+
+    # Handle graceful shutdown
+    def shutdown_handler(signum, frame):
+        print('\nShutting down gracefully...')
+        # Save network state before exit
+        if state_mgr:
+            state_mgr.save_network(net_safe)
+            print('✓ Network state saved')
+        print('Exiting RISNet web server')
+        sys.exit(0)
+
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, shutdown_handler)
+    signal.signal(signal.SIGTERM, shutdown_handler)
+
+    try:
+        waitress_serve(app, host=host, port=port, threads=4)
+    except KeyboardInterrupt:
+        shutdown_handler(None, None)
 
 
 def main():
