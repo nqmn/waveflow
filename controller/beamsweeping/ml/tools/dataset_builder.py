@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import csv
 import random
 from pathlib import Path
 from typing import Any, Dict, List
@@ -11,6 +11,16 @@ from typing import Any, Dict, List
 import numpy as np
 
 from core import RISNetwork
+
+
+FIELDNAMES = [
+    'ap_x', 'ap_y', 'ap_z',
+    'ris_x', 'ris_y', 'ris_z',
+    'ue_x', 'ue_y', 'ue_z',
+    'ap_power_dBm', 'ap_freq',
+    'ris_N', 'ris_bits',
+    'best_angle', 'best_snr'
+]
 
 
 def random_position(bounds: Dict[str, float]) -> np.ndarray:
@@ -54,10 +64,32 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg):
     return sample
 
 
+def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
+    return {
+        'ap_x': sample['ap_pos'][0],
+        'ap_y': sample['ap_pos'][1],
+        'ap_z': sample['ap_pos'][2],
+        'ris_x': sample['ris_pos'][0],
+        'ris_y': sample['ris_pos'][1],
+        'ris_z': sample['ris_pos'][2],
+        'ue_x': sample['ue_pos'][0],
+        'ue_y': sample['ue_pos'][1],
+        'ue_z': sample['ue_pos'][2],
+        'ap_power_dBm': sample['ap_power_dBm'],
+        'ap_freq': sample['ap_freq'],
+        'ris_N': sample['ris_N'],
+        'ris_bits': sample['ris_bits'],
+        'best_angle': sample['best_angle'],
+        'best_snr': sample['best_snr']
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate training data for beam ML models")
     parser.add_argument('--samples', type=int, default=1000, help='Number of random topologies')
-    parser.add_argument('--output', type=Path, default=Path('beam_dataset.json'), help='Output JSON file')
+    parser.add_argument('--output', type=Path,
+                        default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
+                        help='Output CSV file')
     parser.add_argument('--seed', type=int, default=42)
     args = parser.parse_args()
 
@@ -73,7 +105,7 @@ def main():
     }
 
     ap_cfg = {'power_dBm': 20.0, 'freq': 5.8e9}
-    ris_cfg = {'N': 16, 'bits': 2}
+    ris_cfg = {'N': 16, 'bits': 1}
     ue_cfg = {}
 
     net = RISNetwork()
@@ -86,7 +118,13 @@ def main():
         except Exception as exc:
             print(f"Skipping sample due to error: {exc}")
 
-    args.output.write_text(json.dumps(samples, indent=2))
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with args.output.open('w', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=FIELDNAMES)
+        writer.writeheader()
+        for sample in samples:
+            writer.writerow(flatten_sample(sample))
+
     print(f"Wrote {len(samples)} samples to {args.output}")
 
 

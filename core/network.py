@@ -196,6 +196,13 @@ class RISNetwork:
                 target_angle = -max_angle
 
         angle_loss = Physics.angle_loss_dB(beam_angle_deg, target_angle)
+        # Track beam metadata on RIS for visualization
+        try:
+            ris.specular_angle_deg = float(target_angle)
+            ris.abs_beam_angle_deg = float(beam_angle_deg)
+            ris.local_beam_deflection_deg = float(beam_angle_deg - target_angle)
+        except Exception:
+            pass
         gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=angle_loss)
 
         # Quantization loss (negative dB = loss)
@@ -258,11 +265,14 @@ class RISNetwork:
             )
 
         # Track active link
-        link_key = f"{ap_name}→{ris_name}→{ue_name}"
+        ap_key = ap.name if ap else ap_name
+        ris_key = ris.name if ris else ris_name
+        ue_key = ue.name if ue else ue_name
+        link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"
         self.active_links[link_key] = {
-            'ap': ap_name,
-            'ris': ris_name,
-            'ue': ue_name,
+            'ap': ap_key,
+            'ris': ris_key,
+            'ue': ue_key,
             'snr_dB': result['snr_dB'],
             'pwr_dBm': result['pwr_dBm'],
             'beam_angle': beam_angle_deg,
@@ -486,7 +496,11 @@ class RISNetwork:
         best_local = local_coarse[best_idx]
 
         # Fine sweep
-        local_fine = np.arange(best_local - fine_span, best_local + fine_span + fine_res, fine_res)
+        local_fine = np.arange(best_local - fine_span,
+                               best_local + fine_span + fine_res,
+                               fine_res)
+        local_fine = np.clip(local_fine, -fov, fov)
+        local_fine = np.unique(local_fine)
         abs_angles_fine = base_dir + local_fine
         snr_fine = []
 

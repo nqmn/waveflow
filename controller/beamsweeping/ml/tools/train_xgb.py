@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
+import csv
 from pathlib import Path
 from typing import List
 
@@ -16,26 +16,27 @@ except ImportError as exc:  # pragma: no cover
 
 
 def load_dataset(path: Path):
-    data = json.loads(path.read_text())
     X: List[List[float]] = []
     y: List[float] = []
-    for sample in data:
-        ap_pos = sample['ap_pos']
-        ris_pos = sample['ris_pos']
-        ue_pos = sample['ue_pos']
-        vec_ap_ris = np.array(ris_pos) - np.array(ap_pos)
-        vec_ris_ue = np.array(ue_pos) - np.array(ris_pos)
-        features = [
-            *ap_pos, *ris_pos, *ue_pos,
-            float(np.linalg.norm(vec_ap_ris)),
-            float(np.linalg.norm(vec_ris_ue)),
-            sample['ap_power_dBm'],
-            sample['ap_freq'],
-            sample['ris_N'],
-            sample['ris_bits'],
-        ]
-        X.append(features)
-        y.append(sample['best_angle'])
+    with path.open(newline='') as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            ap_pos = [float(row['ap_x']), float(row['ap_y']), float(row['ap_z'])]
+            ris_pos = [float(row['ris_x']), float(row['ris_y']), float(row['ris_z'])]
+            ue_pos = [float(row['ue_x']), float(row['ue_y']), float(row['ue_z'])]
+            vec_ap_ris = np.array(ris_pos) - np.array(ap_pos)
+            vec_ris_ue = np.array(ue_pos) - np.array(ris_pos)
+            features = [
+                *ap_pos, *ris_pos, *ue_pos,
+                float(np.linalg.norm(vec_ap_ris)),
+                float(np.linalg.norm(vec_ris_ue)),
+                float(row['ap_power_dBm']),
+                float(row['ap_freq']),
+                float(row['ris_N']),
+                float(row['ris_bits']),
+            ]
+            X.append(features)
+            y.append(float(row['best_angle']))
     return np.array(X, dtype=float), np.array(y, dtype=float)
 
 
@@ -47,7 +48,7 @@ def train_model(X, y, params):
 
 def main():
     parser = argparse.ArgumentParser(description="Train XGBoost beam predictor")
-    parser.add_argument('--data', type=Path, required=True, help='Path to dataset JSON')
+    parser.add_argument('--data', type=Path, required=True, help='Path to dataset CSV')
     parser.add_argument('--output', type=Path, default=Path('controller/beamsweeping/ml/models/xgb_beam_predictor.json'))
     parser.add_argument('--max-depth', type=int, default=6)
     parser.add_argument('--eta', type=float, default=0.1)

@@ -744,10 +744,18 @@ class RISNetCLI(cmd.Cmd):
 
             # Update/create active link with best result from sweep
             link_key = f"{ap}→{ris}→{ue}"
+            ap_node = self.net.get(ap)
+            ris_node = self.net.get(ris)
+            ue_node = self.net.get(ue)
+            ap_key = ap_node.name if ap_node else ap
+            ris_key = ris_node.name if ris_node else ris
+            ue_key = ue_node.name if ue_node else ue
+            link_key = f"{ap_key}→{ris_key}→{ue_key} (Sweep)"
+
             self.net.active_links[link_key] = {
-                'ap': ap,
-                'ris': ris,
-                'ue': ue,
+                'ap': ap_key,
+                'ris': ris_key,
+                'ue': ue_key,
                 'snr_dB': float(best_final_snr),
                 'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
                 'beam_angle': float(best_final_abs),

@@ -280,6 +280,9 @@ class RIS(Node):
         self.quantized_phases = None  # Quantized phases (radians)
         self.current_beam_angle = None
         self.phase_states = None  # Integer states (0 to 2^bits - 1)
+        self.specular_angle_deg = None
+        self.abs_beam_angle_deg = None
+        self.local_beam_deflection_deg = None
 
         # Phase manager (lazy-loaded on demand)
         self._phase_manager = None

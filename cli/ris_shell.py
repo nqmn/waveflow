@@ -143,7 +143,7 @@ Phase Formats (use: phases <format>):
 
         if self.ris_node.quantized_phases is not None:
             quantized_deg = np.degrees(self.ris_node.quantized_phases)
-            quant_error = ideal_deg - quantized_deg
+            quant_error = self._wrapped_phase_error(ideal_deg, quantized_deg)
 
             print(f"\n  Quantized Phases (degrees):")
             print(f"    Min:  {np.min(quantized_deg):7.2f}°")
@@ -155,6 +155,8 @@ Phase Formats (use: phases <format>):
             print(f"    Max Error:  {np.max(np.abs(quant_error)):7.2f}°")
             print(f"    Mean Error: {np.mean(np.abs(quant_error)):7.2f}°")
             print(f"    RMS Error:  {np.sqrt(np.mean(quant_error**2)):7.2f}°")
+
+        self._print_angle_metadata()
 
     def _print_phase_compact(self):
         """Print phases in compact format"""
@@ -234,19 +236,21 @@ Phase Formats (use: phases <format>):
                          fontsize=12, fontweight='bold')
         axes[0].set_xlabel('Column')
         axes[0].set_ylabel('Row')
+        # Overlay grid lines to emphasize element boundaries
+        axes[0].set_xticks(np.arange(-0.5, self.ris_node.N, 1), minor=True)
+        axes[0].set_yticks(np.arange(-0.5, self.ris_node.N, 1), minor=True)
+        axes[0].grid(which='minor', color='black', linewidth=0.25, alpha=0.6)
+        axes[0].tick_params(which='minor', length=0)
+        axes[0].set_xticks(np.arange(0, self.ris_node.N, max(1, self.ris_node.N // 8)))
+        axes[0].set_yticks(np.arange(0, self.ris_node.N, max(1, self.ris_node.N // 8)))
 
         cbar = plt.colorbar(im, ax=axes[0])
         cbar.set_label('Phase (degrees)', rotation=270, labelpad=20)
 
-        # Plot 2: Statistics
+        # Plot 2: Statistics (configuration only)
         axes[1].axis('off')
 
-        if self.ris_node.quantized_phases is not None:
-            ideal_deg = np.degrees(self.ris_node.current_phases)
-            quantized_deg = np.degrees(self.ris_node.quantized_phases)
-            quant_error = ideal_deg - quantized_deg
-
-            stats_text = f"""
+        stats_text = f"""
 RIS NODE: {self.ris_node.name}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -256,49 +260,12 @@ CONFIGURATION:
   Phase Bits:        {self.ris_node.bits}
   Quantization States: {2**self.ris_node.bits}
   Phase Step:        {360 / (2**self.ris_node.bits):.2f}°
-
-IDEAL PHASES:
-  Min:    {np.min(ideal_deg):7.2f}°
-  Max:    {np.max(ideal_deg):7.2f}°
-  Mean:   {np.mean(ideal_deg):7.2f}°
-  Std:    {np.std(ideal_deg):7.2f}°
-
-QUANTIZED PHASES:
-  Min:    {np.min(quantized_deg):7.2f}°
-  Max:    {np.max(quantized_deg):7.2f}°
-  Mean:   {np.mean(quantized_deg):7.2f}°
-  Std:    {np.std(quantized_deg):7.2f}°
-
-QUANTIZATION ERROR:
-  Max Error:  {np.max(np.abs(quant_error)):7.2f}°
-  Mean Error: {np.mean(np.abs(quant_error)):7.2f}°
-  RMS Error:  {np.sqrt(np.mean(quant_error**2)):7.2f}°
-            """
-        else:
-            ideal_deg = np.degrees(self.ris_node.current_phases)
-            stats_text = f"""
-RIS NODE: {self.ris_node.name}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-CONFIGURATION:
-  Grid Size (N):     {self.ris_node.N}×{self.ris_node.N}
-  Total Elements:    {self.ris_node.N * self.ris_node.N}
-  Phase Bits:        {self.ris_node.bits}
-  Quantization States: {2**self.ris_node.bits}
-  Phase Step:        {360 / (2**self.ris_node.bits):.2f}°
-
-IDEAL PHASES:
-  Min:    {np.min(ideal_deg):7.2f}°
-  Max:    {np.max(ideal_deg):7.2f}°
-  Mean:   {np.mean(ideal_deg):7.2f}°
-  Std:    {np.std(ideal_deg):7.2f}°
-
-(No quantization applied)
-            """
+{self._angle_metadata_text()}
+"""
 
         axes[1].text(0.05, 0.95, stats_text, transform=axes[1].transAxes,
-                    fontsize=10, verticalalignment='top', fontfamily='monospace',
-                    bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
+                     fontsize=10, verticalalignment='top', fontfamily='monospace',
+                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.3))
 
         plt.tight_layout()
 
@@ -315,3 +282,43 @@ IDEAL PHASES:
             plt.show()
         except:
             pass
+
+    @staticmethod
+    def _wrapped_phase_error(ideal_deg, quantized_deg):
+        """Compute wrapped phase error (degrees) in range [-180, 180]."""
+        diff = ideal_deg - quantized_deg
+        return ((diff + 180.0) % 360.0) - 180.0
+
+    def _get_angle_metadata(self):
+        return {
+            'abs': getattr(self.ris_node, 'abs_beam_angle_deg', None),
+            'spec': getattr(self.ris_node, 'specular_angle_deg', None),
+            'local': getattr(self.ris_node, 'local_beam_deflection_deg', None)
+        }
+
+    def _print_angle_metadata(self):
+        meta = self._get_angle_metadata()
+        if all(value is None for value in meta.values()):
+            return
+
+        print(f"\n  Beam Orientation:")
+        if meta['abs'] is not None:
+            print(f"    Absolute Beam Angle:   {meta['abs']:7.2f}°")
+        if meta['spec'] is not None:
+            print(f"    Specular Angle:        {meta['spec']:7.2f}°")
+        if meta['local'] is not None:
+            print(f"    Local Deflection:      {meta['local']:7.2f}°")
+
+    def _angle_metadata_text(self, indent='  '):
+        meta = self._get_angle_metadata()
+        if all(value is None for value in meta.values()):
+            return ""
+
+        lines = [f"{indent}Beam Orientation:"]
+        if meta['abs'] is not None:
+            lines.append(f"{indent}  Absolute Angle:   {meta['abs']:7.2f}°")
+        if meta['spec'] is not None:
+            lines.append(f"{indent}  Specular Angle:   {meta['spec']:7.2f}°")
+        if meta['local'] is not None:
+            lines.append(f"{indent}  Local Deflection: {meta['local']:7.2f}°")
+        return "\n" + "\n".join(lines)
