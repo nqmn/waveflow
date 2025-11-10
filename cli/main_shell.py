@@ -849,8 +849,14 @@ class RISNetCLI(cmd.Cmd):
         """
         parts = shlex.split(arg) if arg else []
         node_tokens = []
+        file_path_arg = None
         idx = 0
         while idx < len(parts) and not parts[idx].startswith('--'):
+            # Stop if we encounter a file path (contains / or \)
+            if '/' in parts[idx] or '\\' in parts[idx]:
+                file_path_arg = parts[idx]
+                idx += 1
+                break
             node_tokens.append(parts[idx])
             idx += 1
         opts = parts[idx:]
@@ -960,6 +966,10 @@ class RISNetCLI(cmd.Cmd):
         if not self.net.get(ue):
             print(f"Unknown UE '{ue}'")
             return
+
+        # Use file_path_arg if no --file option was provided
+        if video_path is None and file_path_arg is not None:
+            video_path = Path(file_path_arg)
 
         if video_path is None:
             print("Error: --file PATH is required for streaming")
@@ -1365,6 +1375,9 @@ class RISNetCLI(cmd.Cmd):
             # Just node name - enter interactive shell
             if node_type == 'RIS':
                 shell = RISNodeShell(node)
+                # Pass last connect result if available
+                if hasattr(self.net, 'last_connect_result') and self.net.last_connect_result:
+                    shell.last_connect_result = self.net.last_connect_result
                 shell.cmdloop()
             elif node_type == 'AccessPoint':
                 shell = APNodeShell(node)
@@ -1378,6 +1391,9 @@ class RISNetCLI(cmd.Cmd):
             cmd_args = parts[2:]
             if node_type == 'RIS':
                 shell = RISNodeShell(node)
+                # Pass last connect result if available
+                if hasattr(self.net, 'last_connect_result') and self.net.last_connect_result:
+                    shell.last_connect_result = self.net.last_connect_result
                 shell.onecmd(' '.join(parts[1:]))
             elif node_type == 'AccessPoint':
                 shell = APNodeShell(node)

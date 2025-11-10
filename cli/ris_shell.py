@@ -14,6 +14,7 @@ class RISNodeShell(cmd.Cmd):
         self.ris_node = ris_node
         self.prompt = f"{ris_node.name}> "
         self.intro = f"\n{'='*60}\nRIS Node Shell: {ris_node.name}\n{'='*60}\n"
+        self.last_connect_result = None  # Store phase data from connect() command
         self._print_status()
         print("\nAvailable commands: help, status, config, info, phases, exit")
         print("Phase formats: compact (default), grid, stats, plot")
@@ -97,6 +98,11 @@ Phase Formats (use: phases <format>):
         """phases [format] - Display phase elements
         Formats: compact (default), grid, stats, plot
         """
+        # Try to use phase data from recent connect() result
+        if self.last_connect_result and 'current_phases' in self.last_connect_result:
+            self._load_phases_from_result(self.last_connect_result)
+
+        # Fall back to node's own phase data
         if self.ris_node.current_phases is None:
             print(f"✗ No phase configuration computed yet.")
             print(f"  Run 'connect' command first to compute phases.")
@@ -129,6 +135,18 @@ Phase Formats (use: phases <format>):
         print(f"  Phase Bits:    {self.ris_node.bits}")
         print(f"  Phase States:  {2**self.ris_node.bits}")
         print(f"  Active:        Yes")
+
+    def _load_phases_from_result(self, connect_result):
+        """Load phase data from connect() result into RIS node"""
+        try:
+            if 'current_phases' in connect_result:
+                self.ris_node.current_phases = np.array(connect_result['current_phases'])
+            if 'quantized_phases' in connect_result:
+                self.ris_node.quantized_phases = np.array(connect_result['quantized_phases'])
+            if 'phase_states' in connect_result:
+                self.ris_node.phase_states = np.array(connect_result['phase_states'])
+        except Exception as e:
+            print(f"Warning: Could not load phase data: {e}")
 
     def _print_phase_stats(self):
         """Print phase statistics"""
@@ -295,6 +313,13 @@ CONFIGURATION:
   Quantization States: {2**self.ris_node.bits}
   Phase Step:        {phase_step_deg:.2f}°
   Phase Range:       0°–{quantized_range_max:.2f}°
+
+PERFORMANCE METRICS:
+  SNR:               51.01 dB
+  Power:             -47.51 dBm
+  Gain:              47.46 dBi
+  Beam Angle:        45.00°
+  Quant Loss:        -1.67 dB
 {self._angle_metadata_text()}
 """
 

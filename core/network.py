@@ -147,26 +147,28 @@ class RISNetwork:
         if seed is not None:
             np.random.seed(seed)
 
-        ap = self.get(ap_name)
-        ris = self.get(ris_name)
-        ue = self.get(ue_name)
+        ap_node = self.get(ap_name)
+        ris_node = self.get(ris_name)
+        ue_node = self.get(ue_name)
 
-        # Use isolated clones by default to prevent cross-node state pollution
-        if use_isolated_copy:
-            ap = ap.clone()
-            ris = ris.clone()
-            ue = ue.clone()
-
-        if ap is None or ris is None or ue is None:
+        if ap_node is None or ris_node is None or ue_node is None:
             missing = []
-            if ap is None:
+            if ap_node is None:
                 missing.append(f"AP '{ap_name}'")
-            if ris is None:
+            if ris_node is None:
                 missing.append(f"RIS '{ris_name}'")
-            if ue is None:
+            if ue_node is None:
                 missing.append(f"UE '{ue_name}'")
             available = ", ".join(self.nodes.keys()) if self.nodes else "none"
             raise ValueError(f"Invalid node name(s): {', '.join(missing)}. Available nodes: {available}")
+
+        # Use isolated clones by default to prevent cross-node state pollution
+        if use_isolated_copy:
+            ap = ap_node.clone()
+            ris = ris_node.clone()
+            ue = ue_node.clone()
+        else:
+            ap, ris, ue = ap_node, ris_node, ue_node
 
         # Auto-compute beam angle if not provided
         if beam_angle_deg is None:
@@ -258,6 +260,28 @@ class RISNetwork:
 
         gain_linear = 10 ** (gain_dBi / 10)
 
+        # Add phase data to result if computed
+        phase_data = {}
+        if compute_phases and ris.current_phases is not None:
+            phase_data = {
+                "current_phases": ris.current_phases.tolist() if hasattr(ris.current_phases, 'tolist') else ris.current_phases,
+                "quantized_phases": ris.quantized_phases.tolist() if ris.quantized_phases is not None and hasattr(ris.quantized_phases, 'tolist') else ris.quantized_phases,
+                "phase_states": ris.phase_states.tolist() if ris.phase_states is not None and hasattr(ris.phase_states, 'tolist') else ris.phase_states,
+                "phase_grid": ris.get_phase_grid() if hasattr(ris, 'get_phase_grid') else None
+            }
+
+            # Persist phase configuration on canonical RIS node for downstream tools (e.g., ris_panel shell)
+            if ris_node is not None:
+                ris_node.current_phases = np.array(ris.current_phases, copy=True)
+                ris_node.quantized_phases = (np.array(ris.quantized_phases, copy=True)
+                                             if ris.quantized_phases is not None else None)
+                ris_node.phase_states = (np.array(ris.phase_states, copy=True)
+                                         if ris.phase_states is not None else None)
+                ris_node.current_beam_angle = float(beam_angle_deg) if beam_angle_deg is not None else None
+                ris_node.specular_angle_deg = getattr(ris, 'specular_angle_deg', None)
+                ris_node.abs_beam_angle_deg = getattr(ris, 'abs_beam_angle_deg', None)
+                ris_node.local_beam_deflection_deg = getattr(ris, 'local_beam_deflection_deg', None)
+
         result = {
             "snr_dB": float(snr_dB),
             "pwr_dBm": float(pwr_dBm),
@@ -266,7 +290,8 @@ class RISNetwork:
             "gain_dBi": float(gain_dBi),
             "quant_loss_dB": float(quant_loss_dB),
             "beam_angle": float(beam_angle_deg),
-            "evm_percent": float(Physics.snr_to_evm(snr_dB))
+            "evm_percent": float(Physics.snr_to_evm(snr_dB)),
+            **phase_data
         }
 
         # Automatic CSI feedback and closed-loop adaptation
