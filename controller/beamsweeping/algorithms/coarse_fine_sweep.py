@@ -1,35 +1,45 @@
-"""Adaptive Center-Out Beam Sweep Algorithm
+"""Coarse-Fine Two-Phase Beam Sweep Algorithm
 
 Implements an efficient two-phase beam sweeping strategy:
-- Phase 1: Coarse adaptive center-out sweep (starts from specular angle, expands outward)
-- Phase 2: Fine-resolution refinement around best angle
+- Phase 1: Coarse center-out sweep (starts from specular angle, expands outward)
+- Phase 2: Fine-resolution refinement around best coarse angle
 
 Efficiency: ~30% measurement savings vs exhaustive search
+
+Supports real signal-level emulation via use_waveform parameter.
 """
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from ..base import SweepAlgorithmBase
+
+# Try to import signal processor for waveform simulation
+try:
+    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
+    WAVEFORM_AVAILABLE = True
+except ImportError:
+    WAVEFORM_AVAILABLE = False
 
 
-class AdaptiveCenterOutSweep(SweepAlgorithmBase):
-    """Adaptive center-out beam sweep algorithm"""
+class CoarseFineSweep(SweepAlgorithmBase):
+    """Coarse-fine two-phase beam sweep algorithm"""
 
     @property
     def name(self) -> str:
-        return "Adaptive Center-Out Sweep"
+        return "Coarse-Fine Two-Phase Sweep"
 
     @property
     def description(self) -> str:
-        return "Intelligent beam steering from specular angle, expanding adaptively. ~30% more efficient."
+        return "Two-phase beam steering: coarse center-out search, then fine refinement. ~30% more efficient."
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
               fine_span: float = 10.0, fine_res: float = 1.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
-              ml_angles=None) -> Dict:
-        """Execute adaptive center-out sweep with optional closed-loop feedback
+              ml_angles=None, use_waveform: bool = False,
+              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+        """Execute coarse-fine two-phase sweep with optional closed-loop feedback
 
         Args:
             ap_name: Access Point name
@@ -42,9 +52,12 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
             seed: Random seed for reproducibility
             enable_feedback: If True, use closed-loop feedback for each angle (default: False)
             max_feedback_iterations: Max iterations for feedback loop (default: 3)
+            use_waveform: If True, simulate real signal-level SNR/SER (default: False)
+            modulation: Modulation type: QPSK, 16QAM, or 64QAM (default: QPSK)
+            num_symbols: Number of symbols per measurement (default: 1000)
 
         Returns:
-            Dictionary with sweep results
+            Dictionary with sweep results including optional 'ser_coarse' and 'ser_fine' keys
         """
         ap = self.network.get(ap_name)
         ris = self.network.get(ris_name)
@@ -64,9 +77,22 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
 
         snr_coarse = []
         pwr_coarse = []
+        ser_coarse = [None] * len(local_coarse) if use_waveform else None
         feedback_details = [] if enable_feedback else None
 
-        # Adaptive center-out: test center first, then expand
+        # Setup signal simulator if waveform mode is enabled
+        link_simulator = None
+        if use_waveform and WAVEFORM_AVAILABLE:
+            signal_config = SignalConfig(
+                modulation=modulation,
+                symbol_rate=1e6,
+                sample_rate=10e6,
+                num_symbols=num_symbols,
+                pilot_ratio=0.1
+            )
+            link_simulator = SignalLevelLink(signal_config)
+
+        # Coarse phase: test center first, then expand
         center_idx = len(local_coarse) // 2
         test_order = [center_idx]
 
@@ -93,6 +119,11 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
                 )
             snr_array[idx] = res['snr_dB']
             pwr_array[idx] = res['pwr_dBm']
+
+            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
+            if use_waveform and link_simulator:
+                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+idx if seed else None)
+                ser_coarse[idx] = signal_result['ser_percent']
 
             if enable_feedback and 'feedback_info' in res:
                 feedback_details.append({
@@ -131,6 +162,7 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
         abs_angles_fine = specular_angle + local_fine
         snr_fine = []
+        ser_fine = [None] * len(local_fine) if use_waveform else None
 
         for i, abs_a in enumerate(abs_angles_fine):
             with self._ap_state_guard(ap):
@@ -141,6 +173,11 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations
                 )
             snr_fine.append(r['snr_dB'])
+
+            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
+            if use_waveform and link_simulator:
+                signal_result = apply_signal_level_realism(r, link_simulator, seed=seed+i if seed else None)
+                ser_fine[i] = signal_result['ser_percent']
 
             # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in r:
@@ -154,7 +191,7 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
         best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
 
-        return {
+        result = {
             'local_coarse': local_coarse.tolist(),
             'snr_coarse': snr_coarse,
             'pwr_coarse': pwr_coarse,
@@ -166,3 +203,10 @@ class AdaptiveCenterOutSweep(SweepAlgorithmBase):
             'feedback_enabled': enable_feedback,
             'feedback_details': feedback_details
         }
+
+        # Add SER if waveform simulation was used
+        if use_waveform and ser_coarse:
+            result['ser_coarse'] = ser_coarse
+            result['ser_fine'] = ser_fine if ser_fine else []
+
+        return result

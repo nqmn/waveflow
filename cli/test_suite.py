@@ -155,9 +155,9 @@ def _section_beam_sweeps(net, ctx) -> List[str]:
     except Exception as exc:
         lines.append(f"  ✗ Beam sweep failed: {exc}")
 
-    lines.append("\n  Adaptive center-out sweep:")
+    lines.append("\n  Coarse-fine two-phase sweep:")
     try:
-        from controller.beamsweeping import adaptive_center_out_beam_sweep
+        from controller.beamsweeping import SweepAlgorithmLoader
 
         ap = ctx['ap']
         ris = ctx['ris']
@@ -169,45 +169,40 @@ def _section_beam_sweeps(net, ctx) -> List[str]:
             f"    • AP position: [{ap.pos[0]:.1f}, {ap.pos[1]:.1f}, {ap.pos[2]:.1f}]",
         ])
 
-        def network_snr(_pos1, _pos2, _node1, _node2, beam_angle, _spec_angle):
-            sweep_conn = net.connect('AP1', 'R1', 'UE1', beam_angle_deg=beam_angle, seed=0)
-            snr_db = sweep_conn.get('snr_dB', -np.inf)
-            if not np.isfinite(snr_db):
-                return 1e-6
-            return max(10 ** (snr_db / 10), 1e-6)
-
-        adaptive_result = adaptive_center_out_beam_sweep(
-            ris_position=ris.pos,
-            target_position=ue.pos,
-            ap_position=ap.pos,
-            max_angle=60.0,
-            coarse_step=10.0,
-            fine_step=1.0,
-            compute_snr_fn=network_snr,
-            is_ris_node=True,
-            verbose=True,
+        # Use the class-based CoarseFineSweep algorithm
+        algo = SweepAlgorithmLoader.get_algorithm('coarse-fine', net)
+        sweep_result = algo.sweep(
+            'AP1', 'R1', 'UE1',
+            fov=60.0,
+            step=10.0,
+            fine_span=10.0,
+            fine_res=1.0,
+            seed=0,
+            enable_feedback=False
         )
 
         lines.extend([
-            f"    • Best deflection angle: {adaptive_result['angle']:.2f}° (abs {adaptive_result['absoluteAngle']:.2f}°)",
-            f"    • Peak SNR: {adaptive_result['SNR_dB']:.2f} dB (linear {adaptive_result['SNR']:.2f})",
-            f"    • Measurements: {adaptive_result['numMeasurements']} ({adaptive_result['efficiency']*100:.1f}% of exhaustive)",
+            f"    • Best deflection angle: {sweep_result['best_local_fine']:.2f}° (abs {sweep_result['best_local_fine'] + sweep_result['specular_angle']:.2f}°)",
+            f"    • Peak SNR: {sweep_result['best_snr_fine']:.2f} dB",
+            f"    • Coarse phase: {len(sweep_result['local_coarse'])} angles tested",
+            f"    • Fine phase: {len(sweep_result['local_fine'])} angles tested",
         ])
 
+        total_measurements = len([x for x in sweep_result['snr_coarse'] if x is not None]) + len(sweep_result['snr_fine'])
         coarse_exhaustive = int(2 * 60 / 10) + 1
-        fine_exhaustive = int(2 * 5 / 1) + 1
+        fine_exhaustive = int(2 * 10 / 1) + 1
         total_exhaustive = coarse_exhaustive + fine_exhaustive
-        savings = ((total_exhaustive - adaptive_result['numMeasurements']) / total_exhaustive) * 100
+        savings = ((total_exhaustive - total_measurements) / total_exhaustive) * 100
 
         lines.extend([
             "    • Efficiency analysis:",
             f"        - Exhaustive search: {total_exhaustive} measurements",
-            f"        - Adaptive search:  {adaptive_result['numMeasurements']} measurements",
+            f"        - Two-phase search: {total_measurements} measurements",
             f"        - Savings:          {savings:.1f}%",
         ])
 
     except Exception as exc:
-        lines.append(f"  ✗ Adaptive beam sweep failed: {exc}")
+        lines.append(f"  ✗ Coarse-fine beam sweep failed: {exc}")
 
     return lines
 

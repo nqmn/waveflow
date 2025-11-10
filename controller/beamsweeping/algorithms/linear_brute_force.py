@@ -10,7 +10,7 @@ find the best. No two-phase complexity needed for exhaustive search.
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from ..base import SweepAlgorithmBase
 
 # Import waveform simulator if available
 try:

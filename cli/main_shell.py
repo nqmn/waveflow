@@ -327,17 +327,17 @@ class RISNetCLI(cmd.Cmd):
 
     def do_sweep(self, arg):
         """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
-        Sweep beam angles using 100% REAL signal-level simulation with actual waveforms, modulation, and SER measurement.
+        Sweep beam angles using physics-based simulation. Optional: add real signal-level emulation with waveforms.
         Examples:
-            sweep AP1 R1 UE1                                          # Default: real signal (QPSK)
-            sweep AP1 R1 UE1 60 10 --modulation 16QAM                 # Real signal with 16QAM
-            sweep AP1 R1 UE1 60 10 --algo adaptive                    # Real signal + adaptive sweep
-            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb       # Real signal + ML-guided sweep
-            sweep AP1 R1 UE1 60 10 --no-waveform                      # Physics-based only (no real waveforms)
+            sweep AP1 R1 UE1                                          # Default: physics-based sweep (linear)
+            sweep AP1 R1 UE1 60 10 --modulation 16QAM                 # Physics-based + signal-level SER (16QAM)
+            sweep AP1 R1 UE1 60 10 --algo adaptive                    # Adaptive center-out sweep (physics-based)
+            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb       # ML-guided sweep with signal-level
+            sweep AP1 R1 UE1 60 10 --no-waveform                      # Physics-based only (no signal simulation)
         Available algorithms: linear (default), adaptive, ml
-        Available modulations: QPSK (default), 16QAM, 64QAM
+        Available modulations: QPSK (default), 16QAM, 64QAM (for signal-level simulation)
         Available ML predictors: xgb (default), zero, default
-        Default: 100% real signal-level simulation (generates actual waveforms, measures SNR and SER)
+        Note: Signal-level emulation is integrated into each algorithm via use_waveform parameter
         """
         parts = shlex.split(arg)
         if len(parts) < 3:

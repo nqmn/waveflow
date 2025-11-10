@@ -5,26 +5,38 @@ Each algorithm is implemented as a separate module and can be loaded dynamically
 """
 
 from .base import SweepAlgorithmBase
-from .linear_brute_force import LinearBruteForceSweep
-from .adaptive_center_out import AdaptiveCenterOutSweep
-from .ml_sweep import MLGuidedSweep
-from .real_signal_sweep import RealSignalSweep
-from .beamsweeping import compute_snr, adaptive_center_out_beam_sweep
+from .algorithms.linear_brute_force import LinearBruteForceSweep
+from .algorithms.coarse_fine_sweep import CoarseFineSweep
+from .algorithms.ml_sweep import MLGuidedSweep
+from utils.snr import compute_snr
 from .ml import MLPredictorLoader, SweepMLPredictor
 
 
 class SweepAlgorithmLoader:
-    """Loader for sweep algorithms"""
+    """Loader for sweep algorithms
+
+    Provides access to three core beam sweep algorithms:
+    - linear (brute-force): Exhaustive search across FOV
+    - coarse-fine (two-phase): Two-phase intelligent center-out search
+    - ml (ml-guided): ML predictor-driven search
+
+    Backward compatibility aliases:
+    - 'adaptive' and 'center-out' map to 'coarse-fine'
+
+    Note: Real signal-level emulation is integrated into each algorithm
+    via the use_waveform parameter, not as a separate algorithm.
+    """
 
     ALGORITHMS = {
         'linear': LinearBruteForceSweep,
         'brute-force': LinearBruteForceSweep,
-        'adaptive': AdaptiveCenterOutSweep,
-        'center-out': AdaptiveCenterOutSweep,
+        'coarse-fine': CoarseFineSweep,
+        'two-phase': CoarseFineSweep,
+        # Backward compatibility aliases
+        'adaptive': CoarseFineSweep,
+        'center-out': CoarseFineSweep,
         'ml': MLGuidedSweep,
         'ml-guided': MLGuidedSweep,
-        'real': RealSignalSweep,
-        'real-signal': RealSignalSweep,
     }
 
     @classmethod
@@ -85,12 +97,10 @@ class SweepAlgorithmLoader:
 __all__ = [
     'SweepAlgorithmBase',
     'LinearBruteForceSweep',
-    'AdaptiveCenterOutSweep',
+    'CoarseFineSweep',
     'MLGuidedSweep',
-    'RealSignalSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',
     'MLPredictorLoader',
     'compute_snr',
-    'adaptive_center_out_beam_sweep',
 ]

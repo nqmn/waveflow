@@ -363,7 +363,9 @@ class Physics:
     @staticmethod
     def compute_snr_dB(tx_power_dBm, total_loss_dB, gain_dBi,
                        bandwidth_MHz, noise_figure_dB=10):
-        """Calculate SNR
+        """Calculate SNR in dB using unified SNR computation.
+
+        This is a convenience wrapper around utils.compute_snr() for backward compatibility.
 
         Args:
             tx_power_dBm: Transmit power in dBm
@@ -375,11 +377,15 @@ class Physics:
         Returns:
             SNR in dB
         """
-        BW_Hz = bandwidth_MHz * 1e6
-        noise_power_dBm = -174 + 10 * np.log10(BW_Hz) + noise_figure_dB
-        received_power_dBm = tx_power_dBm - total_loss_dB + gain_dBi
-        snr_dB = received_power_dBm - noise_power_dBm
-        return snr_dB
+        from utils.snr import compute_snr
+        return compute_snr(
+            tx_power_dbm=tx_power_dBm,
+            total_loss_db=total_loss_dB,
+            gain_dbi=gain_dBi,
+            bandwidth_mhz=bandwidth_MHz,
+            noise_figure_db=noise_figure_dB,
+            return_db=True,
+        )
 
     @staticmethod
     def snr_to_evm(snr_dB):

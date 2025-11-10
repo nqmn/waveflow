@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Optional, Callable, Any
 import logging
 import inspect
 
-from controller.beamsweeping import compute_snr as default_compute_snr
+from utils.snr import compute_snr as default_compute_snr
 
 logger = logging.getLogger(__name__)
 
