@@ -1,3 +1,8 @@
 {
-  "nodes": []
+  "nodes": [],
+  "active_links": {},
+  "results": {
+    "connect": null,
+    "sweep": null
+  }
 }

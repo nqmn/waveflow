@@ -219,19 +219,50 @@ Phase Formats (use: phases <format>):
             print("✗ matplotlib not installed. Install with: pip install matplotlib")
             return
 
+        bits_value = getattr(self.ris_node, 'bits', 1) or 1
+        try:
+            bits_int = int(bits_value)
+        except (TypeError, ValueError):
+            bits_int = 1
+        states = max(1, 2 ** bits_int)
+        phase_step_deg = 360.0 / states
+        quantized_range_max = 0.0 if states == 1 else (states - 1) * phase_step_deg
+
         if self.ris_node.quantized_phases is not None:
             phases = np.degrees(self.ris_node.quantized_phases)
             title_suffix = "Quantized Phases"
+            colorbar_max = quantized_range_max
         else:
             phases = np.degrees(self.ris_node.current_phases)
             title_suffix = "Ideal Phases"
+            colorbar_max = 360.0
+
+        # Ensure meaningful color span even for degenerate ranges
+        if colorbar_max <= 0:
+            data_max = float(np.max(phases)) if phases.size else 360.0
+            colorbar_max = data_max if data_max > 0 else 360.0
 
         phases_grid = phases.reshape(self.ris_node.N, self.ris_node.N)
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
+        # Use truncated HSV colormap when range < 360° to avoid hue wraparound
+        base_cmap = None
+        try:
+            import matplotlib.colors as mcolors
+            base_cmap = plt.cm.get_cmap('hsv')
+            if colorbar_max < 360.0:
+                upper = min(0.999, colorbar_max / 360.0)
+                sample_points = np.linspace(0.0, upper, 256)
+                cmap = mcolors.LinearSegmentedColormap.from_list(
+                    'hsv_truncated', base_cmap(sample_points))
+            else:
+                cmap = base_cmap
+        except Exception:
+            cmap = 'hsv'
+
         # Plot 1: Heatmap
-        im = axes[0].imshow(phases_grid, cmap='hsv', vmin=0, vmax=360, aspect='auto')
+        im = axes[0].imshow(phases_grid, cmap=cmap, vmin=0, vmax=colorbar_max, aspect='auto')
         axes[0].set_title(f'{self.ris_node.name} - {title_suffix} Heatmap\n({self.ris_node.N}×{self.ris_node.N}, {self.ris_node.bits}-bit)',
                          fontsize=12, fontweight='bold')
         axes[0].set_xlabel('Column')
@@ -259,7 +290,8 @@ CONFIGURATION:
   Total Elements:    {self.ris_node.N * self.ris_node.N}
   Phase Bits:        {self.ris_node.bits}
   Quantization States: {2**self.ris_node.bits}
-  Phase Step:        {360 / (2**self.ris_node.bits):.2f}°
+  Phase Step:        {phase_step_deg:.2f}°
+  Phase Range:       0°–{quantized_range_max:.2f}°
 {self._angle_metadata_text()}
 """
 

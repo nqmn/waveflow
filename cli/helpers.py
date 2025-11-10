@@ -1,8 +1,49 @@
 """CLI helper utilities for topology management and network I/O"""
 
 import json
+import math
 import os
 import numpy as np
+
+
+def sanitize_for_json(value):
+    """Convert numpy/native structures into JSON-safe representations."""
+    if value is None:
+        return None
+
+    if isinstance(value, (bool, str)):
+        return value
+
+    if isinstance(value, (int,)):
+        return int(value)
+
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return float(value)
+
+    # numpy scalar types
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        val = float(value)
+        if math.isnan(val) or math.isinf(val):
+            return None
+        return val
+    if isinstance(value, np.bool_):
+        return bool(value)
+
+    if isinstance(value, np.ndarray):
+        return [sanitize_for_json(v) for v in value.tolist()]
+
+    if isinstance(value, dict):
+        return {str(k): sanitize_for_json(v) for k, v in value.items()}
+
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_for_json(v) for v in value]
+
+    # Fallback to string representation for unsupported types
+    return str(value)
 
 
 class TopologyHelper:
@@ -173,13 +214,41 @@ class NetworkIO:
 
             if node_type == 'AccessPoint':
                 node_info['power_dBm'] = node.power_dBm
-                node_info['freq'] = node.freq
+                node_info['freq'] = getattr(node, 'freq', 5.8e9)
                 node_info['bandwidth_MHz'] = getattr(node, 'bandwidth_MHz', 100.0)
+                node_info['antenna_gain_dBi'] = getattr(node, 'antenna_gain_dBi', 3.0)
+                node_info['noise_figure_dB'] = getattr(node, 'noise_figure_dB', 6.0)
             elif node_type == 'RIS':
                 node_info['N'] = node.N
                 node_info['bits'] = node.bits
+                node_info['freq'] = getattr(node, 'freq', 10e9)
+                node_info['max_angle_deg'] = getattr(node, 'max_angle_deg', 60.0)
+                node_info['current_beam_angle'] = sanitize_for_json(getattr(node, 'current_beam_angle', None))
 
-            network_data['nodes'].append(node_info)
+                def _phase_matrix(values, to_degrees=False):
+                    if values is None:
+                        return None
+                    arr = np.array(values, dtype=float).reshape(node.N, node.N)
+                    if to_degrees:
+                        arr = np.degrees(arr)
+                    return sanitize_for_json(arr.tolist())
+
+                node_info['current_phases_deg'] = _phase_matrix(getattr(node, 'current_phases', None), to_degrees=True)
+                node_info['quantized_phases_deg'] = _phase_matrix(getattr(node, 'quantized_phases', None), to_degrees=True)
+                if getattr(node, 'phase_states', None) is not None:
+                    states_arr = np.array(node.phase_states).reshape(node.N, node.N)
+                    node_info['phase_states'] = sanitize_for_json(states_arr.tolist())
+            elif node_type == 'UE':
+                node_info['antenna_gain_dBi'] = getattr(node, 'antenna_gain_dBi', 3.0)
+                node_info['noise_figure_dB'] = getattr(node, 'noise_figure_dB', 6.0)
+
+            network_data['nodes'].append(sanitize_for_json(node_info))
+
+        network_data['active_links'] = sanitize_for_json(getattr(net, 'active_links', {}))
+        network_data['results'] = {
+            'connect': sanitize_for_json(getattr(net, 'last_connect_result', None)),
+            'sweep': sanitize_for_json(getattr(net, 'last_sweep_result', None))
+        }
 
         with open(filepath, 'w') as f:
             json.dump(network_data, f, indent=2)
@@ -194,6 +263,15 @@ class NetworkIO:
                 network_data = json.load(f)
 
             net.nodes.clear()
+
+            if hasattr(net, 'active_links'):
+                net.active_links = network_data.get('active_links', {})
+
+            results_block = network_data.get('results') or {}
+            if hasattr(net, 'last_connect_result'):
+                net.last_connect_result = results_block.get('connect')
+            if hasattr(net, 'last_sweep_result'):
+                net.last_sweep_result = results_block.get('sweep')
 
             for node_info in network_data.get('nodes', []):
                 node_type = node_info['type']
@@ -211,6 +289,9 @@ class NetworkIO:
                         antenna_gain_dBi=ant_gain,
                         noise_figure_dB=noise_fig
                     )
+                    ap_node = net.get(name)
+                    ap_node.bandwidth_MHz = bw
+                    ap_node.freq = freq
                 elif node_type == 'RIS':
                     N = node_info.get('N', 16)
                     bits = node_info.get('bits', 1)
@@ -220,6 +301,36 @@ class NetworkIO:
                         name, x, y, z, N, bits, freq,
                         max_angle_deg=max_angle
                     )
+                    ris_node = net.get(name)
+                    ris_node.freq = freq
+                    ris_node.max_angle_deg = max_angle
+                    ris_node.current_beam_angle = node_info.get('current_beam_angle', ris_node.current_beam_angle)
+
+                    def _restore_phase(key, radians=False):
+                        data = node_info.get(key)
+                        if data is None:
+                            return None
+                        arr = np.array(data, dtype=float)
+                        if arr.size != ris_node.N * ris_node.N:
+                            return None
+                        arr = arr.reshape(ris_node.N * ris_node.N)
+                        if radians:
+                            arr = np.radians(arr)
+                        return arr
+
+                    restored_current = _restore_phase('current_phases_deg', radians=True)
+                    if restored_current is not None:
+                        ris_node.current_phases = restored_current
+
+                    restored_quantized = _restore_phase('quantized_phases_deg', radians=True)
+                    if restored_quantized is not None:
+                        ris_node.quantized_phases = restored_quantized
+
+                    states_data = node_info.get('phase_states')
+                    if states_data is not None:
+                        states_arr = np.array(states_data, dtype=int).reshape(ris_node.N * ris_node.N)
+                        ris_node.phase_states = states_arr
+
                 elif node_type == 'UE':
                     ant_gain = node_info.get('antenna_gain_dBi', 3.0)
                     noise_fig = node_info.get('noise_figure_dB', 6.0)

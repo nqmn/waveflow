@@ -2,6 +2,7 @@
 RIS Network manager with controller integration
 """
 import numpy as np
+from datetime import datetime
 from typing import Dict, List, Optional
 from .nodes import AccessPoint, RIS, UE
 from .physics import Physics
@@ -17,6 +18,8 @@ class RISNetwork:
         self._controller = None
         self.impairments = {}
         self.active_links = {}  # Track active link connections
+        self.last_connect_result = None
+        self.last_sweep_result = None
 
     def set_controller(self, controller):
         """Set network controller"""
@@ -281,6 +284,22 @@ class RISNetwork:
             'source': 'connect'
         }
 
+        self.last_connect_result = {
+            'ap': ap_key,
+            'ris': ris_key,
+            'ue': ue_key,
+            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'parameters': {
+                'beam_angle_deg': float(beam_angle_deg),
+                'compute_phases': bool(compute_phases),
+                'bandwidth_MHz': float(bandwidth_MHz) if bandwidth_MHz is not None else None,
+                'seed': seed,
+                'enable_feedback': bool(enable_feedback),
+                'max_feedback_iterations': int(max_feedback_iterations)
+            },
+            'metrics': dict(result)
+        }
+
         return result
 
     def _run_adaptive_feedback_loop(self, ap_name, ris_name, ue_name, initial_snr_dB,
@@ -512,7 +531,7 @@ class RISNetwork:
         best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
 
-        return {
+        sweep_outputs = {
             'local_coarse': local_coarse.tolist(),
             'snr_coarse': np.array(snr_coarse).tolist(),
             'pwr_coarse': np.array(pwr_coarse).tolist(),
@@ -521,6 +540,24 @@ class RISNetwork:
             'best_local_fine': float(best_local_fine),
             'best_snr_fine': float(np.max(snr_fine))
         }
+
+        self.last_sweep_result = {
+            'ap': ap_name,
+            'ris': ris_name,
+            'ue': ue_name,
+            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'algorithm': 'network.sweep',
+            'parameters': {
+                'fov': float(fov),
+                'step': float(step),
+                'fine_span': float(fine_span),
+                'fine_res': float(fine_res),
+                'seed': seed
+            },
+            'outputs': dict(sweep_outputs)
+        }
+
+        return sweep_outputs
 
     # Advanced pathfinding (uses controller)
     def find_paths(self, ap_name: str, ue_name: str, algorithm: str = 'dijkstra') -> List[Dict]:

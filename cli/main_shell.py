@@ -4,8 +4,10 @@ Extracted from monolithic main.py for better modularity
 """
 
 import cmd
+import os
 import shlex
 import pprint
+from datetime import datetime
 import numpy as np
 from core import RIS, AccessPoint, UE
 from controller.beamsweeping import SweepAlgorithmLoader, MLPredictorLoader
@@ -13,7 +15,7 @@ from cli import run_testall
 from cli.ris_shell import RISNodeShell
 from cli.ap_shell import APNodeShell
 from cli.ue_shell import UENodeShell
-from cli.helpers import TopologyHelper, NetworkIO
+from cli.helpers import TopologyHelper, NetworkIO, sanitize_for_json
 
 
 class RISNetCLI(cmd.Cmd):
@@ -164,6 +166,10 @@ class RISNetCLI(cmd.Cmd):
             return
         self.net.nodes.clear()
         self.net.clear_links()
+        if hasattr(self.net, 'last_connect_result'):
+            self.net.last_connect_result = None
+        if hasattr(self.net, 'last_sweep_result'):
+            self.net.last_sweep_result = None
         self._save_network()
         print(f"✓ All nodes cleared")
 
@@ -421,6 +427,29 @@ class RISNetCLI(cmd.Cmd):
             ]
             _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
 
+        connection_record = {
+            'type': 'connect',
+            'ap': ap,
+            'ris': ris,
+            'ue': ue,
+            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'parameters': {
+                'requested_angle_deg': float(res.get('beam_angle')) if res.get('beam_angle') is not None else angle,
+                'seed': seed,
+                'enable_feedback': enable_feedback,
+                'use_waveform': use_waveform,
+                'modulation': modulation if use_waveform else None
+            },
+            'summary': {
+                'beam_angle_deg': float(res.get('beam_angle')) if res.get('beam_angle') is not None else None,
+                'snr_dB': float(res.get('snr_dB')) if res.get('snr_dB') is not None else None,
+                'pwr_dBm': float(res.get('pwr_dBm')) if res.get('pwr_dBm') is not None else None,
+                'gain_dBi': float(res.get('gain_dBi')) if res.get('gain_dBi') is not None else None
+            },
+            'metrics': res
+        }
+        self.net.last_connect_result = sanitize_for_json(connection_record)
+
     def do_sweep(self, arg):
         """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
         Sweep beam angles using physics-based simulation. Optional: add real signal-level emulation with waveforms.
@@ -485,8 +514,11 @@ class RISNetCLI(cmd.Cmd):
         step = float(parts[4]) if len(parts) > 4 else 10.0
         seed = None  # Optional seed for reproducibility
 
+        algo_requested = algo_name
+        algo_requested_lower = algo_requested.lower()
+
         try:
-            algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
+            algo = SweepAlgorithmLoader.get_algorithm(algo_requested, self.net)
         except ValueError as e:
             print(f"Error: {e}")
             return
@@ -507,7 +539,7 @@ class RISNetCLI(cmd.Cmd):
                 'enable_feedback': enable_feedback,
                 'max_feedback_iterations': 3
             }
-            if algo_name.lower() in ['ml', 'ml-guided']:
+            if algo_requested_lower in ['ml', 'ml-guided']:
                 kwargs['ml_predictor'] = ml_predictor
 
             # Add waveform simulation if requested
@@ -764,6 +796,35 @@ class RISNetCLI(cmd.Cmd):
                 'source': 'sweep'
             }
 
+            sweep_record = {
+                'type': 'sweep',
+                'ap': ap_key,
+                'ris': ris_key,
+                'ue': ue_key,
+                'captured_at': datetime.utcnow().isoformat() + 'Z',
+                'algorithm': algo_name,
+                'algorithm_alias': algo_requested,
+                'parameters': {
+                    'fov': fov,
+                    'step': step,
+                    'seed': seed,
+                    'algo': algo_requested,
+                    'ml_predictor': ml_predictor if algo_requested_lower in ['ml', 'ml-guided'] else None,
+                    'use_waveform': use_waveform,
+                    'modulation': modulation if use_waveform else None,
+                    'enable_feedback': enable_feedback,
+                    'num_symbols': kwargs.get('num_symbols')
+                },
+                'summary': {
+                    'best_local_deg': float(best_final_local),
+                    'best_abs_deg': float(best_final_abs),
+                    'specular_deg': float(specular_angle),
+                    'expected_snr_dB': float(best_final_snr)
+                },
+                'outputs': out
+            }
+            self.net.last_sweep_result = sanitize_for_json(sweep_record)
+
             print('='*70 + '\n')
 
         except ValueError as e:
@@ -804,6 +865,325 @@ class RISNetCLI(cmd.Cmd):
                 print("✓ Network loaded from .risnet_network.json")
         except Exception as e:
             print(f"Error loading network: {e}")
+
+    def do_plot(self, arg):
+        """plot [state_file] [--type sweep|connect] [--out output.png]
+        Plot the most recent saved sweep/connect results. Provide a file to auto-load before plotting."""
+        parts = shlex.split(arg) if arg else []
+        result_type = 'sweep'
+        output_path = None
+        state_file = None
+
+        i = 0
+        while i < len(parts):
+            token = parts[i]
+            if token == '--type' and i + 1 < len(parts):
+                result_type = parts[i + 1].lower()
+                i += 2
+                continue
+            if token == '--out' and i + 1 < len(parts):
+                output_path = parts[i + 1]
+                i += 2
+                continue
+            if token.startswith('--'):
+                print(f"Unknown option: {token}")
+                return
+            if state_file is None:
+                state_file = token
+            else:
+                print(f"Unexpected extra argument: {token}")
+                return
+            i += 1
+
+        if result_type not in ('sweep', 'connect'):
+            print("Error: --type must be 'sweep' or 'connect'")
+            return
+
+        if state_file:
+            if not os.path.exists(state_file):
+                print(f"Error: File '{state_file}' not found")
+                return
+            try:
+                self._load_network_from_file(state_file)
+                print(f"✓ Network + results loaded from {state_file}")
+            except Exception as exc:
+                print(f"Error loading '{state_file}': {exc}")
+                return
+
+        stored = None
+        if result_type == 'sweep':
+            stored = getattr(self.net, 'last_sweep_result', None)
+        else:
+            stored = getattr(self.net, 'last_connect_result', None)
+
+        if not stored:
+            print(f"✗ No stored {result_type} results found. Run and save a {result_type} first.")
+            return
+
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("✗ matplotlib not installed. Install with: pip install matplotlib")
+            return
+
+        def _slug(text):
+            if not text:
+                return 'net'
+            return ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in str(text))
+
+        def _to_float_list(values):
+            processed = []
+            for val in values or []:
+                if val is None:
+                    processed.append(np.nan)
+                    continue
+                try:
+                    processed.append(float(val))
+                except (TypeError, ValueError):
+                    processed.append(np.nan)
+            return processed
+
+        def _fmt_meta(value, precision=2):
+            if value is None or value == '-':
+                return '-'
+            try:
+                num = float(value)
+                if np.isnan(num):
+                    return '-'
+                return f"{num:.{precision}f}"
+            except (TypeError, ValueError):
+                return str(value)
+
+        def _derive_sweep_summary(payload):
+            summary = {}
+            local_coarse = _to_float_list(payload.get('local_coarse'))
+            snr_coarse = _to_float_list(payload.get('snr_coarse'))
+            local_fine = _to_float_list(payload.get('local_fine'))
+            snr_fine = _to_float_list(payload.get('snr_fine'))
+            specular_angle = payload.get('specular_angle')
+            if specular_angle is None:
+                specular_angle = payload.get('base_angle')
+
+            def _best_pair(angles, snrs):
+                if not angles or not snrs:
+                    return None, None
+                arr_angles = np.array(angles, dtype=float)
+                arr_snrs = np.array(snrs, dtype=float)
+                if arr_snrs.size == 0 or not np.isfinite(arr_snrs).any():
+                    return None, None
+                best_idx = int(np.nanargmax(arr_snrs))
+                return arr_angles[best_idx], arr_snrs[best_idx]
+
+            best_local = None
+            best_snr = None
+            if local_fine and snr_fine:
+                best_local, best_snr = _best_pair(local_fine, snr_fine)
+            if best_local is None and local_coarse and snr_coarse:
+                best_local, best_snr = _best_pair(local_coarse, snr_coarse)
+
+            if best_local is not None and specular_angle is not None:
+                best_abs = float(specular_angle) + best_local
+            elif best_local is not None:
+                best_abs = best_local
+            else:
+                best_abs = None
+
+            summary['best_local_deg'] = best_local
+            summary['best_abs_deg'] = best_abs
+            summary['specular_deg'] = specular_angle
+            summary['expected_snr_dB'] = best_snr
+            return summary
+
+        def _derive_connect_summary(metrics):
+            if not metrics:
+                return {}
+            return {
+                'beam_angle_deg': metrics.get('beam_angle'),
+                'snr_dB': metrics.get('snr_dB'),
+                'pwr_dBm': metrics.get('pwr_dBm'),
+                'gain_dBi': metrics.get('gain_dBi')
+            }
+
+        ap_label = stored.get('ap', 'AP')
+        ris_label = stored.get('ris', 'RIS')
+        ue_label = stored.get('ue', 'UE')
+
+        default_filename = f"{_slug(ap_label)}_{_slug(ris_label)}_{_slug(ue_label)}_{result_type}_plot.png"
+        output_path = output_path or default_filename
+
+        metadata_lines = [
+            f"Link: {ap_label}→{ris_label}→{ue_label}",
+            f"Captured: {stored.get('captured_at', 'unknown')}"
+        ]
+
+        if result_type == 'sweep':
+            params = stored.get('parameters') or {}
+            summary = stored.get('summary') or {}
+            if not summary:
+                summary = _derive_sweep_summary(stored.get('outputs') or {})
+            algo_label = stored.get('algorithm_alias') or stored.get('algorithm')
+            metadata_lines.append(f"Algorithm: {algo_label or 'unknown'}")
+            metadata_lines.append(
+                f"FOV: {_fmt_meta(params.get('fov'))}°  "
+                f"Step: {_fmt_meta(params.get('step'))}°"
+            )
+            if summary:
+                metadata_lines.append(
+                    f"Best Local: {_fmt_meta(summary.get('best_local_deg'))}°  "
+                    f"Abs: {_fmt_meta(summary.get('best_abs_deg'))}°"
+                )
+                metadata_lines.append(
+                    f"Specular: {_fmt_meta(summary.get('specular_deg'))}°  "
+                    f"Expected SNR: {_fmt_meta(summary.get('expected_snr_dB'))} dB"
+                )
+
+            payload = stored.get('outputs') or {}
+            local_coarse = _to_float_list(payload.get('local_coarse'))
+            snr_coarse = _to_float_list(payload.get('snr_coarse'))
+            pwr_coarse = _to_float_list(payload.get('pwr_coarse'))
+            local_fine = _to_float_list(payload.get('local_fine'))
+            snr_fine = _to_float_list(payload.get('snr_fine'))
+
+            if not local_coarse or not snr_coarse:
+                print("✗ Stored sweep does not contain coarse data to plot.")
+                return
+
+            has_fine = bool(local_fine and snr_fine)
+            cols = 2 if has_fine else 1
+            fig, axes = plt.subplots(1, cols, figsize=(12, 4.5 if has_fine else 4.0))
+            if not isinstance(axes, (list, tuple, np.ndarray)):
+                axes = [axes]
+
+            coarse_ax = axes[0]
+            coarse_ax.plot(local_coarse, snr_coarse, marker='o', color='tab:blue', label='SNR (dB)')
+            coarse_ax.set_title('Coarse Phase')
+            coarse_ax.set_xlabel('Local Angle (deg)')
+            coarse_ax.set_ylabel('SNR (dB)')
+            coarse_ax.grid(alpha=0.3)
+
+            coarse_snr_arr = np.array(snr_coarse, dtype=float)
+            coarse_angle_arr = np.array(local_coarse, dtype=float)
+            if coarse_snr_arr.size and np.isfinite(coarse_snr_arr).any():
+                best_idx = int(np.nanargmax(coarse_snr_arr))
+                coarse_ax.scatter(
+                    [coarse_angle_arr[best_idx]],
+                    [coarse_snr_arr[best_idx]],
+                    color='tab:green',
+                    label='Best SNR',
+                    zorder=5
+                )
+
+            pwr_arr = np.array(pwr_coarse, dtype=float) if pwr_coarse else np.array([])
+            if pwr_arr.size and np.isfinite(pwr_arr).any():
+                pwr_ax = coarse_ax.twinx()
+                pwr_ax.plot(local_coarse, pwr_coarse, color='tab:orange', linestyle='--', marker='s', label='Power (dBm)')
+                pwr_ax.set_ylabel('Power (dBm)', color='tab:orange')
+                for tick in pwr_ax.get_yticklabels():
+                    tick.set_color('tab:orange')
+                lines_1, labels_1 = coarse_ax.get_legend_handles_labels()
+                lines_2, labels_2 = pwr_ax.get_legend_handles_labels()
+                coarse_ax.legend(lines_1 + lines_2, labels_1 + labels_2, loc='best')
+            else:
+                coarse_ax.legend(loc='best')
+
+            if has_fine:
+                fine_ax = axes[1]
+                fine_ax.plot(local_fine, snr_fine, marker='o', color='tab:red', label='SNR (dB)')
+                fine_ax.set_title('Fine Phase')
+                fine_ax.set_xlabel('Local Angle (deg)')
+                fine_ax.set_ylabel('SNR (dB)')
+                fine_ax.grid(alpha=0.3)
+
+                fine_snr_arr = np.array(snr_fine, dtype=float)
+                fine_angle_arr = np.array(local_fine, dtype=float)
+                if fine_snr_arr.size and np.isfinite(fine_snr_arr).any():
+                    fine_idx = int(np.nanargmax(fine_snr_arr))
+                    fine_ax.scatter(
+                        [fine_angle_arr[fine_idx]],
+                        [fine_snr_arr[fine_idx]],
+                        color='tab:green',
+                        label='Best SNR',
+                        zorder=5
+                    )
+                    fine_ax.legend(loc='best')
+
+            fig.suptitle(f"Sweep Results: {ap_label}→{ris_label}→{ue_label}")
+        else:
+            params = stored.get('parameters') or {}
+            summary = stored.get('summary') or {}
+            if not summary:
+                summary = _derive_connect_summary(stored.get('metrics'))
+            metadata_lines.append(f"Waveform: {'Yes' if params.get('use_waveform') else 'No'}"
+                                  f"  Modulation: {params.get('modulation') or 'N/A'}")
+            if summary:
+                metadata_lines.append(
+                    f"Beam Angle: {_fmt_meta(summary.get('beam_angle_deg'))}°  "
+                    f"SNR: {_fmt_meta(summary.get('snr_dB'))} dB"
+                )
+                metadata_lines.append(
+                    f"PWR: {_fmt_meta(summary.get('pwr_dBm'))} dBm  "
+                    f"Gain: {_fmt_meta(summary.get('gain_dBi'))} dBi"
+                )
+
+            metrics = stored.get('metrics') or {}
+            numeric_pairs = [
+                ("SNR (dB)", 'snr_dB'),
+                ("RSSI (dBm)", 'rssi_dBm'),
+                ("Power (dBm)", 'pwr_dBm'),
+                ("Gain (dBi)", 'gain_dBi')
+            ]
+            labels = []
+            values = []
+            for label, key in numeric_pairs:
+                if key not in metrics or metrics[key] is None:
+                    continue
+                try:
+                    values.append(float(metrics[key]))
+                    labels.append(label)
+                except (TypeError, ValueError):
+                    continue
+
+            if not labels:
+                print("✗ No numeric connect metrics are available to plot.")
+                return
+
+            fig, ax = plt.subplots(figsize=(6, 4))
+            bars = ax.barh(labels, values, color='tab:blue', alpha=0.85)
+            ax.axvline(0, color='black', linewidth=0.5)
+            ax.set_xlabel('Value')
+            ax.set_title(f"Connect Metrics: {ap_label}→{ris_label}→{ue_label}")
+            for bar, val in zip(bars, values):
+                width = bar.get_width()
+                offset = 0.4 if width >= 0 else -0.4
+                ha = 'left' if width >= 0 else 'right'
+                ax.text(
+                    width + offset,
+                    bar.get_y() + bar.get_height() / 2,
+                    f"{val:.2f}",
+                    va='center',
+                    ha=ha
+                )
+
+        fig.tight_layout()
+        if metadata_lines:
+            meta_text = "\n".join(str(line) for line in metadata_lines)
+            # Ensure padding for metadata block
+            fig.subplots_adjust(bottom=max(0.2, fig.subplotpars.bottom))
+            fig.text(
+                0.02,
+                0.02,
+                meta_text,
+                fontsize=8,
+                family='monospace',
+                ha='left',
+                va='bottom',
+                color='#333333'
+            )
+        fig.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+        print(f"✓ Plot saved to {output_path}")
 
     # =====================================================================
     # Node Shells
@@ -866,6 +1246,11 @@ class RISNetCLI(cmd.Cmd):
         if self.net.nodes:
             print("Clearing topology...")
             self.net.nodes.clear()
+            self.net.clear_links()
+            if hasattr(self.net, 'last_connect_result'):
+                self.net.last_connect_result = None
+            if hasattr(self.net, 'last_sweep_result'):
+                self.net.last_sweep_result = None
             self._save_network()
             print("✓ Topology cleared")
         print('Exiting RISNet CLI')
