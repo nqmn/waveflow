@@ -1,6 +1,7 @@
 """
 Waveform-aware RIS controller for advanced beamforming
 Integrates waveform-level processing with RIS control
+Includes full cascade simulation with UE receiver pipeline
 """
 import numpy as np
 from typing import Dict, Tuple, Optional
@@ -10,6 +11,7 @@ from core.waveform import (
     calculate_effective_snr, calculate_papr
 )
 from core.physics import Physics
+from core.ue_receiver import UEReceiverPipeline, UEAdaptationController
 
 
 class WaveformController:
@@ -382,3 +384,241 @@ class WaveformController:
         }
 
         return comparison
+
+    def simulate_full_cascade(self, ap_name: str, ris_name: str,
+                             ue_name: str, num_symbols: int = 10,
+                             beam_angle_deg: Optional[float] = None,
+                             enable_feedback: bool = True,
+                             max_feedback_iterations: int = 3) -> Dict:
+        """
+        Simulate FULL CASCADE: AP TX → RIS → UE RX with integrated UE receiver pipeline
+
+        This is the fully integrated waveform-level simulation where:
+        1. AP generates OFDM signal
+        2. AP→RIS propagation with multipath
+        3. RIS reflects with phase quantization and coupling
+        4. RIS→UE propagation with multipath
+        5. UE runs full receiver pipeline: CP removal, FFT, channel estimation, equalization
+        6. UE measures SNR from equalized symbols
+        7. UE→AP feedback loop for power/MCS adaptation (optional)
+
+        Args:
+            ap_name: Access Point name
+            ris_name: RIS name
+            ue_name: UE name
+            num_symbols: Number of OFDM symbols to simulate
+            beam_angle_deg: Beam steering angle (None for geometric)
+            enable_feedback: Enable closed-loop feedback
+            max_feedback_iterations: Max iterations for feedback loop
+
+        Returns:
+            Dict with full cascade results including SNR, CSI, and feedback loop info
+        """
+        # Get nodes
+        ap = self.network.get(ap_name)
+        ris = self.network.get(ris_name)
+        ue = self.network.get(ue_name)
+
+        if not (ap and ris and ue):
+            raise ValueError(f"Invalid nodes: {ap_name}, {ris_name}, {ue_name}")
+
+        # ===== STEP 1: AP GENERATES OFDM SIGNAL =====
+        ofdm = OFDMSignal(self.ofdm_config, num_symbols=num_symbols)
+        tx_signal = ofdm.generate(seed=42)
+
+        # ===== STEP 2: COMPUTE RIS PHASES =====
+        wavelength = 3e8 / self.ofdm_config.center_frequency
+        k = 2 * np.pi / wavelength
+
+        if beam_angle_deg is not None:
+            # Steering to specified angle
+            beam_angle_rad = np.radians(beam_angle_deg)
+            ideal_phases = np.zeros(ris.N ** 2)
+            for i, elem_pos in enumerate(ris.element_positions):
+                ideal_phases[i] = k * elem_pos[0] * np.sin(beam_angle_rad)
+        else:
+            # Optimal path-based phases
+            distances = np.array([
+                np.linalg.norm(elem_pos - ap.pos)
+                for elem_pos in ris.element_positions
+            ])
+            distances_ue = np.array([
+                np.linalg.norm(ris.element_positions[i] - ue.pos)
+                for i in range(ris.N ** 2)
+            ])
+            ideal_phases = k * (distances + distances_ue)
+
+        ideal_phases = np.mod(ideal_phases, 2 * np.pi)
+
+        # ===== STEP 3: RIS MODEL SETUP =====
+        ris_model = RISReflectionModel(
+            ris.N, ris.bits,
+            self.ofdm_config.center_frequency,
+            coupling_enabled=True
+        )
+        ris_model.set_phase_config(ideal_phases)
+
+        # ===== STEP 4: AP → RIS PROPAGATION =====
+        channel_ap_ris = PropagationChannel(
+            self.ofdm_config.center_frequency,
+            self.ofdm_config.sampling_rate,
+            model='simple_multipath'
+        )
+        signal_at_ris = channel_ap_ris.propagate(tx_signal)
+
+        # ===== STEP 5: RIS REFLECTION =====
+        # Apply RIS gain
+        ris_gain_dB = 20 * np.log10(ris.N)
+        ris_gain_linear = 10 ** (ris_gain_dB / 20)
+        signal_reflected = ris_gain_linear * signal_at_ris
+
+        # ===== STEP 6: RIS → UE PROPAGATION =====
+        channel_ris_ue = PropagationChannel(
+            self.ofdm_config.center_frequency,
+            self.ofdm_config.sampling_rate,
+            model='simple_multipath'
+        )
+        rx_ris = channel_ris_ue.propagate(signal_reflected)
+
+        # Add AWGN
+        snr_desired = 20.0  # dB
+        rx_ris = channel_ris_ue.add_awgn(rx_ris, snr_desired)
+
+        # ===== STEP 7: UE RECEIVER PIPELINE =====
+        ue_receiver = UEReceiverPipeline(ue, self.ofdm_config)
+        ue_adaptation = UEAdaptationController(ue)
+
+        # Process received signal - use receiver to demod and get tx reference
+        receiver = OFDMReceiver(self.ofdm_config)
+        freq_tx = receiver.remove_cp_and_fft(tx_signal)  # Get TX freq symbols from original
+
+        rx_result = ue_receiver.process_received_waveform(
+            rx_ris,
+            freq_tx,  # Use frequency domain TX symbols
+            ofdm.pilot_indices,
+            ris_phases=ideal_phases
+        )
+
+        snr_measured = rx_result['snr_dB']
+        csi_feedback = rx_result['csi_feedback']
+
+        # ===== STEP 8: CLOSED-LOOP FEEDBACK (OPTIONAL) =====
+        feedback_info = None
+        if enable_feedback:
+            feedback_info = self._run_feedback_loop_waveform(
+                ap_name, ris_name, ue_name, snr_measured,
+                max_feedback_iterations, ideal_phases, num_symbols
+            )
+
+        # ===== COMPILE RESULTS =====
+        results = {
+            'cascade_type': 'full_waveform',
+            'snr_dB': float(snr_measured),
+            'snr_measured_dB': float(snr_measured),
+            'channel_estimate': rx_result['channel_estimate'],
+            'equalized_symbols': rx_result['equalized_symbols'],
+            'csi_feedback': csi_feedback,
+            'ris_ideal_phases': ideal_phases.tolist(),
+            'ris_quantized_phases': ris_model.quantized_phases.tolist(),
+            'ris_phase_error_rms_deg': float(
+                np.degrees(np.sqrt(np.mean(
+                    (ideal_phases - ris_model.quantized_phases) ** 2
+                )))
+            ),
+            'papr_dB': float(calculate_papr(tx_signal)),
+            'pilot_indices': ofdm.pilot_indices.tolist(),
+            'num_symbols': num_symbols,
+            'ofdm_bandwidth_MHz': self.ofdm_config.bandwidth / 1e6,
+            'num_subcarriers': self.ofdm_config.num_subcarriers,
+        }
+
+        if feedback_info:
+            results['feedback_info'] = feedback_info
+
+        return results
+
+    def _run_feedback_loop_waveform(self, ap_name: str, ris_name: str,
+                                   ue_name: str, initial_snr_dB: float,
+                                   max_iterations: int,
+                                   ris_phases: np.ndarray,
+                                   num_symbols: int) -> Dict:
+        """
+        Run closed-loop feedback with waveform-level simulation
+
+        Args:
+            ap_name: AP name
+            ris_name: RIS name
+            ue_name: UE name
+            initial_snr_dB: Initial SNR measurement
+            max_iterations: Max feedback iterations
+            ris_phases: RIS phase configuration
+            num_symbols: OFDM symbols per iteration
+
+        Returns:
+            Feedback iteration history
+        """
+        ap = self.network.get(ap_name)
+        ue = self.network.get(ue_name)
+
+        if not ap or not ue:
+            return {"error": "Invalid AP or UE"}
+
+        # Enable adaptive features
+        was_power_enabled = ap.power_control_enabled
+        was_rate_enabled = ap.rate_adaptation_enabled
+
+        ap.set_power_control_enabled(True, user_override=None)
+        ap.set_rate_adaptation_enabled(True, user_override=None)
+
+        feedback_iterations = []
+
+        for iteration in range(max_iterations):
+            # Iteration 0 uses initial SNR
+            if iteration == 0:
+                snr_measured = initial_snr_dB
+            else:
+                # Re-simulate with adapted power
+                cascade_result = self.simulate_full_cascade(
+                    ap_name, ris_name, ue_name,
+                    num_symbols=num_symbols,
+                    enable_feedback=False
+                )
+                snr_measured = cascade_result['snr_dB']
+
+            # UE measures and generates feedback
+            ue.snr_measurement_dB = snr_measured
+            csi_feedback = ue.generate_csi_feedback(snr_dB=snr_measured)
+
+            # AP processes feedback and adapts
+            control_action = ap.process_csi_feedback(csi_feedback)
+
+            snr_error = abs(ap.target_snr_dB - snr_measured)
+            converged = snr_error < 1.0
+
+            iteration_info = {
+                "iteration": iteration,
+                "measured_snr_dB": float(snr_measured),
+                "ap_power_dBm": float(ap.power_dBm),
+                "ap_mcs": ap.get_current_mcs()["name"],
+                "snr_error_dB": float(snr_error),
+                "converged": converged,
+                "control_action": control_action
+            }
+
+            feedback_iterations.append(iteration_info)
+
+            if converged:
+                break
+
+        # Restore original settings
+        ap.set_power_control_enabled(was_power_enabled, user_override=None)
+        ap.set_rate_adaptation_enabled(was_rate_enabled, user_override=None)
+
+        return {
+            "iterations": feedback_iterations,
+            "converged": feedback_iterations[-1]["converged"] if feedback_iterations else False,
+            "num_iterations": len(feedback_iterations),
+            "final_power_dBm": float(ap.power_dBm),
+            "final_mcs": ap.get_current_mcs()["name"],
+            "final_snr_dB": float(feedback_iterations[-1]["measured_snr_dB"]) if feedback_iterations else None
+        }
