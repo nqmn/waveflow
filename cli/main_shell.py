@@ -274,9 +274,12 @@ class RISNetCLI(cmd.Cmd):
                 )
                 link_simulator = SignalLevelLink(signal_config)
 
-                # Convert physics SNR to signal-level SNR/SER
-                noise_power = 10 ** (-res['snr_dB'] / 10)
-                noise_power_dB = 10 * np.log10(noise_power)
+                # Convert physics SNR to noise power for signal-level simulation
+                # SNR_dB = 10*log10(Pr / Pn) => Pn = Pr / 10^(SNR_dB/10)
+                # Assume normalized RX power (Pr = 0 dB = 1.0 linear)
+                snr_linear = 10 ** (res['snr_dB'] / 10)
+                noise_power_linear = 1.0 / snr_linear
+                noise_power_dB = 10 * np.log10(noise_power_linear)
                 signal_result = link_simulator.simulate_link(
                     path_loss_dB=0.0,
                     noise_power_dB=noise_power_dB,
@@ -287,7 +290,16 @@ class RISNetCLI(cmd.Cmd):
                 # Add signal-level metrics to result
                 res['signal_level'] = signal_result
                 res['ser_percent'] = signal_result['ser_percent']
-                res['modulation'] = modulation
+                res['requested_modulation'] = modulation
+                # Extract negotiated modulation from feedback if available
+                if 'feedback_info' in res and 'final_iteration' in res['feedback_info']:
+                    final_iter = res['feedback_info']['final_iteration']
+                    if 'ap_mcs' in final_iter:
+                        res['negotiated_modulation'] = final_iter['ap_mcs']
+                    else:
+                        res['negotiated_modulation'] = modulation
+                else:
+                    res['negotiated_modulation'] = modulation
             except ImportError:
                 pass  # If signal_processor not available, continue with physics-based
 
@@ -304,7 +316,8 @@ class RISNetCLI(cmd.Cmd):
             print("\n[SIGNAL-LEVEL RESULTS (100% Real)]")
             print("-"*70)
             signal_info = {
-                'Modulation': res['modulation'],
+                'Requested Modulation': res.get('requested_modulation', 'Unknown'),
+                'Negotiated Modulation': res.get('negotiated_modulation', 'Unknown'),
                 'SNR (dB)': f"{res['signal_level']['snr_dB']:.2f}",
                 'SER (%)': f"{res['signal_level']['ser_percent']:.2f}",
                 'Symbol Errors': res['signal_level']['symbol_errors'],

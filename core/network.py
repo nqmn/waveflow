@@ -325,13 +325,18 @@ class RISNetwork:
         if auto_enabled_rate:
             ap.set_rate_adaptation_enabled(was_rate_enabled, user_override=None)
 
+        # Determine convergence: SNR error < 1 dB threshold (power/rate are adapted)
+        final_iteration = feedback_iterations[-1] if feedback_iterations else None
+
         return {
             "iterations": feedback_iterations,
-            "converged": feedback_iterations[-1]["converged"] if feedback_iterations else False,
+            "final_iteration": final_iteration,
+            "converged": final_iteration["converged"] if final_iteration else False,
+            "convergence_definition": "SNR error < 1.0 dB from target (power and rate adapted)",
             "num_iterations": len(feedback_iterations),
             "final_power_dBm": ap.power_dBm,
             "final_mcs": ap.get_current_mcs()["name"],
-            "final_snr_dB": feedback_iterations[-1]["measured_snr_dB"] if feedback_iterations else None
+            "final_snr_dB": final_iteration["measured_snr_dB"] if final_iteration else None
         }
 
     def direct_link(self, ap_name: str, ue_name: str,

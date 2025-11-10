@@ -76,13 +76,12 @@ class Modulator:
             nearest_idx = np.argmin(distances)
             nearest_sym = self.constellation[nearest_idx]
 
-            # Check for symbol error
-            if nearest_idx >= len(self.constellation):
-                errors += 1
-
             # Convert index to bits
             bits = np.array([(nearest_idx >> j) & 1 for j in range(self.bits_per_symbol)])
             bit_stream[i*self.bits_per_symbol:(i+1)*self.bits_per_symbol] = bits
+
+            # Note: Symbol errors are tracked by comparing demodulated bits with transmitted bits
+            # This is done at the bit level in measure_ser() which is more accurate
 
         return bit_stream, np.array([errors])
 
@@ -296,16 +295,20 @@ class SignalLevelLink:
         rx_symbols = rx_samples[::self.config.samples_per_symbol]
 
         # Demodulate
-        rx_bits, errors = self.modulator.demodulate(rx_symbols)
+        rx_bits, _ = self.modulator.demodulate(rx_symbols)
 
         # Measure SNR and SER
         snr_dB = RealSignalMeasurer.measure_snr(tx_samples[:len(rx_samples)], rx_samples)
         ser = RealSignalMeasurer.measure_ser(tx_bits, rx_bits)
 
+        # Count symbol errors (bit errors per symbol)
+        bit_errors = np.sum(tx_bits != rx_bits)
+        symbol_errors = bit_errors // self.modulator.bits_per_symbol
+
         return {
             'snr_dB': snr_dB,
             'ser_percent': ser,
-            'symbol_errors': int(errors[0]),
+            'symbol_errors': int(symbol_errors),
             'total_symbols': self.config.num_symbols,
             'modulation': self.config.modulation,
             'path_loss_dB': path_loss_dB,
