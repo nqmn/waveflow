@@ -8,7 +8,7 @@
         3.6360389693210724,
         0.0
       ],
-      "power_dBm": 10.871547139884344,
+      "power_dBm": 10.0,
       "freq": 5800000000.0,
       "bandwidth_MHz": 20.0,
       "antenna_gain_dBi": 3.0,
@@ -915,7 +915,7 @@
       "ap": "AP1",
       "ris": "R1",
       "ue": "UE1",
-      "snr_dB": 34.124261573942235,
+      "snr_dB": 34.21655504418798,
       "pwr_dBm": -60.77314499917221,
       "beam_angle": 45.0,
       "gain_dBi": 47.46479930710558,
@@ -929,7 +929,7 @@
       "ap": "AP1",
       "ris": "R1",
       "ue": "UE1",
-      "captured_at": "2025-11-10T08:06:08.525164Z",
+      "captured_at": "2025-11-10T08:19:29.302622Z",
       "parameters": {
         "requested_angle_deg": 45.0,
         "seed": null,
@@ -939,37 +939,37 @@
       },
       "summary": {
         "beam_angle_deg": 45.0,
-        "snr_dB": 34.124261573942235,
+        "snr_dB": 34.21655504418798,
         "pwr_dBm": -60.77314499917221,
         "gain_dBi": 47.46479930710558
       },
       "metrics": {
-        "snr_dB": 34.124261573942235,
+        "snr_dB": 34.21655504418798,
         "pwr_dBm": -60.77314499917221,
         "rssi_dBm": -60.77314499917221,
         "gain_linear": 55780.182482787015,
         "gain_dBi": 47.46479930710558,
         "quant_loss_dB": -1.6706302630375602,
         "beam_angle": 45.0,
-        "evm_percent": 1.966921018867801,
+        "evm_percent": 1.9461317940169773,
         "feedback_info": {
           "iterations": [
             {
               "iteration": 0,
-              "measured_snr_dB": 34.124261573942235,
-              "ap_power_dBm": 12.937869213028883,
+              "measured_snr_dB": 34.21655504418798,
+              "ap_power_dBm": 12.891722477906011,
               "ap_mcs": "16QAM-1/2",
-              "snr_error_dB": 14.124261573942235,
+              "snr_error_dB": 14.216555044187977,
               "converged": false,
               "control_action": {
                 "ue_name": "UE1",
-                "snr_dB": 34.124261573942235,
+                "snr_dB": 34.21655504418798,
                 "power_control": {
                   "status": "updated",
                   "old_power_dBm": 20.0,
-                  "new_power_dBm": 12.937869213028883,
-                  "adjustment_dB": -7.062130786971117,
-                  "snr_error_dB": -14.124261573942235
+                  "new_power_dBm": 12.891722477906011,
+                  "adjustment_dB": -7.108277522093989,
+                  "snr_error_dB": -14.216555044187977
                 },
                 "rate_adaptation": {
                   "status": "updated",
@@ -985,20 +985,20 @@
             },
             {
               "iteration": 1,
-              "measured_snr_dB": 24.132644146289078,
-              "ap_power_dBm": 10.871547139884344,
+              "measured_snr_dB": 26.82151924022526,
+              "ap_power_dBm": 10.0,
               "ap_mcs": "16QAM-3/4",
-              "snr_error_dB": 4.132644146289078,
+              "snr_error_dB": 6.8215192402252605,
               "converged": false,
               "control_action": {
                 "ue_name": "UE1",
-                "snr_dB": 24.132644146289078,
+                "snr_dB": 26.82151924022526,
                 "power_control": {
                   "status": "updated",
-                  "old_power_dBm": 12.937869213028883,
-                  "new_power_dBm": 10.871547139884344,
-                  "adjustment_dB": -2.066322073144539,
-                  "snr_error_dB": -4.132644146289078
+                  "old_power_dBm": 12.891722477906011,
+                  "new_power_dBm": 10.0,
+                  "adjustment_dB": -2.8917224779060113,
+                  "snr_error_dB": -6.8215192402252605
                 },
                 "rate_adaptation": {
                   "status": "updated",
@@ -1014,18 +1014,18 @@
             },
             {
               "iteration": 2,
-              "measured_snr_dB": 25.088102184072312,
-              "ap_power_dBm": 10.871547139884344,
+              "measured_snr_dB": 24.21655504418797,
+              "ap_power_dBm": 10.0,
               "ap_mcs": "64QAM-2/3",
-              "snr_error_dB": 5.088102184072312,
+              "snr_error_dB": 4.21655504418797,
               "converged": false,
               "control_action": {
                 "ue_name": "UE1",
-                "snr_dB": 25.088102184072312,
+                "snr_dB": 24.21655504418797,
                 "power_control": {
                   "status": "converged",
-                  "current_power_dBm": 10.871547139884344,
-                  "snr_error_dB": -5.088102184072312
+                  "current_power_dBm": 10.0,
+                  "snr_error_dB": -4.21655504418797
                 },
                 "rate_adaptation": {
                   "status": "updated",
@@ -1042,18 +1042,18 @@
           ],
           "final_iteration": {
             "iteration": 2,
-            "measured_snr_dB": 25.088102184072312,
-            "ap_power_dBm": 10.871547139884344,
+            "measured_snr_dB": 24.21655504418797,
+            "ap_power_dBm": 10.0,
             "ap_mcs": "64QAM-2/3",
-            "snr_error_dB": 5.088102184072312,
+            "snr_error_dB": 4.21655504418797,
             "converged": false,
             "control_action": {
               "ue_name": "UE1",
-              "snr_dB": 25.088102184072312,
+              "snr_dB": 24.21655504418797,
               "power_control": {
                 "status": "converged",
-                "current_power_dBm": 10.871547139884344,
-                "snr_error_dB": -5.088102184072312
+                "current_power_dBm": 10.0,
+                "snr_error_dB": -4.21655504418797
               },
               "rate_adaptation": {
                 "status": "updated",
@@ -1070,20 +1070,20 @@
           "converged": false,
           "convergence_definition": "SNR error < 1.0 dB from target (power and rate adapted)",
           "num_iterations": 3,
-          "final_power_dBm": 10.871547139884344,
+          "final_power_dBm": 10.0,
           "final_mcs": "64QAM-2/3",
-          "final_snr_dB": 25.088102184072312
+          "final_snr_dB": 24.21655504418797
         },
         "signal_level": {
-          "snr_dB": 34.155233649047204,
-          "ser_percent": 0.0,
+          "snr_dB": 34.29517600161552,
+          "ser_percent": 0.05,
           "symbol_errors": 0,
           "total_symbols": 1000,
           "modulation": "QPSK",
           "path_loss_dB": 0.0,
-          "noise_power_dB": -34.124261573942235
+          "noise_power_dB": -34.21655504418798
         },
-        "ser_percent": 0.0,
+        "ser_percent": 0.05,
         "requested_modulation": "QPSK",
         "negotiated_modulation": "64QAM-2/3"
       }

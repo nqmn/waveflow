@@ -242,7 +242,9 @@ Phase Formats (use: phases <format>):
             data_max = float(np.max(phases)) if phases.size else 360.0
             colorbar_max = data_max if data_max > 0 else 360.0
 
-        phases_grid = phases.reshape(self.ris_node.N, self.ris_node.N)
+        grid_size = self.ris_node.N
+        total_elements = grid_size * grid_size
+        phases_grid = phases.reshape(grid_size, grid_size)
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
@@ -263,17 +265,17 @@ Phase Formats (use: phases <format>):
 
         # Plot 1: Heatmap
         im = axes[0].imshow(phases_grid, cmap=cmap, vmin=0, vmax=colorbar_max, aspect='auto')
-        axes[0].set_title(f'{self.ris_node.name} - {title_suffix} Heatmap\n({self.ris_node.N}×{self.ris_node.N}, {self.ris_node.bits}-bit)',
+        axes[0].set_title(f'{self.ris_node.name} - {title_suffix} Heatmap\n({grid_size}×{grid_size}, {self.ris_node.bits}-bit)',
                          fontsize=12, fontweight='bold')
         axes[0].set_xlabel('Column')
         axes[0].set_ylabel('Row')
         # Overlay grid lines to emphasize element boundaries
-        axes[0].set_xticks(np.arange(-0.5, self.ris_node.N, 1), minor=True)
-        axes[0].set_yticks(np.arange(-0.5, self.ris_node.N, 1), minor=True)
+        axes[0].set_xticks(np.arange(-0.5, grid_size, 1), minor=True)
+        axes[0].set_yticks(np.arange(-0.5, grid_size, 1), minor=True)
         axes[0].grid(which='minor', color='black', linewidth=0.25, alpha=0.6)
         axes[0].tick_params(which='minor', length=0)
-        axes[0].set_xticks(np.arange(0, self.ris_node.N, max(1, self.ris_node.N // 8)))
-        axes[0].set_yticks(np.arange(0, self.ris_node.N, max(1, self.ris_node.N // 8)))
+        axes[0].set_xticks(np.arange(0, grid_size, max(1, grid_size // 8)))
+        axes[0].set_yticks(np.arange(0, grid_size, max(1, grid_size // 8)))
 
         cbar = plt.colorbar(im, ax=axes[0])
         cbar.set_label('Phase (degrees)', rotation=270, labelpad=20)
@@ -286,8 +288,9 @@ RIS NODE: {self.ris_node.name}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CONFIGURATION:
-  Grid Size (N):     {self.ris_node.N}×{self.ris_node.N}
-  Total Elements:    {self.ris_node.N * self.ris_node.N}
+  Grid Size (N):     {grid_size}×{grid_size}
+  Total Elements:    {total_elements}
+  Element Formula:   N_elements = N² = {grid_size}² = {total_elements}
   Phase Bits:        {self.ris_node.bits}
   Quantization States: {2**self.ris_node.bits}
   Phase Step:        {phase_step_deg:.2f}°
