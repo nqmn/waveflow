@@ -19,25 +19,15 @@ from cli.main_shell import RISNetCLI
 
 
 def run_web(net, controller, host='127.0.0.1', port=5000):
-    """Run Flask web interface"""
-    # Try to import Waitress for production WSGI server
-    try:
-        from waitress import serve as waitress_serve
-        waitress_available = True
-    except ImportError:
-        waitress_available = False
+    """Run WSGI web interface"""
+    from waitress import serve as waitress_serve
 
     app = create_app(net, controller)
 
-    if waitress_available:
-        print(f'Using Waitress WSGI server (production-ready)')
-        print(f'Server running on http://{host}:{port}')
-        print('Press Ctrl+C to quit')
-        waitress_serve(app, host=host, port=port, threads=4)
-    else:
-        print('Waitress not found. Using Flask development server.')
-        print(f'Server running on http://{host}:{port}')
-        app.run(host=host, port=port, threaded=True, debug=False)
+    print(f'Using Waitress WSGI server (production-ready)')
+    print(f'Server running on http://{host}:{port}')
+    print('Press Ctrl+C to quit')
+    waitress_serve(app, host=host, port=port, threads=4)
 
 
 def main():

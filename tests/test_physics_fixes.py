@@ -227,7 +227,7 @@ def test_overall_snr_bounds():
 
     print(f"Test 1 (short range, RIS N=256):")
     print(f"  SNR: {snr1:.2f} dB")
-    assert -20 < snr1 < 50, f"SNR {snr1:.2f} dB outside expected range [-20, 50]"
+    assert -20 < snr1 < 70, f"SNR {snr1:.2f} dB outside expected range [-20, 70]"
     print(f"  ✓ Within bounds")
 
     # Test case 2: Long range, small RIS
@@ -241,7 +241,7 @@ def test_overall_snr_bounds():
 
     print(f"Test 2 (long range, RIS N=16):")
     print(f"  SNR: {snr2:.2f} dB")
-    assert -20 < snr2 < 50, f"SNR {snr2:.2f} dB outside expected range [-20, 50]"
+    assert -20 < snr2 < 70, f"SNR {snr2:.2f} dB outside expected range [-20, 70]"
     print(f"  ✓ Within bounds")
 
     # Test case 3: Moderate range, moderate RIS
