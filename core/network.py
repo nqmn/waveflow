@@ -59,8 +59,18 @@ class RISNetwork:
                               noise_figure_dB=noise_figure_dB)
 
     def get(self, name):
-        """Get node by name"""
-        return self.nodes.get(name, None)
+        """Get node by name (case-insensitive)"""
+        # First try exact match
+        if name in self.nodes:
+            return self.nodes[name]
+
+        # Then try case-insensitive match
+        name_lower = name.lower()
+        for node_name, node in self.nodes.items():
+            if node_name.lower() == name_lower:
+                return node
+
+        return None
 
     def list_nodes(self):
         """Print all nodes"""

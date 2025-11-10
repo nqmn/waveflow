@@ -222,7 +222,8 @@ class RISNetCLI(cmd.Cmd):
 
             if local_coarse and snr_coarse:
                 print(f'Total angles tested: {len(local_coarse)}\n')
-                print(f'{\"Local (°)\":<12} {\"SNR (dB)\":<15} {\"Power (dBm)\":<15}')
+                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
+                print(header)
                 print('-'*70)
 
                 best_idx = int(np.argmax(snr_coarse))

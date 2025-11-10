@@ -3,7 +3,8 @@
     "allow": [
       "Bash(mkdir:*)",
       "Bash(python3 main.py:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(timeout 120 python3:*)"
     ],
     "deny": [],
     "ask": []

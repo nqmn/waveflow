@@ -11,7 +11,8 @@ Usage:
 
 import sys
 import argparse
-from core import RISNetwork, RISController
+from core import RISNetwork
+from controller.ris_controller import RISController
 from config import Config
 from app import create_app
 from cli.main_shell import RISNetCLI
