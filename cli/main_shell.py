@@ -285,16 +285,21 @@ class RISNetCLI(cmd.Cmd):
                 modulation = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
-        angle = float(parts[3]) if len(parts) > 3 else None
+        def _is_number(token):
+            try:
+                float(token)
+                return True
+            except (TypeError, ValueError):
+                return False
+
+        # Parse optional numeric args (beam angle first, then optional seed)
+        numeric_args = [p for p in parts if _is_number(p)]
+        angle = float(numeric_args[0]) if numeric_args else None
         seed = None
-        # Try to parse remaining args as seed
-        for part in parts[4:]:
-            if part.isdigit():
-                try:
-                    seed = int(part)
-                    break
-                except ValueError:
-                    pass
+        for candidate in numeric_args[1:]:
+            if candidate.lstrip('-').isdigit():
+                seed = int(candidate)
+                break
 
         res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
                               enable_feedback=enable_feedback, max_feedback_iterations=3)
