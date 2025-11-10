@@ -3,6 +3,7 @@ Node classes for RIS network simulation
 """
 import numpy as np
 from typing import Dict, Optional
+import copy
 from .physics import C
 
 class Node:
@@ -14,6 +15,14 @@ class Node:
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.name}', pos={self.pos.tolist()})"
+
+    def clone(self):
+        """Create a complete independent copy of this node with all state.
+
+        Returns:
+            Node: Deep copy with no shared references to original
+        """
+        return copy.deepcopy(self)
 
     def to_dict(self):
         """Convert node to dictionary for API responses"""

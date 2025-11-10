@@ -8,6 +8,7 @@ import os
 import shlex
 import pprint
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 from core import RIS, AccessPoint, UE
 from controller.beamsweeping import SweepAlgorithmLoader, MLPredictorLoader
@@ -16,6 +17,7 @@ from cli.ris_shell import RISNodeShell
 from cli.ap_shell import APNodeShell
 from cli.ue_shell import UENodeShell
 from cli.helpers import TopologyHelper, NetworkIO, sanitize_for_json
+from cli.video_stream import VideoStreamConfig, run_video_stream_workflow
 
 
 class RISNetCLI(cmd.Cmd):
@@ -829,6 +831,162 @@ class RISNetCLI(cmd.Cmd):
 
         except ValueError as e:
             print(f"Sweep failed: {e}")
+
+    def do_stream(self, arg):
+        """stream [ap] [ris] [ue] --file path [--modulation MOD] [--chunks N] [--num-symbols N]
+        Smart stream (like smart connect). If AP/RIS/UE are omitted, auto-detect when unambiguous.
+        Streams a binary/video file through the AP→RIS→UE link using the waveform workflow (Example 15).
+        Options:
+          --file PATH         Payload file (default streaming/video.mp4)
+          --modulation MOD    QPSK | 16QAM | 64QAM (default 16QAM)
+          --chunks N          Chunks to stream (default 6)
+          --num-symbols N     Symbols per chunk (default 2000)
+          --symbol-rate Hz    Symbol rate (default 2e6)
+          --sample-rate Hz    Sample rate (default 20e6)
+          --sweep-fov deg     Beam sweep FOV (default 80)
+          --sweep-step deg    Beam sweep step (default 5)
+          --ml-top-k N        ML sweep suggestions (default 2)
+        """
+        parts = shlex.split(arg) if arg else []
+        node_tokens = []
+        idx = 0
+        while idx < len(parts) and not parts[idx].startswith('--'):
+            node_tokens.append(parts[idx])
+            idx += 1
+        opts = parts[idx:]
+
+        # Gather nodes
+        aps = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'AccessPoint']
+        riss = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'RIS']
+        ues = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'UE']
+
+        ap = node_tokens[0] if len(node_tokens) > 0 else None
+        ris = node_tokens[1] if len(node_tokens) > 1 else None
+        ue = node_tokens[2] if len(node_tokens) > 2 else None
+
+        def _resolve(name, candidates):
+            if not name:
+                return None
+            if name in candidates:
+                return name
+            lower = name.lower()
+            for cand in candidates:
+                if cand.lower() == lower:
+                    return cand
+            return name  # leave as-is; validation later
+
+        ap = _resolve(ap, aps)
+        ris = _resolve(ris, riss)
+        ue = _resolve(ue, ues)
+
+        # Auto-fill missing nodes (smart detection)
+        if ap is None:
+            if len(aps) == 1:
+                ap = aps[0]
+            elif len(aps) == 0:
+                print("Error: No Access Points available in network")
+                return
+            else:
+                print("Error: Ambiguous AP selection. Specify one of:", ", ".join(aps))
+                return
+
+        if ris is None:
+            if len(riss) == 1:
+                ris = riss[0]
+            elif len(riss) == 0:
+                print("Error: No RIS nodes available in network")
+                return
+            else:
+                print(f"Error: Ambiguous RIS selection for AP '{ap}'. Options:", ", ".join(riss))
+                return
+
+        if ue is None:
+            if len(ues) == 1:
+                ue = ues[0]
+            elif len(ues) == 0:
+                print("Error: No UE nodes available in network")
+                return
+            else:
+                print(f"Error: Ambiguous UE selection for {ap}→{ris}. Options:", ", ".join(ues))
+                return
+
+        video_path = None
+        modulation = "16QAM"
+        chunk_limit = 6
+        num_symbols = 2000
+        symbol_rate = 2e6
+        sample_rate = 20e6
+        sweep_fov = 80.0
+        sweep_step = 5.0
+        ml_top_k = 2
+
+        opt_iter = iter(opts)
+        for token in opt_iter:
+            try:
+                if token == "--file":
+                    video_path = Path(next(opt_iter))
+                elif token == "--modulation":
+                    modulation = next(opt_iter)
+                elif token == "--chunks":
+                    chunk_limit = int(float(next(opt_iter)))
+                elif token == "--num-symbols":
+                    num_symbols = int(float(next(opt_iter)))
+                elif token == "--symbol-rate":
+                    symbol_rate = float(next(opt_iter))
+                elif token == "--sample-rate":
+                    sample_rate = float(next(opt_iter))
+                elif token == "--sweep-fov":
+                    sweep_fov = float(next(opt_iter))
+                elif token == "--sweep-step":
+                    sweep_step = float(next(opt_iter))
+                elif token == "--ml-top-k":
+                    ml_top_k = int(float(next(opt_iter)))
+                else:
+                    print(f"Unknown option: {token}")
+                    return
+            except StopIteration:
+                print(f"Missing value after {token}")
+                return
+            except ValueError:
+                print(f"Invalid value for {token}")
+                return
+
+        if not self.net.get(ap):
+            print(f"Unknown AP '{ap}'")
+            return
+        if not self.net.get(ris):
+            print(f"Unknown RIS '{ris}'")
+            return
+        if not self.net.get(ue):
+            print(f"Unknown UE '{ue}'")
+            return
+
+        if video_path is None:
+            print("Error: --file PATH is required for streaming")
+            return
+
+        video_path = video_path.expanduser()
+        if not video_path.is_absolute():
+            video_path = Path(os.getcwd()) / video_path
+
+        config = VideoStreamConfig(
+            video_path=video_path,
+            modulation=modulation,
+            num_symbols=num_symbols,
+            symbol_rate=symbol_rate,
+            sample_rate=sample_rate,
+            chunk_limit=chunk_limit,
+            sweep_fov=sweep_fov,
+            sweep_step=sweep_step,
+            ml_top_k=ml_top_k,
+        )
+
+        try:
+            run_video_stream_workflow(self.net, ap, ris, ue, config)
+        except FileNotFoundError as e:
+            print(f"error: {e}")
+        except Exception as e:
+            print(f"Streaming failed: {e}")
 
     # =====================================================================
     # Network I/O Commands

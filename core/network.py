@@ -123,7 +123,8 @@ class RISNetwork:
 
     # Basic connectivity (legacy method, kept for compatibility)
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
-                bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10):
+                bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
+                use_isolated_copy=True):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -136,6 +137,8 @@ class RISNetwork:
             seed: Random seed for reproducibility (None = use random fading each call)
             enable_feedback: If True, UE sends CSI feedback to AP for closed-loop adaptation
             max_feedback_iterations: Maximum iterations for feedback loop (default 10)
+            use_isolated_copy: If True (default), use cloned nodes to prevent state pollution.
+                              If False, modify original nodes (for persistent adaptation).
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -147,6 +150,12 @@ class RISNetwork:
         ap = self.get(ap_name)
         ris = self.get(ris_name)
         ue = self.get(ue_name)
+
+        # Use isolated clones by default to prevent cross-node state pollution
+        if use_isolated_copy:
+            ap = ap.clone()
+            ris = ris.clone()
+            ue = ue.clone()
 
         if ap is None or ris is None or ue is None:
             missing = []
@@ -264,7 +273,7 @@ class RISNetwork:
         if enable_feedback:
             result["feedback_info"] = self._run_adaptive_feedback_loop(
                 ap_name, ris_name, ue_name, snr_dB, max_feedback_iterations,
-                bandwidth_MHz, seed
+                bandwidth_MHz, seed, use_isolated_copy=use_isolated_copy
             )
 
         # Track active link
@@ -303,17 +312,25 @@ class RISNetwork:
         return result
 
     def _run_adaptive_feedback_loop(self, ap_name, ris_name, ue_name, initial_snr_dB,
-                                    max_iterations, bandwidth_MHz, seed):
+                                    max_iterations, bandwidth_MHz, seed, use_isolated_copy=True):
         """Run closed-loop feedback between UE and AP for adaptation
 
         Mimics real hardware: UE measures SNR and sends feedback to AP,
         AP adapts power/modulation, then transmits again.
+
+        Args:
+            use_isolated_copy: Whether feedback loop uses isolated copies
         """
         ap = self.get(ap_name)
         ue = self.get(ue_name)
 
         if not ap or not ue:
             return {"error": "Invalid AP or UE"}
+
+        # Use isolated clones for feedback loop if specified
+        if use_isolated_copy:
+            ap = ap.clone()
+            ue = ue.clone()
 
         def _to_float(value):
             if isinstance(value, np.ndarray):
@@ -412,7 +429,8 @@ class RISNetwork:
     def direct_link(self, ap_name: str, ue_name: str,
                     bandwidth_MHz: Optional[float] = None,
                     apply_extra_loss: bool = True,
-                    apply_blockage: bool = True) -> Dict:
+                    apply_blockage: bool = True,
+                    use_isolated_copy: bool = True) -> Dict:
         """Compute direct AP→UE link budget without RIS assistance.
 
         Args:
@@ -421,12 +439,18 @@ class RISNetwork:
             bandwidth_MHz: Optional bandwidth override
             apply_extra_loss: Apply global extra_path_loss_dB impairment
             apply_blockage: Apply direct_blockage_dB impairment
+            use_isolated_copy: If True (default), use cloned nodes to prevent state pollution.
 
         Returns:
             Dict with distance, losses, SNR, and RSSI.
         """
         ap = self.get(ap_name)
         ue = self.get(ue_name)
+
+        # Use isolated clones by default to prevent cross-node state pollution
+        if use_isolated_copy:
+            ap = ap.clone()
+            ue = ue.clone()
 
         if ap is None or ue is None:
             raise ValueError("Invalid node name in direct_link")
@@ -471,7 +495,8 @@ class RISNetwork:
             "gain_dBi": total_gain_dBi
         }
 
-    def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, fine_span=5, fine_res=1, seed=0):
+    def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, fine_span=5, fine_res=1, seed=0,
+              use_isolated_copy=True):
         """Coarse and fine beam sweep with deterministic SNR measurement
 
         Args:
@@ -483,6 +508,7 @@ class RISNetwork:
             fine_span: Fine search span (degrees)
             fine_res: Fine resolution (degrees)
             seed: Random seed for reproducible fading (0 = reproducible, None = random)
+            use_isolated_copy: If True (default), use cloned nodes to prevent state pollution.
 
         Returns:
             Dict with sweep results
@@ -490,6 +516,12 @@ class RISNetwork:
         ap = self.get(ap_name)
         ris = self.get(ris_name)
         ue = self.get(ue_name)
+
+        # Use isolated clones by default to prevent cross-node state pollution
+        if use_isolated_copy:
+            ap = ap.clone()
+            ris = ris.clone()
+            ue = ue.clone()
 
         if ap is None or ris is None or ue is None:
             raise ValueError("Invalid node name in sweep")
