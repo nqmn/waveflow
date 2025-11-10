@@ -7,7 +7,8 @@ Each algorithm is implemented as a separate module and can be loaded dynamically
 from .base import SweepAlgorithmBase
 from .algorithms.linear_brute_force import LinearBruteForceSweep
 from .algorithms.coarse_fine_sweep import CoarseFineSweep
-from .algorithms.ml_sweep import MLGuidedSweep
+from .algorithms.ml_only_sweep import MLOnlySweep
+from .algorithms.directional_exhaustive_sweep import DirectionalExhaustiveSweep
 from utils.snr import compute_snr
 from .ml import MLPredictorLoader, SweepMLPredictor
 
@@ -32,11 +33,12 @@ class SweepAlgorithmLoader:
         'brute-force': LinearBruteForceSweep,
         'coarse-fine': CoarseFineSweep,
         'two-phase': CoarseFineSweep,
-        # Backward compatibility aliases
-        'adaptive': CoarseFineSweep,
         'center-out': CoarseFineSweep,
-        'ml': MLGuidedSweep,
-        'ml-guided': MLGuidedSweep,
+        'ml': MLOnlySweep,  # 1-phase: ML predictions only
+        'ml-guided': MLOnlySweep,  # Alias for ml
+        'directional-exhaustive': DirectionalExhaustiveSweep,
+        'directional': DirectionalExhaustiveSweep,
+        'exhaustive': DirectionalExhaustiveSweep,
     }
 
     @classmethod
@@ -98,7 +100,8 @@ __all__ = [
     'SweepAlgorithmBase',
     'LinearBruteForceSweep',
     'CoarseFineSweep',
-    'MLGuidedSweep',
+    'MLOnlySweep',
+    'DirectionalExhaustiveSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',
     'MLPredictorLoader',

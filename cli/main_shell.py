@@ -118,12 +118,49 @@ class RISNetCLI(cmd.Cmd):
         print()
         self.net.list_nodes()
 
+    def do_status(self, arg):
+        """status - Show network status and active links
+        Displays all nodes and any active link connections with their metrics.
+        """
+        print("\n" + "="*70)
+        print("NETWORK STATUS")
+        print("="*70)
+
+        # Show nodes
+        if not self.net.nodes:
+            print("\n✗ No nodes in network")
+        else:
+            print(f"\nNODES ({len(self.net.nodes)}):")
+            print("-" * 70)
+            for node_name, node in self.net.nodes.items():
+                node_type = type(node).__name__
+                pos_str = f"({node.pos[0]:.1f}, {node.pos[1]:.1f}, {node.pos[2]:.1f})"
+                print(f"  {node_name:<15} : {node_type:<12} at {pos_str}")
+
+        # Show active links
+        active_links = self.net.get_active_links()
+        if not active_links:
+            print("\n✗ No active links")
+        else:
+            print(f"\nACTIVE LINKS ({len(active_links)}):")
+            print("-" * 70)
+            for link_name, link_info in active_links.items():
+                print(f"\n  {link_name}")
+                print(f"    SNR:           {link_info['snr_dB']:>8.2f} dB")
+                print(f"    Power:         {link_info['pwr_dBm']:>8.2f} dBm")
+                print(f"    Gain:          {link_info['gain_dBi']:>8.2f} dBi")
+                print(f"    Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                print(f"    Quant Loss:    {link_info['quant_loss_dB']:>8.2f} dB")
+
+        print("\n" + "="*70 + "\n")
+
     def do_clear(self, arg):
         """clear - Remove all nodes from network"""
         if not self.net.nodes:
             print("Network is already empty")
             return
         self.net.nodes.clear()
+        self.net.clear_links()
         self._save_network()
         print(f"✓ All nodes cleared")
 
@@ -329,12 +366,17 @@ class RISNetCLI(cmd.Cmd):
         """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
         Sweep beam angles using physics-based simulation. Optional: add real signal-level emulation with waveforms.
         Examples:
-            sweep AP1 R1 UE1                                          # Default: physics-based sweep (linear)
-            sweep AP1 R1 UE1 60 10 --modulation 16QAM                 # Physics-based + signal-level SER (16QAM)
-            sweep AP1 R1 UE1 60 10 --algo adaptive                    # Adaptive center-out sweep (physics-based)
-            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb       # ML-guided sweep with signal-level
-            sweep AP1 R1 UE1 60 10 --no-waveform                      # Physics-based only (no signal simulation)
-        Available algorithms: linear (default), adaptive, ml
+            sweep AP1 R1 UE1                                      # Default: physics-based sweep (linear)
+            sweep AP1 R1 UE1 60 10 --modulation 16QAM             # Physics-based + signal-level SER (16QAM)
+            sweep AP1 R1 UE1 60 10 --algo center-out              # Two-phase center-out sweep (~30% faster)
+            sweep AP1 R1 UE1 60 10 --algo exhaustive              # Directional exhaustive multi-link sweep
+            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb   # ML-only sweep (1-phase)
+            sweep AP1 R1 UE1 60 10 --no-waveform                  # Physics-based only (no signal simulation)
+        Available algorithms:
+          linear (default)         - Exhaustive brute-force search
+          center-out               - Two-phase center-out sweep (~30% faster)
+          exhaustive               - Directional exhaustive multi-link sweep
+          ml, ml-guided            - ML-only sweep (1-phase, ML predictions only)
         Available modulations: QPSK (default), 16QAM, 64QAM (for signal-level simulation)
         Available ML predictors: xgb (default), zero, default
         Note: Signal-level emulation is integrated into each algorithm via use_waveform parameter
@@ -382,6 +424,7 @@ class RISNetCLI(cmd.Cmd):
 
         fov = float(parts[3]) if len(parts) > 3 else 60.0
         step = float(parts[4]) if len(parts) > 4 else 10.0
+        seed = None  # Optional seed for reproducibility
 
         try:
             algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
@@ -478,7 +521,7 @@ class RISNetCLI(cmd.Cmd):
             # Check if Real Signal algorithm
             ser_coarse = out.get('ser_coarse', [])
             ser_fine = out.get('ser_fine', [])
-            is_real_signal = len(ser_coarse) > 0
+            is_real_signal = ser_coarse is not None and len(ser_coarse) > 0
 
             # Check if ML algorithm
             ml_results = out.get('ml_results', [])
@@ -552,15 +595,24 @@ class RISNetCLI(cmd.Cmd):
             if has_fine_phase and local_fine and snr_fine:
                 print('FINE PHASE RESULTS:')
                 print('-'*70)
-                if is_real_signal and ser_fine:
+                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
                     header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
                     print(header)
                     print('-'*70)
-                    best_fine_idx = int(np.argmin(ser_fine))
-                    best_ser_fine = float(np.min(ser_fine))
+                    # Find best SER value (excluding None)
+                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
+                    if ser_vals_idx:
+                        best_fine_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
+                        best_ser_fine = float(ser_fine[best_fine_idx])
+                    else:
+                        best_fine_idx = 0
+                        best_ser_fine = 0.0
                     for i, (angle, snr, ser) in enumerate(zip(local_fine, snr_fine, ser_fine)):
-                        marker = " <-- BEST OVERALL" if ser == best_ser_fine else ""
-                        print(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
+                        if ser is not None:
+                            marker = " <-- BEST OVERALL" if ser == best_ser_fine else ""
+                            print(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
+                        else:
+                            print(f'{angle:>11.1f}  {snr:>13.2f}  {"N/A":>13s}')
                 else:
                     header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
                     print(header)
@@ -630,6 +682,19 @@ class RISNetCLI(cmd.Cmd):
             print(f'Specular/Base Angle:    {specular_angle:>8.2f}°')
             print(f'Expected SNR:           {best_final_snr:>8.2f} dB')
             print()
+
+            # Update/create active link with best result from sweep
+            link_key = f"{ap}→{ris}→{ue}"
+            self.net.active_links[link_key] = {
+                'ap': ap,
+                'ris': ris,
+                'ue': ue,
+                'snr_dB': float(best_final_snr),
+                'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
+                'beam_angle': float(best_final_abs),
+                'gain_dBi': 47.46,  # Typical value
+                'quant_loss_dB': -0.75  # Typical value
+            }
 
             print('='*70 + '\n')
 

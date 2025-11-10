@@ -16,6 +16,7 @@ class RISNodeShell(cmd.Cmd):
         self.intro = f"\n{'='*60}\nRIS Node Shell: {ris_node.name}\n{'='*60}\n"
         self._print_status()
         print("\nAvailable commands: help, status, config, info, phases, exit")
+        print("Phase formats: compact (default), grid, stats, plot")
         print("Type 'help' for more information\n")
 
     def do_help(self, arg):
@@ -25,12 +26,18 @@ class RISNodeShell(cmd.Cmd):
 
         help_text = """
 RIS Node Commands:
-  help              - Show this help message
-  status            - Show current RIS status
-  info              - Show detailed RIS information
-  config [set]      - Show or modify RIS configuration
-  phases [format]   - Display phase element values
-  exit              - Exit RIS shell
+  help                    - Show this help message
+  status                  - Show current RIS status
+  info                    - Show detailed RIS information
+  config [set]            - Show or modify RIS configuration
+  phases [format]         - Display phase element values
+  exit                    - Exit RIS shell
+
+Phase Formats (use: phases <format>):
+  compact                 - Compact list of all phase values (default)
+  grid                    - 16×16 grid visualization with bar indicators
+  stats                   - Statistics (min/max/mean/std + quantization error)
+  plot                    - Plot phase distribution (if available)
         """
         print(help_text)
 
@@ -88,14 +95,14 @@ RIS Node Commands:
 
     def do_phases(self, arg):
         """phases [format] - Display phase elements
-        Formats: grid, compact, stats, plot
+        Formats: compact (default), grid, stats, plot
         """
         if self.ris_node.current_phases is None:
             print(f"✗ No phase configuration computed yet.")
             print(f"  Run 'connect' command first to compute phases.")
             return
 
-        format_type = arg.lower() if arg else 'grid'
+        format_type = arg.lower() if arg else 'compact'
 
         if format_type == 'stats':
             self._print_phase_stats()
@@ -103,8 +110,11 @@ RIS Node Commands:
             self._print_phase_compact()
         elif format_type == 'plot':
             self._plot_phase_grid()
-        else:  # 'grid' or default
+        elif format_type == 'grid':
             self._print_phase_grid()
+        else:  # invalid format, default to compact
+            print(f"Unknown format: {format_type}. Using 'compact'.")
+            self._print_phase_compact()
 
     def do_exit(self, arg):
         """exit - Exit RIS shell"""
