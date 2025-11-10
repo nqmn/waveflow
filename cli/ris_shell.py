@@ -246,10 +246,11 @@ Phase Formats (use: phases <format>):
         phase_step_deg = 360.0 / states
         quantized_range_max = 0.0 if states == 1 else (states - 1) * phase_step_deg
 
-        if self.ris_node.quantized_phases is not None:
+        quantized_mode = self.ris_node.quantized_phases is not None
+        if quantized_mode:
             phases = np.degrees(self.ris_node.quantized_phases)
             title_suffix = "Quantized Phases"
-            colorbar_max = quantized_range_max
+            colorbar_max = quantized_range_max if quantized_range_max > 0 else phase_step_deg
         else:
             phases = np.degrees(self.ris_node.current_phases)
             title_suffix = "Ideal Phases"
@@ -266,15 +267,29 @@ Phase Formats (use: phases <format>):
 
         # Detect wave mode
         wave_mode = self._detect_wave_mode()
+        phase_pattern_desc = self._describe_phase_pattern(phases_grid, states, wave_mode)
 
         fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-        # Use truncated HSV colormap when range < 360° to avoid hue wraparound
+        # Use truncated/discrete HSV colormap to emphasize quantization levels
         base_cmap = None
+        norm = None
         try:
             import matplotlib.colors as mcolors
             base_cmap = plt.cm.get_cmap('hsv')
-            if colorbar_max < 360.0:
+            if quantized_mode:
+                # Create discrete colors per quantization state
+                sample_points = np.linspace(0.0, 1.0, states, endpoint=False) if states > 0 else [0.0]
+                cmap = mcolors.ListedColormap(base_cmap(sample_points if len(sample_points) > 0 else [0.0]))
+                upper_bound = colorbar_max if colorbar_max > 0 else phase_step_deg
+                boundaries = np.linspace(-phase_step_deg / 2.0,
+                                         upper_bound + phase_step_deg / 2.0,
+                                         len(sample_points) + 1)
+                # Avoid duplicate boundaries when only one sample exists
+                if len(boundaries) < 2:
+                    boundaries = np.array([-phase_step_deg / 2.0, phase_step_deg / 2.0])
+                norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+            elif colorbar_max < 360.0:
                 upper = min(0.999, colorbar_max / 360.0)
                 sample_points = np.linspace(0.0, upper, 256)
                 cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -285,7 +300,13 @@ Phase Formats (use: phases <format>):
             cmap = 'hsv'
 
         # Plot 1: Heatmap
-        im = axes[0].imshow(phases_grid, cmap=cmap, vmin=0, vmax=colorbar_max, aspect='auto')
+        im_kwargs = {'cmap': cmap, 'aspect': 'auto'}
+        if norm is not None:
+            im_kwargs['norm'] = norm
+        else:
+            im_kwargs['vmin'] = 0
+            im_kwargs['vmax'] = colorbar_max
+        im = axes[0].imshow(phases_grid, **im_kwargs)
         axes[0].set_title(f'{self.ris_node.name} - {title_suffix} Heatmap\n({grid_size}×{grid_size}, {self.ris_node.bits}-bit)',
                          fontsize=12, fontweight='bold')
         axes[0].set_xlabel('Column')
@@ -297,12 +318,55 @@ Phase Formats (use: phases <format>):
         axes[0].tick_params(which='minor', length=0)
         axes[0].set_xticks(np.arange(0, grid_size, max(1, grid_size // 8)))
         axes[0].set_yticks(np.arange(0, grid_size, max(1, grid_size // 8)))
-
         cbar = plt.colorbar(im, ax=axes[0])
         cbar.set_label('Phase (degrees)', rotation=270, labelpad=20)
+        if quantized_mode:
+            unique_levels = np.unique(np.round(phases, 6))
+            if unique_levels.size > 0:
+                cbar_ticks = unique_levels
+            else:
+                cbar_ticks = np.linspace(0.0, colorbar_max, max(states, 2))
+            cbar.set_ticks(cbar_ticks)
+            cbar.set_ticklabels([f"{val:.0f}°" for val in cbar_ticks])
 
         # Plot 2: Statistics (configuration only)
         axes[1].axis('off')
+
+        metrics_block = self.last_connect_result if isinstance(self.last_connect_result, dict) else {}
+        metrics_data = metrics_block.get('metrics') if isinstance(metrics_block.get('metrics'), dict) else {}
+        summary_data = metrics_block.get('summary') if isinstance(metrics_block.get('summary'), dict) else {}
+
+        def _get_metric_value(*keys):
+            for key in keys:
+                if key in metrics_data and metrics_data[key] is not None:
+                    return metrics_data[key]
+                if key in summary_data and summary_data.get(key) is not None:
+                    return summary_data[key]
+            return None
+
+        def _fmt_metric(value, unit=""):
+            if value is None:
+                return "N/A"
+            return f"{float(value):7.2f}{unit}"
+
+        snr_str = _fmt_metric(_get_metric_value('snr_dB'), ' dB')
+        power_str = _fmt_metric(_get_metric_value('pwr_dBm', 'rssi_dBm'), ' dBm')
+        gain_str = _fmt_metric(_get_metric_value('gain_dBi'), ' dBi')
+        beam_angle_val = _get_metric_value('beam_angle', 'beam_angle_deg')
+        beam_angle_str = _fmt_metric(beam_angle_val, '°') if beam_angle_val is not None else "N/A"
+        quant_loss_val = _get_metric_value('quant_loss_dB')
+        if quant_loss_val is None:
+            quant_loss_str = "N/A"
+        else:
+            quant_penalty = abs(float(quant_loss_val))
+            quant_loss_str = f"+{quant_penalty:.2f} dB (ΔSNR = {float(quant_loss_val):+.2f} dB)"
+
+        phase_range_text = "Full 0°–360° sweep"
+        if quantized_mode:
+            if colorbar_max > 0:
+                phase_range_text = f"0°–{colorbar_max:.2f}°"
+            else:
+                phase_range_text = "Single-level (0°)"
 
         stats_text = f"""
 RIS NODE: {self.ris_node.name}
@@ -315,15 +379,17 @@ CONFIGURATION:
   Phase Bits:        {self.ris_node.bits}
   Quantization States: {2**self.ris_node.bits}
   Phase Step:        {phase_step_deg:.2f}°
-  Phase Range:       0°–{quantized_range_max:.2f}°
+  Phase Range:       {phase_range_text}
   Wave Mode:         {wave_mode}
+  Phase Pattern:     {phase_pattern_desc}
+  Colorbar Levels:   {f'{states} discrete state(s)' if quantized_mode else 'Continuous gradient'}
 
 PERFORMANCE METRICS:
-  SNR:               51.01 dB
-  Power:             -47.51 dBm
-  Gain:              47.46 dBi
-  Beam Angle:        45.00°
-  Quant Loss:        -1.67 dB
+  SNR:               {snr_str}
+  Power:             {power_str}
+  Gain:              {gain_str}
+  Beam Angle:        {beam_angle_str}
+  Quantization Pen.: {quant_loss_str}
 {self._angle_metadata_text()}
 """
 
@@ -386,6 +452,25 @@ PERFORMANCE METRICS:
         if meta['local'] is not None:
             lines.append(f"{indent}  Local Deflection: {meta['local']:7.2f}°")
         return "\n" + "\n".join(lines)
+
+    def _describe_phase_pattern(self, phases_grid, states, wave_mode):
+        """Provide quick description of quantized phase map characteristics."""
+        if phases_grid is None:
+            return "Not available"
+
+        unique_levels = np.unique(np.round(phases_grid, 2))
+        unique_count = unique_levels.size
+        wave_desc = wave_mode if isinstance(wave_mode, str) else "Unknown"
+        wave_phrase = wave_desc.lower()
+
+        if self.ris_node.quantized_phases is not None:
+            if states == 2 and unique_count <= 2:
+                if wave_mode == "Plane Wave":
+                    return "1-bit 0°/180° stripes approximating a linear ramp"
+                return "1-bit 0°/180° pattern with spatial variation (spherical-phase steering)"
+            return f"{unique_count} unique level(s) across {states}-state quantizer"
+
+        return f"Continuous {wave_phrase} ramp with ~{unique_count} sampled bins"
 
     def _detect_wave_mode(self):
         """Detect if phase pattern is plane wave or spherical wave
