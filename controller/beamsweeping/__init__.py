@@ -8,6 +8,7 @@ from .base import SweepAlgorithmBase
 from .linear_brute_force import LinearBruteForceSweep
 from .adaptive_center_out import AdaptiveCenterOutSweep
 from .ml_sweep import MLGuidedSweep
+from .real_signal_sweep import RealSignalSweep
 from .beamsweeping import compute_snr, adaptive_center_out_beam_sweep
 from .ml import MLPredictorLoader, SweepMLPredictor
 
@@ -22,6 +23,8 @@ class SweepAlgorithmLoader:
         'center-out': AdaptiveCenterOutSweep,
         'ml': MLGuidedSweep,
         'ml-guided': MLGuidedSweep,
+        'real': RealSignalSweep,
+        'real-signal': RealSignalSweep,
     }
 
     @classmethod
@@ -84,6 +87,7 @@ __all__ = [
     'LinearBruteForceSweep',
     'AdaptiveCenterOutSweep',
     'MLGuidedSweep',
+    'RealSignalSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',
     'MLPredictorLoader',

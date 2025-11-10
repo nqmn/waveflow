@@ -12,6 +12,13 @@ import numpy as np
 from typing import Dict
 from .base import SweepAlgorithmBase
 
+# Import waveform simulator if available
+try:
+    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
+    WAVEFORM_AVAILABLE = True
+except ImportError:
+    WAVEFORM_AVAILABLE = False
+
 
 class LinearBruteForceSweep(SweepAlgorithmBase):
     """Linear brute-force beam sweep algorithm"""
@@ -28,7 +35,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
               fov: float = 60.0, step: float = 1.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
-              ml_angles=None) -> Dict:
+              ml_angles=None, use_waveform: bool = False,
+              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
         """Execute linear brute-force sweep with optional closed-loop feedback
 
         Args:
@@ -72,7 +80,19 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
         snr_values = [None] * len(angles)
         power_values = [None] * len(angles)
+        ser_values = [None] * len(angles) if use_waveform else None
         feedback_details = [] if enable_feedback else None
+
+        # Setup waveform simulator if requested
+        link_simulator = None
+        if use_waveform and WAVEFORM_AVAILABLE:
+            signal_config = SignalConfig(
+                modulation=modulation,
+                symbol_rate=1e6,
+                sample_rate=10e6,
+                num_symbols=num_symbols
+            )
+            link_simulator = SignalLevelLink(signal_config)
 
         def measure_index(idx: int):
             if snr_values[idx] is not None:
@@ -85,7 +105,15 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     enable_feedback=enable_feedback,
                     max_feedback_iterations=max_feedback_iterations
                 )
-            snr_values[idx] = res['snr_dB']
+
+            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
+            if use_waveform and link_simulator:
+                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+idx if seed else None)
+                snr_values[idx] = signal_result['snr_dB']
+                ser_values[idx] = signal_result['ser_percent']
+            else:
+                snr_values[idx] = res['snr_dB']
+
             power_values[idx] = res['pwr_dBm']
 
             if enable_feedback and 'feedback_info' in res:
@@ -118,7 +146,7 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         best_snr = snr_values[best_idx]
         best_power = power_values[best_idx]
 
-        return {
+        result = {
             'angles': angles.tolist(),
             'snr': np.array(snr_values).tolist(),
             'power': np.array(power_values).tolist(),
@@ -138,3 +166,10 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
             'best_local_fine': float(best_angle),
             'best_snr_fine': float(best_snr)
         }
+
+        # Add SER values if waveform simulation was used
+        if use_waveform and ser_values:
+            result['ser_coarse'] = ser_values
+            result['ser_fine'] = []
+
+        return result
