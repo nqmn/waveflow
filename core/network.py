@@ -267,7 +267,8 @@ class RISNetwork:
             'pwr_dBm': result['pwr_dBm'],
             'beam_angle': beam_angle_deg,
             'gain_dBi': result.get('gain_dBi', 0.0),
-            'quant_loss_dB': result.get('quant_loss_dB', 0.0)
+            'quant_loss_dB': result.get('quant_loss_dB', 0.0),
+            'source': 'connect'
         }
 
         return result

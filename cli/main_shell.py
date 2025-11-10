@@ -146,6 +146,9 @@ class RISNetCLI(cmd.Cmd):
             print("-" * 70)
             for link_name, link_info in active_links.items():
                 print(f"\n  {link_name}")
+                origin = link_info.get('source', 'unknown')
+                origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
+                print(f"    Source:        {origin_label}")
                 print(f"    SNR:           {link_info['snr_dB']:>8.2f} dB")
                 print(f"    Power:         {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"    Gain:          {link_info['gain_dBi']:>8.2f} dBi")
@@ -345,27 +348,78 @@ class RISNetCLI(cmd.Cmd):
             except ImportError:
                 pass  # If signal_processor not available, continue with physics-based
 
+        def _fmt_value(value, precision=2):
+            if isinstance(value, (int, np.integer)) or (isinstance(value, float) and value.is_integer()):
+                return f"{int(value)}"
+            if isinstance(value, (float, np.floating)):
+                return f"{value:.{precision}f}"
+            return str(value)
+
+        def _print_table(title, rows):
+            printable = [(label, _fmt_value(val)) for label, val in rows if val is not None]
+            if not printable:
+                return
+            width = max(len(label) for label, _ in printable)
+            print(f"\n[{title}]")
+            print("-"*70)
+            for label, value in printable:
+                print(f"  {label:<{width}} : {value}")
+
         print(f"\nConnection Result (Feedback: {'Enabled' if enable_feedback else 'Disabled'}, "
-              f"Waveform: {'Enabled (' + modulation + ')' if use_waveform else 'Disabled'}):")
+              f"Waveform: {'Enabled (' + modulation + ')' if use_waveform else 'Disabled'})")
         print("="*70)
 
-        # Display physics-based results
-        physics_result = {k: v for k, v in res.items() if k != 'signal_level'}
-        pprint.pprint(physics_result)
+        physics_rows = []
+        for label, key in [
+            ("SNR (dB)", "snr_dB"),
+            ("RSSI (dBm)", "rssi_dBm"),
+            ("Power (dBm)", "pwr_dBm"),
+            ("Gain (dBi)", "gain_dBi"),
+            ("Gain (linear)", "gain_linear"),
+            ("Beam Angle (deg)", "beam_angle"),
+            ("Quant Loss (dB)", "quant_loss_dB"),
+            ("EVM (%)", "evm_percent"),
+            ("SER (%)", "ser_percent")
+        ]:
+            if key in res:
+                physics_rows.append((label, res[key]))
+        _print_table("PHYSICS METRICS", physics_rows)
 
-        # Display signal-level results if available
+        if 'feedback_info' in res:
+            fb = res['feedback_info']
+            summary_rows = [
+                ("Converged", "Yes" if fb.get('converged') else "No"),
+                ("Iterations", fb.get('num_iterations')),
+                ("Final MCS", fb.get('final_mcs')),
+                ("Final Power (dBm)", fb.get('final_power_dBm')),
+                ("Final SNR (dB)", fb.get('final_snr_dB'))
+            ]
+            _print_table("CSI FEEDBACK SUMMARY", summary_rows)
+
+            iterations = fb.get('iterations', [])
+            if iterations:
+                print("\n[CSI ITERATIONS]")
+                print("-"*70)
+                print("  Iter | SNR (dB) | Power (dBm) | MCS         | ΔSNR (dB) | Status")
+                for it in iterations:
+                    status = "✓" if it.get('converged') else "→"
+                    print(f"   {it['iteration']:>2}  | "
+                          f"{_fmt_value(it.get('measured_snr_dB')):>8} | "
+                          f"{_fmt_value(it.get('ap_power_dBm')):>11} | "
+                          f"{it.get('ap_mcs', ''):<10} | "
+                          f"{_fmt_value(it.get('snr_error_dB')):>8} | {status}")
+
         if use_waveform and 'signal_level' in res:
-            print("\n[SIGNAL-LEVEL RESULTS (100% Real)]")
-            print("-"*70)
-            signal_info = {
-                'Requested Modulation': res.get('requested_modulation', 'Unknown'),
-                'Negotiated Modulation': res.get('negotiated_modulation', 'Unknown'),
-                'SNR (dB)': f"{res['signal_level']['snr_dB']:.2f}",
-                'SER (%)': f"{res['signal_level']['ser_percent']:.2f}",
-                'Symbol Errors': res['signal_level']['symbol_errors'],
-                'Total Symbols': res['signal_level']['total_symbols']
-            }
-            pprint.pprint(signal_info)
+            sig = res['signal_level']
+            waveform_rows = [
+                ("Requested Modulation", res.get('requested_modulation', modulation)),
+                ("Negotiated Modulation", res.get('negotiated_modulation', 'Unknown')),
+                ("SNR (dB)", sig.get('snr_dB')),
+                ("SER (%)", sig.get('ser_percent')),
+                ("Symbol Errors", sig.get('symbol_errors')),
+                ("Total Symbols", sig.get('total_symbols'))
+            ]
+            _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
 
     def do_sweep(self, arg):
         """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
@@ -698,7 +752,8 @@ class RISNetCLI(cmd.Cmd):
                 'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
                 'beam_angle': float(best_final_abs),
                 'gain_dBi': 47.46,  # Typical value
-                'quant_loss_dB': -0.75  # Typical value
+                'quant_loss_dB': -0.75,  # Typical value
+                'source': 'sweep'
             }
 
             print('='*70 + '\n')
