@@ -74,10 +74,12 @@ class Modulator:
             # Find nearest constellation point (hard decision)
             distances = np.abs(self.constellation - rx_sym)
             nearest_idx = np.argmin(distances)
-            nearest_sym = self.constellation[nearest_idx]
 
-            # Convert index to bits
-            bits = np.array([(nearest_idx >> j) & 1 for j in range(self.bits_per_symbol)])
+            # Convert index to bits (MSB first to match modulator)
+            bits = np.array([
+                (nearest_idx >> shift) & 1
+                for shift in range(self.bits_per_symbol - 1, -1, -1)
+            ])
             bit_stream[i*self.bits_per_symbol:(i+1)*self.bits_per_symbol] = bits
 
             # Note: Symbol errors are tracked by comparing demodulated bits with transmitted bits
@@ -101,6 +103,9 @@ class RealChannel:
         self.noise_power_dB = noise_power_dB
         self.path_loss_linear = 10 ** (-path_loss_dB / 10)
         self.noise_power = 10 ** (noise_power_dB / 10)
+        self.last_signal_power = None
+        self.last_noise_power = None
+        self.last_channel_envelope = None
 
         if seed is not None:
             np.random.seed(seed)
@@ -117,9 +122,9 @@ class RealChannel:
         """
         num_samples = len(signal)
 
-        # LOS component (constant phase)
+        # LOS component (constant gain)
         los_power = K_factor / (K_factor + 1)
-        los_component = np.sqrt(los_power) * signal
+        los_component = np.sqrt(los_power)
 
         # NLOS component (Rayleigh fading)
         nlos_power = 1.0 / (K_factor + 1)
@@ -127,10 +132,9 @@ class RealChannel:
         nlos_q = np.random.randn(num_samples) * np.sqrt(nlos_power / 2)
         nlos_component = nlos_i + 1j * nlos_q
 
-        # Time-varying fading envelope
-        fading = los_component + nlos_component
-
-        return fading
+        # Apply multiplicative fading to signal
+        fading_envelope = los_component + nlos_component
+        return signal * fading_envelope
 
     def add_phase_noise(self, signal: np.ndarray, phase_noise_std: float = 0.01) -> np.ndarray:
         """Add oscillator phase noise"""
@@ -198,10 +202,19 @@ class RealChannel:
         # Add CFO
         output = self.add_cfo(output, cfo_hz, sample_rate)
 
+        # Preserve deterministic portion before noise for diagnostics
+        signal_only = output.copy()
+
         # Add AWGN
         noise = np.sqrt(self.noise_power / 2) * (np.random.randn(len(output)) +
                                                    1j * np.random.randn(len(output)))
         output = output + noise
+
+        # Track average powers for SNR diagnostics
+        self.last_signal_power = float(np.mean(np.abs(signal_only) ** 2))
+        self.last_noise_power = float(np.mean(np.abs(noise) ** 2))
+        with np.errstate(divide='ignore', invalid='ignore'):
+            self.last_channel_envelope = signal_only / (signal + 1e-12)
 
         return output
 
@@ -288,17 +301,37 @@ class SignalLevelLink:
         # Apply channel
         channel = RealChannel(path_loss_dB, noise_power_dB, seed)
         rx_samples = channel.apply(tx_samples, K_factor=K_factor,
-                                   phase_noise_std=0.01, cfo_hz=100,
+                                   phase_noise_std=0.0, cfo_hz=0.0,
                                    sample_rate=self.config.sample_rate)
 
         # Downsample (match filter output)
         rx_symbols = rx_samples[::self.config.samples_per_symbol]
+        channel_envelope = channel.last_channel_envelope
+        if channel_envelope is not None:
+            channel_symbols = channel_envelope[::self.config.samples_per_symbol]
+            channel_symbols = channel_symbols[:len(rx_symbols)]
+            channel_symbols = np.where(
+                np.abs(channel_symbols) < 1e-9,
+                1.0 + 0j,
+                channel_symbols
+            )
+            rx_symbols = rx_symbols / channel_symbols
 
         # Demodulate
         rx_bits, _ = self.modulator.demodulate(rx_symbols)
 
-        # Measure SNR and SER
-        snr_dB = RealSignalMeasurer.measure_snr(tx_samples[:len(rx_samples)], rx_samples)
+        # Measure SNR using tracked signal/noise powers
+        signal_power = channel.last_signal_power
+        noise_power = channel.last_noise_power
+        if signal_power is None:
+            signal_power = float(np.mean(np.abs(tx_samples)**2))
+        if noise_power is None or noise_power <= 0:
+            noise_power = 10 ** (noise_power_dB / 10)
+
+        snr_linear = max(signal_power / max(noise_power, 1e-12), 1e-12)
+        snr_dB = 10 * np.log10(snr_linear)
+
+        # Measure SER
         ser = RealSignalMeasurer.measure_ser(tx_bits, rx_bits)
 
         # Count symbol errors (bit errors per symbol)

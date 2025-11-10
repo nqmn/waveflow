@@ -285,6 +285,15 @@ class RISNetwork:
         if not ap or not ue:
             return {"error": "Invalid AP or UE"}
 
+        def _to_float(value):
+            if isinstance(value, np.ndarray):
+                if value.size == 0:
+                    return 0.0
+                return float(value.reshape(-1)[0])
+            if isinstance(value, (np.floating, np.integer)):
+                return float(value)
+            return float(value) if isinstance(value, (int, float)) else value
+
         # Enable adaptive features (respect explicit user overrides)
         was_power_enabled = ap.power_control_enabled
         was_rate_enabled = ap.rate_adaptation_enabled
@@ -307,7 +316,7 @@ class RISNetwork:
         for iteration in range(max_iterations):
             # Iteration 0 uses initial SNR from first transmission
             if iteration == 0:
-                snr_measured = initial_snr_dB
+                snr_measured = _to_float(initial_snr_dB)
             else:
                 # Re-compute link with adapted power
                 link_result = self.connect(
@@ -317,7 +326,7 @@ class RISNetwork:
                     seed=seed,
                     enable_feedback=False
                 )
-                snr_measured = link_result["snr_dB"]
+                snr_measured = _to_float(link_result["snr_dB"])
 
             # UE measures SNR and generates feedback
             ue.estimate_snr_from_waveform(
@@ -337,7 +346,7 @@ class RISNetwork:
             iteration_info = {
                 "iteration": iteration,
                 "measured_snr_dB": snr_measured,
-                "ap_power_dBm": ap.power_dBm,
+                "ap_power_dBm": float(ap.power_dBm),
                 "ap_mcs": ap.get_current_mcs()["name"],
                 "snr_error_dB": snr_error,
                 "converged": converged,
@@ -365,7 +374,7 @@ class RISNetwork:
             "converged": final_iteration["converged"] if final_iteration else False,
             "convergence_definition": "SNR error < 1.0 dB from target (power and rate adapted)",
             "num_iterations": len(feedback_iterations),
-            "final_power_dBm": ap.power_dBm,
+            "final_power_dBm": float(ap.power_dBm),
             "final_mcs": ap.get_current_mcs()["name"],
             "final_snr_dB": final_iteration["measured_snr_dB"] if final_iteration else None
         }
