@@ -209,7 +209,30 @@ class RISNetCLI(cmd.Cmd):
             for node_name, node in self.net.nodes.items():
                 node_type = type(node).__name__
                 pos_str = f"({node.pos[0]:.1f}, {node.pos[1]:.1f}, {node.pos[2]:.1f})"
-                print(f"  {node_name:<15} : {node_type:<12} at {pos_str}")
+                print(f"\n  {node_name:<15} : {node_type:<12} at {pos_str}")
+
+                # Show node-specific details
+                if hasattr(node, 'freq'):
+                    freq_ghz = node.freq / 1e9 if node.freq else 0
+                    print(f"      Frequency:     {freq_ghz:.2f} GHz")
+
+                if hasattr(node, 'bandwidth_MHz'):
+                    bw = node.bandwidth_MHz if node.bandwidth_MHz else 0
+                    print(f"      Bandwidth:     {bw:.1f} MHz")
+
+                if hasattr(node, 'power_dBm'):
+                    print(f"      Power:         {node.power_dBm:.1f} dBm")
+
+                if hasattr(node, 'N'):  # RIS specific
+                    print(f"      RIS Elements:  {node.N}")
+                    if hasattr(node, 'bits'):
+                        print(f"      Phase Bits:    {node.bits}")
+
+                if hasattr(node, 'noise_figure_dB'):
+                    print(f"      Noise Figure:  {node.noise_figure_dB:.1f} dB")
+
+                if hasattr(node, 'antenna_gain_dBi'):
+                    print(f"      Antenna Gain:  {node.antenna_gain_dBi:.1f} dBi")
 
         # Show active links with indices
         active_links = self.net.get_active_links()
