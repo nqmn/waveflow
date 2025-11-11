@@ -11,15 +11,16 @@ find the best. No two-phase complexity needed for exhaustive search.
 import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
+from ..common import (
+    WaveformSettings,
+    apply_waveform_realism,
+    compute_specular_angle,
+    create_waveform_link,
+)
+from ..registry import register_algorithm
 
-# Import waveform simulator if available
-try:
-    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
-    WAVEFORM_AVAILABLE = True
-except ImportError:
-    WAVEFORM_AVAILABLE = False
 
-
+@register_algorithm("linear", aliases=("brute-force",))
 class LinearBruteForceSweep(SweepAlgorithmBase):
     """Linear brute-force beam sweep algorithm"""
 
@@ -32,7 +33,7 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         return "Simple exhaustive search: tests all beam angles across FOV at specified resolution."
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
-              fov: float = 60.0, step: float = 1.0,
+              fov: float = 60.0, step: float = 10.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
@@ -71,8 +72,7 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
         # Calculate base direction (UE direction from RIS)
         # This is the optimal beamforming direction for AP->RIS->UE link
-        ue_vec = ue.pos - ris.pos
-        base_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+        base_angle = compute_specular_angle(ris, ue)
 
         # Single phase: test all angles from -FOV to +FOV at specified resolution
         angles = np.arange(-fov, fov + step, step)
@@ -84,15 +84,11 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         feedback_details = [] if enable_feedback else None
 
         # Setup waveform simulator if requested
-        link_simulator = None
-        if use_waveform and WAVEFORM_AVAILABLE:
-            signal_config = SignalConfig(
-                modulation=modulation,
-                symbol_rate=1e6,
-                sample_rate=10e6,
-                num_symbols=num_symbols
-            )
-            link_simulator = SignalLevelLink(signal_config)
+        waveform_settings = WaveformSettings(
+            modulation=modulation,
+            num_symbols=num_symbols,
+        )
+        link_simulator = create_waveform_link(use_waveform, waveform_settings)
 
         def measure_index(idx: int):
             if snr_values[idx] is not None:
@@ -107,13 +103,14 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
 
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+idx if seed else None)
-                snr_values[idx] = signal_result['snr_dB']
-                ser_values[idx] = signal_result['ser_percent']
-            else:
-                snr_values[idx] = res['snr_dB']
+            snr_val, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + idx if seed else None,
+            )
+            snr_values[idx] = snr_val
+            if ser_values is not None:
+                ser_values[idx] = ser_val
 
             power_values[idx] = res['pwr_dBm']
 

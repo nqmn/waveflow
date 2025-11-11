@@ -5,10 +5,15 @@ Each algorithm is implemented as a separate module and can be loaded dynamically
 """
 
 from .base import SweepAlgorithmBase
-from .algorithms.linear_brute_force import LinearBruteForceSweep
-from .algorithms.coarse_fine_sweep import CoarseFineSweep
-from .algorithms.ml_only_sweep import MLOnlySweep
-from .algorithms.directional_exhaustive_sweep import DirectionalExhaustiveSweep
+from .algorithms import (
+    CoarseFineSweep,
+    DirectionalExhaustiveSweep,
+    LinearBruteForceSweep,
+    MLGuidedSweep,
+    MLOnlySweep,
+    get_algorithm_class,
+    list_registered_algorithms,
+)
 from utils.snr import compute_snr
 from .ml import MLPredictorLoader, SweepMLPredictor
 
@@ -27,19 +32,7 @@ class SweepAlgorithmLoader:
     Note: Real signal-level emulation is integrated into each algorithm
     via the use_waveform parameter, not as a separate algorithm.
     """
-
-    ALGORITHMS = {
-        'linear': LinearBruteForceSweep,
-        'brute-force': LinearBruteForceSweep,
-        'coarse-fine': CoarseFineSweep,
-        'two-phase': CoarseFineSweep,
-        'center-out': CoarseFineSweep,
-        'ml': MLOnlySweep,  # 1-phase: ML predictions only
-        'ml-guided': MLOnlySweep,  # Alias for ml
-        'directional-exhaustive': DirectionalExhaustiveSweep,
-        'directional': DirectionalExhaustiveSweep,
-        'exhaustive': DirectionalExhaustiveSweep,
-    }
+    DEFAULT_ALGORITHM = 'linear'
 
     @classmethod
     def get_algorithm(cls, name: str, network):
@@ -55,16 +48,7 @@ class SweepAlgorithmLoader:
         Raises:
             ValueError: If algorithm not found
         """
-        name_lower = name.lower()
-
-        if name_lower not in cls.ALGORITHMS:
-            available = ', '.join(cls.ALGORITHMS.keys())
-            raise ValueError(
-                f"Unknown sweep algorithm: {name}\n"
-                f"Available algorithms: {available}"
-            )
-
-        AlgorithmClass = cls.ALGORITHMS[name_lower]
+        AlgorithmClass = get_algorithm_class(name)
         return AlgorithmClass(network)
 
     @classmethod
@@ -75,11 +59,13 @@ class SweepAlgorithmLoader:
             Dictionary of algorithm info
         """
         info = {}
-        for name, AlgorithmClass in cls.ALGORITHMS.items():
+        for registration in list_registered_algorithms():
+            AlgorithmClass = registration.cls
             instance = AlgorithmClass(None)
-            info[name] = {
+            info[registration.primary_name] = {
                 'class_name': instance.name,
-                'description': instance.description
+                'description': instance.description,
+                'aliases': tuple(registration.aliases),
             }
         return info
 
@@ -93,7 +79,7 @@ class SweepAlgorithmLoader:
         Returns:
             Default sweep algorithm instance
         """
-        return cls.get_algorithm('linear', network)
+        return cls.get_algorithm(cls.DEFAULT_ALGORITHM, network)
 
 
 __all__ = [
@@ -101,6 +87,7 @@ __all__ = [
     'LinearBruteForceSweep',
     'CoarseFineSweep',
     'MLOnlySweep',
+    'MLGuidedSweep',
     'DirectionalExhaustiveSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',

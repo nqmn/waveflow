@@ -17,19 +17,22 @@ Key Features:
 - Greedy refinement: checks neighbors of peak for local optimization
 - Exhaustive coverage: ensures no good angles are missed
 """
-
 import numpy as np
 from typing import Dict, List, Tuple
 from ..base import SweepAlgorithmBase
+from ..common import (
+    WaveformSettings,
+    apply_waveform_realism,
+    compute_specular_angle,
+    create_waveform_link,
+)
+from ..registry import register_algorithm
 
-# Try to import signal processor for waveform simulation
-try:
-    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
-    WAVEFORM_AVAILABLE = True
-except ImportError:
-    WAVEFORM_AVAILABLE = False
 
-
+@register_algorithm(
+    "directional-exhaustive",
+    aliases=("directional", "exhaustive"),
+)
 class DirectionalExhaustiveSweep(SweepAlgorithmBase):
     """Directional Exhaustive multi-link beam sweep algorithm"""
 
@@ -89,8 +92,7 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         incident_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
 
         # Calculate specular reflection angle (UE direction from RIS)
-        ue_vec = ue.pos - ris.pos
-        specular_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+        specular_angle = compute_specular_angle(ris, ue)
 
         # Generate codebook around specular angle
         codebook_local = np.arange(-fov, fov + step, step)
@@ -102,16 +104,12 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         print(f"Codebook: {len(codebook_absolute)} angles from {codebook_absolute[0]:.1f}° to {codebook_absolute[-1]:.1f}°")
 
         # Setup waveform simulator if requested
-        link_simulator = None
-        if use_waveform and WAVEFORM_AVAILABLE:
-            signal_config = SignalConfig(
-                modulation=modulation,
-                symbol_rate=1e6,
-                sample_rate=10e6,
-                num_symbols=num_symbols,
-                pilot_ratio=0.1
-            )
-            link_simulator = SignalLevelLink(signal_config)
+        waveform_settings = WaveformSettings(
+            modulation=modulation,
+            num_symbols=num_symbols,
+            pilot_ratio=0.1,
+        )
+        link_simulator = create_waveform_link(use_waveform, waveform_settings)
 
         # =====================================================================
         # Step 3: Perform exhaustive sweep for each link
@@ -150,7 +148,11 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                         store_in_active_links=False  # Don't store intermediate measurements
                     )
 
-                current_snr = res['snr_dB']
+                current_snr, ser_val = apply_waveform_realism(
+                    res,
+                    link_simulator,
+                    seed=seed + i if seed else None,
+                )
                 current_pwr = res['pwr_dBm']
                 snr_measurements.append(current_snr)
                 pwr_measurements.append(current_pwr)
@@ -174,20 +176,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                 print(f"│    idx={i:2d} ({test_angle:7.1f}°): SNR = {current_snr:7.2f} dB "
                       f"[target={ground_truth_angle:7.1f}°, error={error:6.1f}°]{marker}")
 
-                # Handle waveform simulation if enabled
-                if use_waveform and link_simulator:
-                    try:
-                        noise_power = 10 ** (-current_snr / 10)
-                        noise_power_dB = 10 * np.log10(noise_power)
-                        signal_result = link_simulator.simulate_link(
-                            path_loss_dB=0.0,
-                            noise_power_dB=noise_power_dB,
-                            K_factor=5.0,
-                            seed=seed if seed else None
-                        )
-                        ser_measurements.append(signal_result['ser_percent'])
-                    except Exception:
-                        ser_measurements.append(None)
+                if ser_measurements is not None:
+                    ser_measurements.append(ser_val)
 
             print(f"│")
 

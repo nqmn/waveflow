@@ -1,11 +1,11 @@
 """[TEMPLATE] Standard Beam Sweep Algorithm Implementation
 
 INSTRUCTIONS:
-1. Copy this file to a new file: my_algorithm.py
+1. Copy this file to `controller/beamsweeping/algorithms/my_algorithm.py`
 2. Replace all [TEMPLATE] markers with your implementation
 3. Update class name and algorithm name
 4. Implement Phase 1 and Phase 2 sweep logic
-5. Register in __init__.py: 'my-algo': MyAlgorithmSweep
+5. Decorate your class with @register_algorithm("my-algo", aliases=(...))
 6. Test using: sweep AP1 R1 UE1 60 10 --algo my-algo
 
 ALGORITHM DESCRIPTION:
@@ -17,7 +17,7 @@ ALGORITHM DESCRIPTION:
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from .base import SweepAlgorithmBase  # When moved under algorithms/, change to `from ..base import ...`
 
 
 class [TEMPLATE_CLASS_NAME](SweepAlgorithmBase):

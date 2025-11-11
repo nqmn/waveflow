@@ -10,20 +10,20 @@ Strategy:
 
 Supports real signal-level emulation via use_waveform parameter.
 """
-
 import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
+from ..common import (
+    WaveformSettings,
+    apply_waveform_realism,
+    compute_specular_angle,
+    create_waveform_link,
+)
+from ..registry import register_algorithm
 
-# Try to import signal processor for waveform simulation
-try:
-    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
-    WAVEFORM_AVAILABLE = True
-except ImportError:
-    WAVEFORM_AVAILABLE = False
 
-
+@register_algorithm("ml-guided")
 class MLGuidedSweep(SweepAlgorithmBase):
     """ML-guided beam sweep algorithm"""
 
@@ -84,20 +84,14 @@ class MLGuidedSweep(SweepAlgorithmBase):
         )
 
         # Calculate base direction (UE direction from RIS)
-        ue_vec = ue.pos - ris.pos
-        specular_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+        specular_angle = compute_specular_angle(ris, ue)
 
-        # Setup signal simulator if waveform mode is enabled
-        link_simulator = None
-        if use_waveform and WAVEFORM_AVAILABLE:
-            signal_config = SignalConfig(
-                modulation=modulation,
-                symbol_rate=1e6,
-                sample_rate=10e6,
-                num_symbols=num_symbols,
-                pilot_ratio=0.1
-            )
-            link_simulator = SignalLevelLink(signal_config)
+        waveform_settings = WaveformSettings(
+            modulation=modulation,
+            num_symbols=num_symbols,
+            pilot_ratio=0.1,
+        )
+        link_simulator = create_waveform_link(use_waveform, waveform_settings)
 
         # Phase 1: Test ML-suggested angles first
         ml_results = []
@@ -115,13 +109,13 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
-            snr_ml.append(res['snr_dB'])
-
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            ser_val = None
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+i if seed else None)
-                ser_val = signal_result['ser_percent']
+            snr_val, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + i if seed else None,
+            )
+            snr_ml.append(snr_val)
+            if ser_ml is not None:
                 ser_ml.append(ser_val)
 
             ml_results.append({
@@ -171,13 +165,15 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
-            snr_array[idx] = res['snr_dB']
+            snr_val, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + idx if seed else None,
+            )
+            snr_array[idx] = snr_val
             pwr_array[idx] = res['pwr_dBm']
-
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+idx if seed else None)
-                ser_coarse[idx] = signal_result['ser_percent']
+            if ser_coarse is not None:
+                ser_coarse[idx] = ser_val
 
         for idx in test_order:
             measure_idx(idx)
@@ -206,12 +202,14 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
-            snr_fine.append(r['snr_dB'])
-
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(r, link_simulator, seed=seed+i if seed else None)
-                ser_fine[i] = signal_result['ser_percent']
+            snr_val, ser_val = apply_waveform_realism(
+                r,
+                link_simulator,
+                seed=seed + i if seed else None,
+            )
+            snr_fine.append(snr_val)
+            if ser_fine is not None:
+                ser_fine[i] = ser_val
 
         best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]

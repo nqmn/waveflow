@@ -9,20 +9,20 @@ This is a true ML-guided approach:
 - Return the best result found
 - Fast and efficient for pre-trained models
 """
-
 import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
+from ..common import (
+    WaveformSettings,
+    apply_waveform_realism,
+    compute_specular_angle,
+    create_waveform_link,
+)
+from ..registry import register_algorithm
 
-# Try to import signal processor for waveform simulation
-try:
-    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
-    WAVEFORM_AVAILABLE = True
-except ImportError:
-    WAVEFORM_AVAILABLE = False
 
-
+@register_algorithm("ml", aliases=("ml-only",))
 class MLOnlySweep(SweepAlgorithmBase):
     """ML-only beam sweep algorithm (1-phase)"""
 
@@ -80,20 +80,14 @@ class MLOnlySweep(SweepAlgorithmBase):
         )
 
         # Calculate base direction (UE direction from RIS)
-        ue_vec = ue.pos - ris.pos
-        specular_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+        specular_angle = compute_specular_angle(ris, ue)
 
-        # Setup signal simulator if waveform mode is enabled
-        link_simulator = None
-        if use_waveform and WAVEFORM_AVAILABLE:
-            signal_config = SignalConfig(
-                modulation=modulation,
-                symbol_rate=1e6,
-                sample_rate=10e6,
-                num_symbols=num_symbols,
-                pilot_ratio=0.1
-            )
-            link_simulator = SignalLevelLink(signal_config)
+        waveform_settings = WaveformSettings(
+            modulation=modulation,
+            num_symbols=num_symbols,
+            pilot_ratio=0.1,
+        )
+        link_simulator = create_waveform_link(use_waveform, waveform_settings)
 
         # PHASE 1: Test ONLY ML-suggested angles
         print(f"\n[ML-ONLY SWEEP]")
@@ -118,14 +112,14 @@ class MLOnlySweep(SweepAlgorithmBase):
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
 
-            snr_val = res['snr_dB']
+            snr_val, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + i if seed else None,
+            )
             snr_values.append(snr_val)
 
-            # Handle waveform simulation
-            ser_val = None
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+i if seed else None)
-                ser_val = signal_result['ser_percent']
+            if ser_values is not None:
                 ser_values.append(ser_val)
 
             ml_results.append({

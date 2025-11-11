@@ -8,19 +8,22 @@ Efficiency: ~30% measurement savings vs exhaustive search
 
 Supports real signal-level emulation via use_waveform parameter.
 """
-
 import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
+from ..common import (
+    WaveformSettings,
+    apply_waveform_realism,
+    compute_specular_angle,
+    create_waveform_link,
+)
+from ..registry import register_algorithm
 
-# Try to import signal processor for waveform simulation
-try:
-    from core.signal_processor import SignalConfig, SignalLevelLink, apply_signal_level_realism
-    WAVEFORM_AVAILABLE = True
-except ImportError:
-    WAVEFORM_AVAILABLE = False
 
-
+@register_algorithm(
+    "coarse-fine",
+    aliases=("two-phase", "center-out", "adaptive"),
+)
 class CoarseFineSweep(SweepAlgorithmBase):
     """Coarse-fine two-phase beam sweep algorithm"""
 
@@ -67,8 +70,7 @@ class CoarseFineSweep(SweepAlgorithmBase):
             raise ValueError("Invalid node name in sweep")
 
         # Use UE direction as the reference (same baseline as linear sweep/connect)
-        ue_vec = ue.pos - ris.pos
-        specular_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+        specular_angle = compute_specular_angle(ris, ue)
 
         # Generate codebook centered on specular angle
         num_steps = int(2 * fov / step) + 1
@@ -81,16 +83,12 @@ class CoarseFineSweep(SweepAlgorithmBase):
         feedback_details = [] if enable_feedback else None
 
         # Setup signal simulator if waveform mode is enabled
-        link_simulator = None
-        if use_waveform and WAVEFORM_AVAILABLE:
-            signal_config = SignalConfig(
-                modulation=modulation,
-                symbol_rate=1e6,
-                sample_rate=10e6,
-                num_symbols=num_symbols,
-                pilot_ratio=0.1
-            )
-            link_simulator = SignalLevelLink(signal_config)
+        waveform_settings = WaveformSettings(
+            modulation=modulation,
+            num_symbols=num_symbols,
+            pilot_ratio=0.1,
+        )
+        link_simulator = create_waveform_link(use_waveform, waveform_settings)
 
         # Coarse phase: test center first, then expand
         center_idx = len(local_coarse) // 2
@@ -118,13 +116,15 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
-            snr_array[idx] = res['snr_dB']
+            snr_val, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + idx if seed else None,
+            )
+            snr_array[idx] = snr_val
             pwr_array[idx] = res['pwr_dBm']
-
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(res, link_simulator, seed=seed+idx if seed else None)
-                ser_coarse[idx] = signal_result['ser_percent']
+            if ser_coarse is not None:
+                ser_coarse[idx] = ser_val
 
             if enable_feedback and 'feedback_info' in res:
                 feedback_details.append({
@@ -174,12 +174,14 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False  # Don't store intermediate measurements
                 )
-            snr_fine.append(r['snr_dB'])
-
-            # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER
-            if use_waveform and link_simulator:
-                signal_result = apply_signal_level_realism(r, link_simulator, seed=seed+i if seed else None)
-                ser_fine[i] = signal_result['ser_percent']
+            snr_val, ser_val = apply_waveform_realism(
+                r,
+                link_simulator,
+                seed=seed + i if seed else None,
+            )
+            snr_fine.append(snr_val)
+            if ser_fine is not None:
+                ser_fine[i] = ser_val
 
             # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in r:

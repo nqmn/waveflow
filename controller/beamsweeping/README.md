@@ -84,7 +84,7 @@ sweep AP1 R1 UE1 60 10 --algo center-out
 
 ### Step 1: Create Algorithm File
 
-Create a new file in `core/sweep_algorithms/` (e.g., `random_search.py`):
+Create a new file in `controller/beamsweeping/algorithms/` (e.g., `random_search.py`):
 
 ```python
 """Random Search Beam Sweep Algorithm
@@ -95,9 +95,12 @@ Useful for exploring large search spaces efficiently.
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from ..base import SweepAlgorithmBase
+from ..registry import register_algorithm
+from ..common import compute_specular_angle
 
 
+@register_algorithm("random-search", aliases=("random",))
 class RandomSearchSweep(SweepAlgorithmBase):
     """Random search beam sweep algorithm"""
 
@@ -137,8 +140,7 @@ class RandomSearchSweep(SweepAlgorithmBase):
         np.random.seed(seed)
 
         # Calculate base direction
-        vec = ue.pos - ris.pos
-        base_dir = np.degrees(np.arctan2(vec[1], vec[0]))
+        base_dir = compute_specular_angle(ris, ue)
 
         # Generate random angles
         local_angles = np.random.uniform(-fov, fov, num_samples)
@@ -170,33 +172,11 @@ class RandomSearchSweep(SweepAlgorithmBase):
         }
 ```
 
-### Step 2: Register in `__init__.py`
+### Step 2: Register Using the Decorator
 
-Edit `core/sweep_algorithms/__init__.py`:
-
-```python
-# Add import
-from .random_search import RandomSearchSweep
-
-# Add to ALGORITHMS dictionary in SweepAlgorithmLoader
-ALGORITHMS = {
-    'linear': LinearBruteForceSweep,
-    'brute-force': LinearBruteForceSweep,
-    'adaptive': AdaptiveCenterOutSweep,
-    'center-out': AdaptiveCenterOutSweep,
-    'random': RandomSearchSweep,           # NEW
-    'random-search': RandomSearchSweep,    # NEW alias
-}
-
-# Add to __all__
-__all__ = [
-    'SweepAlgorithmBase',
-    'LinearBruteForceSweep',
-    'AdaptiveCenterOutSweep',
-    'RandomSearchSweep',                   # NEW
-    'SweepAlgorithmLoader',
-]
-```
+No manual edits to `__init__.py` are required. Simply decorate your class (as
+shown above) with `@register_algorithm("primary-name", aliases=(...))`. The loader
+discovers the algorithm automatically and exposes it through the CLI/APIs.
 
 ### Step 3: Use in CLI
 
@@ -353,13 +333,18 @@ Refined Results (21 angles):
 
 ### File Structure
 ```
-core/sweep_algorithms/
-├── __init__.py                  # Algorithm loader and factory
-├── base.py                      # Base class for all algorithms
-├── linear_brute_force.py        # Linear brute-force sweep
-├── adaptive_center_out.py       # Adaptive center-out sweep
-├── random_search.py             # (Example) Random search
-└── README.md                    # This file
+controller/beamsweeping/
+├── base.py                          # Base class for all algorithms
+├── registry.py                      # Registration + lookup
+├── common.py                        # Shared math + waveform helpers
+├── algorithms/
+│   ├── __init__.py                  # Imports concrete algorithms
+│   ├── linear_brute_force.py        # Linear brute-force sweep
+│   ├── coarse_fine_sweep.py         # Adaptive center-out sweep
+│   ├── directional_exhaustive_sweep.py # Directional exhaustive sweep
+│   └── ...                          # Your custom algorithms
+├── template_algorithm.py            # Copy helper
+└── README.md                        # This file
 ```
 
 ### Class Hierarchy
@@ -459,7 +444,7 @@ risnet> add ue
 risnet> sweep AP1 R1 UE1 60 10 --algo your-algo
 
 # In Python
-from core.sweep_algorithms import SweepAlgorithmLoader
+from controller.beamsweeping import SweepAlgorithmLoader
 algo = SweepAlgorithmLoader.get_algorithm('your-algo', network)
 result = algo.sweep('AP1', 'R1', 'UE1')
 print(f"Best SNR: {result['best_snr_fine']:.2f} dB")
@@ -472,7 +457,7 @@ print(f"Best SNR: {result['best_snr_fine']:.2f} dB")
 To contribute a new algorithm:
 
 1. Create algorithm file following the template
-2. Register in `__init__.py`
+2. Decorate the class with `@register_algorithm(...)`
 3. Add documentation in this README
 4. Test thoroughly with various configurations
 5. Submit with examples and performance metrics

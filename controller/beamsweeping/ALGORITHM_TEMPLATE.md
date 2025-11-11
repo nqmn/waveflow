@@ -13,14 +13,18 @@ All beam sweep algorithms must inherit from `SweepAlgorithmBase` and implement a
 
 ### 1. File Organization
 
-Each algorithm should be in its own file under `controller/beamsweeping/`:
+Each algorithm should live inside `controller/beamsweeping/algorithms/`:
 ```
 controller/beamsweeping/
-├── base.py                          # Abstract base class
-├── linear_brute_force.py            # Algorithm 1
-├── adaptive_center_out.py           # Algorithm 2
-├── my_new_algorithm.py              # Your new algorithm
-└── __init__.py                      # Loader registration
+├── base.py                               # Abstract base class
+├── common.py                             # Shared waveform/specular helpers
+├── registry.py                           # register_algorithm helper
+├── algorithms/
+│   ├── __init__.py                       # Imports + registry exports
+│   ├── linear_brute_force.py             # Existing algorithm
+│   ├── coarse_fine_sweep.py              # Existing algorithm
+│   └── my_new_algorithm.py               # Your new algorithm
+└── template_algorithm.py                 # This template
 ```
 
 ### 2. Class Structure Template
@@ -37,9 +41,11 @@ Example:
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from ..base import SweepAlgorithmBase
+from ..registry import register_algorithm
 
 
+@register_algorithm("my-algo-key", aliases=("my-algo-alias",))
 class MyAlgorithmSweep(SweepAlgorithmBase):
     """Descriptive class name for the algorithm"""
 
@@ -178,7 +184,7 @@ All algorithms MUST return a dictionary with these required keys:
 To integrate a new algorithm:
 
 ### Step 1: Create Algorithm File
-- [ ] Create `my_algorithm.py` in `controller/beamsweeping/`
+- [ ] Create `my_algorithm.py` in `controller/beamsweeping/algorithms/`
 - [ ] Inherit from `SweepAlgorithmBase`
 - [ ] Implement `name` property
 - [ ] Implement `description` property
@@ -186,17 +192,9 @@ To integrate a new algorithm:
 - [ ] Return dictionary with all required keys
 
 ### Step 2: Register Algorithm
-Edit `controller/beamsweeping/__init__.py`:
-```python
-from .my_algorithm import MyAlgorithmSweep
-
-class SweepAlgorithmLoader:
-    ALGORITHMS = {
-        'linear': LinearBruteForceSweep,
-        'adaptive': AdaptiveCenterOutSweep,
-        'my-algo': MyAlgorithmSweep,  # ADD THIS LINE
-    }
-```
+- [ ] Decorate your class with `@register_algorithm("my-algo-key", aliases=(...))`
+- [ ] Choose a unique primary key and optional aliases (all case-insensitive)
+- [ ] No edits to `__init__.py` are needed—the decorator hooks into the loader automatically
 
 ### Step 3: Test Algorithm
 ```bash
@@ -251,9 +249,11 @@ Efficiency: ~50% savings vs linear sweep
 
 import numpy as np
 from typing import Dict
-from .base import SweepAlgorithmBase
+from ..base import SweepAlgorithmBase
+from ..registry import register_algorithm
 
 
+@register_algorithm("quadrant-search", aliases=("quadrant",))
 class QuadrantSearchSweep(SweepAlgorithmBase):
     """Quadrant-based beam search algorithm"""
 
@@ -323,16 +323,8 @@ class QuadrantSearchSweep(SweepAlgorithmBase):
         }
 ```
 
-Then register in `__init__.py`:
-```python
-from .quadrant_search import QuadrantSearchSweep
-
-ALGORITHMS = {
-    'linear': LinearBruteForceSweep,
-    'adaptive': AdaptiveCenterOutSweep,
-    'quadrant': QuadrantSearchSweep,
-}
-```
+The `@register_algorithm("quadrant", aliases=("quadrant-search",))` decorator
+handles registration automatically—no manual edits to `__init__.py` are required.
 
 ## Performance Metrics
 
@@ -409,7 +401,8 @@ print(f"Angles tested: {len(result['local_coarse']) + len(result['local_fine'])}
 ## Common Issues
 
 ### Issue: "Algorithm not found"
-**Solution**: Ensure algorithm is registered in `__init__.py` ALGORITHMS dictionary
+**Solution**: Confirm the class uses `@register_algorithm(...)` and lives under
+`controller/beamsweeping/algorithms/` so the loader imports it.
 
 ### Issue: Output format mismatch
 **Solution**: Verify all required dictionary keys are present and correct type
