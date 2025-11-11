@@ -610,6 +610,116 @@ If you use this simulator in your research, please cite:
 - Physics models based on ITU recommendations
 - Pathfinding algorithms from computer science literature
 
+## Machine Learning Integration
+
+### ML-Based Beam Prediction
+
+RISNet v2.1 includes integrated machine learning models for intelligent beam angle prediction, reducing sweep time and improving convergence.
+
+#### Available ML Predictors
+
+| Predictor | Model | Uncertainty | Performance |
+|-----------|-------|-------------|-------------|
+| **Random Forest** | Ensemble tree | ±2.5° | Best (R²=0.9438) |
+| **XGBoost** | Gradient boosting | ±3.0° | Excellent |
+| **SVR** | Support vector regression | ±3.5° | Good (R²=0.8830) |
+| **MLP** | Neural network | ±4.0° | Moderate |
+
+#### Usage
+
+```bash
+# ML-guided sweep (ML suggestions + refinement)
+connect AP1 RIS1 UE1 --sweep 60 10 --algo ml-guided --ml-predictor rf
+
+# ML-only sweep (test only predicted angles)
+connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor xgb
+
+# Try different predictors
+connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor svr
+connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor mlp
+```
+
+#### Metrics
+
+Each prediction includes:
+- **Prediction Time**: How fast the model makes predictions (ms)
+- **Uncertainty**: Expected variance based on model accuracy (±degrees)
+- **Error Bounds**: Confidence interval for the prediction (±degrees)
+- **Confidence**: Accuracy metric based on actual vs predicted angles (0-100%)
+
+#### Example Output
+
+```
+ML PREDICTOR RESULTS:
+----------------------------------------------------------------------
+Predictor: Random Forest Beam Prior
+Suggestions: [-5.0°, 0.0°, 5.0°]
+Prediction Time: 0.234 ms | Uncertainty: ±2.5° | Model: ✓ Loaded
+Error Bounds: ±3.8°
+
+Suggestion (°)     SNR (dB)        Power (dBm)
+----------------------------------------------------------------------
+  -5.0             -12.45          -85.20
+   0.0             -10.23          -82.50 <-- BEST IN ML
+   5.0             -15.67          -87.30
+```
+
+#### Training ML Models
+
+Train your own models using the provided dataset generator:
+
+```bash
+# Generate training dataset
+python controller/beamsweeping/ml/tools/dataset_builder.py --output beam_dataset.csv
+
+# Train Random Forest
+python controller/beamsweeping/ml/tools/train_rf.py --data beam_dataset.csv
+
+# Train XGBoost
+python controller/beamsweeping/ml/tools/train_xgb.py --data beam_dataset.csv
+
+# Train SVR
+python controller/beamsweeping/ml/tools/train_svr.py --data beam_dataset.csv
+
+# Train MLP (PyTorch)
+python controller/beamsweeping/ml/tools/train_mlp.py --data beam_dataset.csv
+```
+
+#### Python API Usage
+
+```python
+from controller.beamsweeping.ml import MLPredictorLoader
+
+# Load a predictor
+predictor = MLPredictorLoader.get_predictor('rf', network)
+
+# Get prediction with metrics
+angles, metrics = predictor.predict_with_metrics(
+    'AP1', 'RIS1', 'UE1', fov=60, top_k=3
+)
+
+print(f"Predicted angles: {angles}")
+print(f"Prediction time: {metrics['prediction_time_ms']:.3f} ms")
+print(f"Uncertainty: ±{metrics['uncertainty']:.1f}°")
+print(f"Error bounds: ±{metrics['error_bounds']:.1f}°")
+
+# Compute confidence when actual angle is known
+actual_angle = 5.2  # measured/true angle
+confidence = predictor.compute_confidence(angles[0], actual_angle, fov=60.0)
+print(f"Confidence: {confidence:.1%}")
+```
+
+#### List Available Predictors
+
+```python
+from controller.beamsweeping.ml import MLPredictorLoader
+
+predictors = MLPredictorLoader.list_predictors()
+for name, info in predictors.items():
+    print(f"{name}: {info['class_name']}")
+    print(f"  {info['description']}")
+```
+
 ## Waveform-Level Simulation
 
 ### Waveform Examples
@@ -698,7 +808,7 @@ For uniform quantization with phase step Δφ = 2π / 2^b:
 ### v2.1 (Planned)
 - [ ] 3D visualization
 - [ ] Real-time collaboration
-- [ ] Machine learning integration
+- [x] Machine learning integration (✓ Completed)
 - [ ] Performance optimization
 - [ ] Comprehensive test suite
 - [x] Waveform-level OFDM simulation

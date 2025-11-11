@@ -984,10 +984,13 @@ class RISNetCLI(cmd.Cmd):
                 ml_metrics = out.get("ml_metrics", {})
                 if ml_metrics:
                     pred_time = ml_metrics.get('prediction_time_ms', 0)
-                    confidence = ml_metrics.get('confidence', 0)
+                    uncertainty = ml_metrics.get('uncertainty', 0)
+                    error_bounds = ml_metrics.get('error_bounds', 0)
                     model_avail = ml_metrics.get('model_available', False)
-                    model_status = "✓ Loaded" if model_avail else "✗ Using fallback"
-                    print(f'Prediction Time: {pred_time:.3f} ms | Confidence: {confidence:.1%} | Model: {model_status}')
+                    model_status = "✓ Loaded" if model_avail else "✗ Unavailable"
+
+                    print(f'Prediction Time: {pred_time:.3f} ms | Uncertainty: ±{uncertainty:.1f}° | Model: {model_status}')
+                    print(f'Error Bounds: ±{error_bounds:.1f}°')
                 print()
 
                 header = f'{"Suggestion (°)":<18} {"SNR (dB)":<15} {"Power (dBm)":<15}'

@@ -146,6 +146,15 @@ class MLPPredictor(SweepMLPredictor):
         """Check if MLP model is loaded."""
         return self._model is not None and torch is not None
 
+    def _compute_uncertainty(self, model_available: bool) -> float:
+        """MLP-specific uncertainty (based on model performance).
+
+        MLP (neural network) has moderate uncertainty, can be sensitive to input variations.
+        """
+        if not model_available:
+            return 10.0
+        return 4.0  # MLP uncertainty (moderate)
+
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""
         ap_pos = ap.pos

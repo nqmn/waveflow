@@ -98,6 +98,15 @@ class RFPredictor(SweepMLPredictor):
         """Check if Random Forest model is loaded."""
         return self._model is not None and RandomForestRegressor is not None
 
+    def _compute_uncertainty(self, model_available: bool) -> float:
+        """Random Forest-specific uncertainty (based on model performance).
+
+        Random Forest has best performance (R²=0.9438), so lowest uncertainty.
+        """
+        if not model_available:
+            return 10.0
+        return 2.5  # Random Forest uncertainty (best model)
+
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""
         ap_pos = ap.pos

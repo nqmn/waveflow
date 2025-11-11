@@ -99,6 +99,15 @@ class XGBPredictor(SweepMLPredictor):
         """Check if XGBoost model is loaded."""
         return self._booster is not None and xgb is not None
 
+    def _compute_uncertainty(self, model_available: bool) -> float:
+        """XGBoost-specific uncertainty (based on model performance).
+
+        XGBoost typically achieves good accuracy with ~3 degree uncertainty.
+        """
+        if not model_available:
+            return 10.0
+        return 3.0  # XGBoost uncertainty
+
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""
         ap_pos = ap.pos

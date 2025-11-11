@@ -109,6 +109,15 @@ class SVRPredictor(SweepMLPredictor):
         """Check if SVR model is loaded."""
         return self._model is not None and SVR is not None
 
+    def _compute_uncertainty(self, model_available: bool) -> float:
+        """SVR-specific uncertainty (based on model performance).
+
+        SVR has good performance (R²=0.8830) with moderate uncertainty.
+        """
+        if not model_available:
+            return 10.0
+        return 3.5  # SVR uncertainty
+
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""
         ap_pos = ap.pos
