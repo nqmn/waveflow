@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "risnet"
+version = "2.0.0"
+description = "RISNet: Reconfigurable Intelligent Surface (RIS) Network Simulator"
+readme = "README.md"
+requires-python = ">=3.7"
+license = "MIT"
+authors = [
+    {name = "RISNet Contributors"},
+]
+keywords = ["ris", "wireless", "simulation", "network", "reconfigurable-intelligent-surface"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Communications",
+]
+
+dependencies = [
+    "numpy",
+    "flask",
+    "pyyaml",
+    "waitress",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.urls]
+Homepage = "https://github.com/nqmn/risnet"
+Documentation = "https://github.com/nqmn/risnet#readme"
+Repository = "https://github.com/nqmn/risnet.git"
+Issues = "https://github.com/nqmn/risnet/issues"
+
+[project.scripts]
+risnet = "risnet.__main__:main"
+
+[tool.setuptools]
+packages = ["risnet"]
+
+[tool.setuptools.package-data]
+risnet = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py37']
+
+[tool.isort]
+profile = "black"
+line_length = 100
