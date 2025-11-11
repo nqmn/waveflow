@@ -166,6 +166,14 @@ Phase Formats (use: phases <format>):
             if 'phase_states' in link_info:
                 self.ris_node.phase_states = np.array(link_info['phase_states'])
 
+            # Restore beam angle attributes from the link info
+            if 'beam_angle_local' in link_info:
+                self.ris_node.local_beam_deflection_deg = float(link_info['beam_angle_local'])
+            if 'beam_angle_absolute' in link_info:
+                self.ris_node.abs_beam_angle_deg = float(link_info['beam_angle_absolute'])
+            if 'ris_normal_angle' in link_info:
+                self.ris_node.specular_angle_deg = float(link_info['ris_normal_angle'])
+
             print(f"Displaying phases from: [{link_index}] {link_name}")
             if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
                 print(f"Beam Angle (Local):     {link_info['beam_angle_local']:.2f}° (relative to RIS normal)")
@@ -229,7 +237,7 @@ Phase Formats (use: phases <format>):
         print(f"  Active:        Yes")
 
     def _load_phases_from_result(self, connect_result):
-        """Load phase data from connect() result into RIS node"""
+        """Load phase data and beam angles from connect() result into RIS node"""
         try:
             if 'current_phases' in connect_result:
                 self.ris_node.current_phases = np.array(connect_result['current_phases'])
@@ -237,6 +245,22 @@ Phase Formats (use: phases <format>):
                 self.ris_node.quantized_phases = np.array(connect_result['quantized_phases'])
             if 'phase_states' in connect_result:
                 self.ris_node.phase_states = np.array(connect_result['phase_states'])
+
+            # Load beam angle attributes from metrics or summary
+            metrics = connect_result.get('metrics', {})
+            summary = connect_result.get('summary', {})
+
+            # Try to get local deflection from metrics (set by network.connect)
+            if 'local_deflection_deg' in metrics:
+                self.ris_node.local_beam_deflection_deg = float(metrics['local_deflection_deg'])
+            # Try to get absolute angle from metrics
+            if 'beam_angle' in metrics:
+                self.ris_node.abs_beam_angle_deg = float(metrics['beam_angle'])
+            elif 'beam_angle_deg' in summary:
+                self.ris_node.abs_beam_angle_deg = float(summary['beam_angle_deg'])
+            # Try to get specular angle from metrics
+            if 'ris_normal_angle_deg' in metrics:
+                self.ris_node.specular_angle_deg = float(metrics['ris_normal_angle_deg'])
         except Exception as e:
             print(f"Warning: Could not load phase data: {e}")
 
@@ -444,8 +468,6 @@ Phase Formats (use: phases <format>):
         snr_str = _fmt_metric(_get_metric_value('snr_dB'), ' dB')
         power_str = _fmt_metric(_get_metric_value('pwr_dBm', 'rssi_dBm'), ' dBm')
         gain_str = _fmt_metric(_get_metric_value('gain_dBi'), ' dBi')
-        beam_angle_val = _get_metric_value('beam_angle', 'beam_angle_deg')
-        beam_angle_str = _fmt_metric(beam_angle_val, '°') if beam_angle_val is not None else "N/A"
         quant_loss_val = _get_metric_value('quant_loss_dB')
         if quant_loss_val is None:
             quant_loss_str = "N/A"
@@ -480,7 +502,6 @@ PERFORMANCE METRICS:
   SNR:               {snr_str}
   Power:             {power_str}
   Gain:              {gain_str}
-  Beam Angle:        {beam_angle_str}
   Quantization Pen.: {quant_loss_str}
 {self._angle_metadata_text()}
 """
@@ -524,12 +545,13 @@ PERFORMANCE METRICS:
             return
 
         print(f"\n  Beam Orientation:")
-        if meta['abs'] is not None:
-            print(f"    Absolute Beam Angle:   {meta['abs']:7.2f}°")
-        if meta['spec'] is not None:
-            print(f"    Specular Angle:        {meta['spec']:7.2f}°")
         if meta['local'] is not None:
-            print(f"    Local Deflection:      {meta['local']:7.2f}°")
+            direction_desc = "right" if meta['local'] > 0 else "left" if meta['local'] < 0 else "center"
+            print(f"    Beam Angle (Local):     {meta['local']:7.2f}°  ({direction_desc})")
+        if meta['abs'] is not None:
+            print(f"    Beam Angle (Absolute):  {meta['abs']:7.2f}°")
+        if meta['spec'] is not None:
+            print(f"    RIS Target (Specular):  {meta['spec']:7.2f}°")
 
     def _angle_metadata_text(self, indent='  '):
         meta = self._get_angle_metadata()
@@ -537,12 +559,13 @@ PERFORMANCE METRICS:
             return ""
 
         lines = [f"{indent}Beam Orientation:"]
-        if meta['abs'] is not None:
-            lines.append(f"{indent}  Absolute Angle:   {meta['abs']:7.2f}°")
-        if meta['spec'] is not None:
-            lines.append(f"{indent}  Specular Angle:   {meta['spec']:7.2f}°")
         if meta['local'] is not None:
-            lines.append(f"{indent}  Local Deflection: {meta['local']:7.2f}°")
+            direction_desc = "right" if meta['local'] > 0 else "left" if meta['local'] < 0 else "center"
+            lines.append(f"{indent}  Beam Angle (Local):     {meta['local']:7.2f}°  ({direction_desc})")
+        if meta['abs'] is not None:
+            lines.append(f"{indent}  Beam Angle (Absolute):  {meta['abs']:7.2f}°")
+        if meta['spec'] is not None:
+            lines.append(f"{indent}  RIS Target (Specular):  {meta['spec']:7.2f}°")
         return "\n" + "\n".join(lines)
 
     def _describe_phase_pattern(self, phases_grid, states, wave_mode):

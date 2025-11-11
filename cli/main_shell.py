@@ -291,30 +291,30 @@ class RISNetCLI(cmd.Cmd):
             for node_name, node in self.net.nodes.items():
                 node_type = type(node).__name__
                 pos_str = f"({node.pos[0]:.1f}, {node.pos[1]:.1f}, {node.pos[2]:.1f})"
-                print(f"\n  {node_name:<15} : {node_type:<12} at {pos_str}")
+                print(f"\n  {node_name:<20} : {node_type:<12} at {pos_str}")
 
-                # Show node-specific details
+                # Show node-specific details with aligned labels
                 if hasattr(node, 'freq'):
                     freq_ghz = node.freq / 1e9 if node.freq else 0
-                    print(f"      Frequency:     {freq_ghz:.2f} GHz")
+                    print(f"      Frequency:            {freq_ghz:.2f} GHz")
 
                 if hasattr(node, 'bandwidth_MHz'):
                     bw = node.bandwidth_MHz if node.bandwidth_MHz else 0
-                    print(f"      Bandwidth:     {bw:.1f} MHz")
+                    print(f"      Bandwidth:            {bw:.1f} MHz")
 
                 if hasattr(node, 'power_dBm'):
-                    print(f"      Power:         {node.power_dBm:.1f} dBm")
+                    print(f"      Power:                {node.power_dBm:.1f} dBm")
 
                 if hasattr(node, 'N'):  # RIS specific
-                    print(f"      RIS Elements:  {node.N}")
+                    print(f"      RIS Elements:         {node.N}")
                     if hasattr(node, 'bits'):
-                        print(f"      Phase Bits:    {node.bits}")
+                        print(f"      Phase Bits:           {node.bits}")
 
                 if hasattr(node, 'noise_figure_dB'):
-                    print(f"      Noise Figure:  {node.noise_figure_dB:.1f} dB")
+                    print(f"      Noise Figure:         {node.noise_figure_dB:.1f} dB")
 
                 if hasattr(node, 'antenna_gain_dBi'):
-                    print(f"      Antenna Gain:  {node.antenna_gain_dBi:.1f} dBi")
+                    print(f"      Antenna Gain:         {node.antenna_gain_dBi:.1f} dBi")
 
             # Show distances between all node pairs
             node_names = list(self.net.nodes.keys())
@@ -322,12 +322,15 @@ class RISNetCLI(cmd.Cmd):
                 print(f"\nDISTANCES:")
                 print("-" * 70)
                 import numpy as np
+                # Calculate max node name length for alignment
+                max_node_len = max(len(n) for n in node_names)
                 for i, node1_name in enumerate(node_names):
                     for node2_name in node_names[i+1:]:
                         node1 = self.net.nodes[node1_name]
                         node2 = self.net.nodes[node2_name]
                         distance = float(np.linalg.norm(node1.pos - node2.pos))
-                        print(f"  {node1_name} ↔ {node2_name:<15}: {distance:>8.2f} m")
+                        pair_str = f"{node1_name:<{max_node_len}} ↔ {node2_name:<{max_node_len}}"
+                        print(f"  {pair_str}: {distance:>8.2f} m")
 
         # Show active links with indices
         active_links = self.net.get_active_links()
@@ -1156,6 +1159,12 @@ class RISNetCLI(cmd.Cmd):
                 **phase_data  # Include phase data if available
             }
 
+            # Update RIS node's beam angle attributes for phase plot display
+            if ris_node:
+                ris_node.specular_angle_deg = float(specular_angle)
+                ris_node.abs_beam_angle_deg = float(best_final_abs)
+                ris_node.local_beam_deflection_deg = float(best_final_local)
+
             sweep_record = {
                 'type': 'connect_sweep',
                 'ap': ap_key,
@@ -1314,9 +1323,6 @@ class RISNetCLI(cmd.Cmd):
         num_symbols = 2000000  # 2M symbols × 6 chunks = ~6s total (more realistic for video)
         symbol_rate = 2e6
         sample_rate = 20e6
-        sweep_fov = 80.0
-        sweep_step = 5.0
-        ml_top_k = 2
 
         opt_iter = iter(opts)
         for token in opt_iter:
@@ -1333,12 +1339,6 @@ class RISNetCLI(cmd.Cmd):
                     symbol_rate = float(next(opt_iter))
                 elif token == "--sample-rate":
                     sample_rate = float(next(opt_iter))
-                elif token == "--sweep-fov":
-                    sweep_fov = float(next(opt_iter))
-                elif token == "--sweep-step":
-                    sweep_step = float(next(opt_iter))
-                elif token == "--ml-top-k":
-                    ml_top_k = int(float(next(opt_iter)))
                 else:
                     print(f"Unknown option: {token}")
                     return
@@ -1378,9 +1378,6 @@ class RISNetCLI(cmd.Cmd):
             symbol_rate=symbol_rate,
             sample_rate=sample_rate,
             chunk_limit=chunk_limit,
-            sweep_fov=sweep_fov,
-            sweep_step=sweep_step,
-            ml_top_k=ml_top_k,
         )
 
         try:

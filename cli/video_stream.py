@@ -7,6 +7,7 @@ Used by both Example 15 and the interactive CLI `stream` command.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
@@ -21,7 +22,6 @@ from core.signal_processor import (
     RealSignalMeasurer,
 )
 from controller.waveform_controller import WaveformController
-from controller.beamsweeping import SweepAlgorithmLoader
 
 
 Printer = Callable[[str], None]
@@ -148,33 +148,55 @@ def align_ris_with_controller(printer: Printer,
                               controller: WaveformController,
                               ap_name: str,
                               ris_name: str,
-                              ue_name: str,
-                              sweep_fov: float,
-                              sweep_step: float) -> Dict:
+                              ue_name: str) -> Dict:
     printer("\n[1] System-level connect (AP→RIS→UE)")
-    connect_metrics = network.connect(ap_name, ris_name, ue_name, compute_phases=True)
-    quant_penalty = abs(connect_metrics['quant_loss_dB'])
-    printer(f"    SNR={connect_metrics['snr_dB']:.2f} dB, "
-            f"Gain={connect_metrics['gain_dBi']:.2f} dBi, "
-            f"Quantization penalty={quant_penalty:.2f} dB "
-            f"(ΔSNR={connect_metrics['quant_loss_dB']:.2f} dB), "
-            f"Beam angle={connect_metrics['beam_angle']:.2f}°")
 
-    printer("\n[2] Waveform beam sweep to refine steering")
-    sweep = controller.compute_beam_sweep_waveform(
-        ap_name, ris_name, ue_name,
-        angle_range=sweep_fov, angle_step=sweep_step
-    )
-    best_angle = sweep["best_angle"]
-    printer(f"    Best angle={best_angle:.2f}°, "
-            f"SNR={sweep['best_snr_dB']:.2f} dB, "
-            f"Capacity={sweep['best_capacity_bps']/1e9:.3f} Gbps")
+    # Find an active link for this path (may have been created by connect or connect_sweep)
+    active_links = network.get_active_links()
+    active_link_key = None
 
-    ap = network.get(ap_name)
-    ris = network.get(ris_name)
-    ue = network.get(ue_name)
+    # Look for any link matching this path (different sources may use different key formats)
+    for key in active_links:
+        if ap_name in key and ris_name in key and ue_name in key:
+            active_link_key = key
+            break
 
-    printer("\n[3] Programming RIS phase pattern")
+    if active_link_key is None:
+        raise ValueError(f"Active link not found for {ap_name}→{ris_name}→{ue_name}. "
+                        f"Run 'connect' or 'connect_sweep' command first to establish the link.")
+
+    # Use active link configuration
+    active_link = active_links[active_link_key]
+    printer(f"    Using active link configuration:")
+    printer(f"    SNR={active_link['snr_dB']:.2f} dB, "
+            f"Gain={active_link['gain_dBi']:.2f} dBi, "
+            f"Quantization penalty={abs(active_link['quant_loss_dB']):.2f} dB "
+            f"(ΔSNR={active_link['quant_loss_dB']:.2f} dB), "
+            f"Beam angle (absolute)={active_link['beam_angle_absolute']:.2f}° "
+            f"(local={active_link['beam_angle_local']:.2f}°)")
+
+    # Create connect_metrics from active link
+    connect_metrics = {
+        'snr_dB': active_link['snr_dB'],
+        'pwr_dBm': active_link['pwr_dBm'],
+        'gain_dBi': active_link['gain_dBi'],
+        'quant_loss_dB': active_link['quant_loss_dB'],
+        'beam_angle': active_link['beam_angle_absolute'],
+        'current_phases': active_link.get('current_phases'),
+        'quantized_phases': active_link.get('quantized_phases'),
+    }
+
+    # Use the active link's angle
+    best_angle = active_link['beam_angle_absolute']
+    local_angle = active_link['beam_angle_local']
+
+    # Use isolated copies of nodes to prevent state pollution
+    # (modifications to phases and beam config won't affect the original network)
+    ap = network.get(ap_name).clone()
+    ris = network.get(ris_name).clone()
+    ue = network.get(ue_name).clone()
+
+    printer("\n[2] Programming RIS phase pattern")
     ideal_phases = ris.compute_phases(ap.pos, ue.pos)
     quantized, _ = ris.quantize_phases()
     programmed_phases = quantized if quantized is not None else ideal_phases
@@ -185,67 +207,16 @@ def align_ris_with_controller(printer: Printer,
         phase_error = np.angle(np.exp(1j * (ideal_phases - quantized)))
         phase_error_deg = np.degrees(np.sqrt(np.mean(phase_error**2)))
         printer(f"    Quantized {ris.bits}-bit pattern applied "
-                f"(RMS error={phase_error_deg:.2f}° across {ris.N*ris.N} elements)")
+                f"(RMS error={phase_error_deg:.2f}° across {ris.N*ris.N} elements, "
+                f"local={local_angle:.2f}°)")
     else:
         printer("    Phase quantizer unavailable, using ideal (unquantized) phases.")
 
     return {
         "connect": connect_metrics,
-        "sweep": sweep,
         "phase_error_deg": phase_error_deg,
         "best_angle_deg": float(best_angle),
         "ris_elements": ris.N * ris.N,
-    }
-
-
-def run_beam_sweep_comparison(printer: Printer,
-                              network: RISNetwork,
-                              ap_name: str,
-                              ris_name: str,
-                              ue_name: str,
-                              fov: float,
-                              step: float,
-                              top_k: int,
-                              seed: int = 1) -> Dict:
-    printer("\n[2b] Beam sweep comparison (linear vs ML)")
-
-    linear_algo = SweepAlgorithmLoader.get_algorithm("linear", network)
-    linear_result = linear_algo.sweep(
-        ap_name, ris_name, ue_name,
-        fov=fov, step=step, seed=seed,
-        enable_feedback=False
-    )
-    lin_abs_angle = linear_result["base_angle"] + linear_result["best_local_fine"]
-    printer(f"    Linear sweep → best local {linear_result['best_local_fine']:.2f}°, "
-            f"absolute {lin_abs_angle:.2f}°, SNR={linear_result['best_snr_fine']:.2f} dB "
-            f"(tested {linear_result['num_angles_tested']} angles)")
-
-    ml_algo = SweepAlgorithmLoader.get_algorithm("ml", network)
-    ml_result = ml_algo.sweep(
-        ap_name, ris_name, ue_name,
-        fov=fov, top_k=top_k, seed=seed,
-        enable_feedback=False, ml_predictor="default"
-    )
-    printer(f"    ML sweep   → best local {ml_result['best_local']:.2f}°, "
-            f"absolute {ml_result['best_angle']:.2f}°, SNR={ml_result['best_snr']:.2f} dB "
-            f"(tested {ml_result['num_angles_tested']} ML angles)")
-
-    return {
-        "linear": {
-            "best_local_deg": float(linear_result["best_local_fine"]),
-            "best_absolute_deg": float(lin_abs_angle),
-            "best_snr_dB": float(linear_result["best_snr_fine"]),
-            "angles_tested": int(linear_result["num_angles_tested"]),
-            "angles": linear_result["angles"],
-            "snr": linear_result["snr"],
-        },
-        "ml": {
-            "best_local_deg": float(ml_result["best_local"]),
-            "best_absolute_deg": float(ml_result["best_angle"]),
-            "best_snr_dB": float(ml_result["best_snr"]),
-            "angles_tested": int(ml_result["num_angles_tested"]),
-            "suggestions": ml_result["ml_suggestions"],
-        }
     }
 
 
@@ -292,9 +263,6 @@ class VideoStreamConfig:
     symbol_rate: float = 2e6
     sample_rate: float = 20e6
     chunk_limit: int = 6
-    sweep_fov: float = 80.0
-    sweep_step: float = 5.0
-    ml_top_k: int = 2
     waveform_symbols: int = 6
     ofdm_bandwidth: float = 80e6
     ofdm_subcarriers: int = 512
@@ -330,17 +298,10 @@ def run_video_stream_workflow(network: RISNetwork,
 
     link_state = align_ris_with_controller(
         printer, network, controller,
-        ap_name, ris_name, ue_name,
-        config.sweep_fov, config.sweep_step
-    )
-    sweep_compare = run_beam_sweep_comparison(
-        printer, network, ap_name, ris_name, ue_name,
-        fov=config.sweep_fov,
-        step=config.sweep_step,
-        top_k=config.ml_top_k
+        ap_name, ris_name, ue_name
     )
 
-    printer("\n[4] Waveform baseline at the selected configuration")
+    printer("\n[3] Waveform baseline at the selected configuration")
     baseline = controller.compute_waveform_snr(ap_name, ris_name, ue_name,
                                               num_symbols=config.waveform_symbols)
     snr_gain = baseline['snr_effective_dB'] - no_ris['snr_dB']
@@ -391,7 +352,9 @@ def run_video_stream_workflow(network: RISNetwork,
     snr_guard_threshold = snr_warning_thresholds.get(modulation_upper, 10.0)
     snr_warning_emitted = False
     printer("\n[5] Streaming chunks with programmed RIS phases:")
+    stream_start_time = time.time()
     while video_source.has_data() and chunk_idx < config.chunk_limit:
+        chunk_start_time = time.time()
         bits, payload_bits = video_source.next_bits(bits_per_chunk)
         if payload_bits == 0:
             break
@@ -404,19 +367,21 @@ def run_video_stream_workflow(network: RISNetwork,
             noise_power_dB,
             seed=chunk_idx,
         )
+        chunk_elapsed_time = time.time() - chunk_start_time
 
         useful_bits = payload_bits - metrics["bit_errors"]
         throughput_mbps = (useful_bits / chunk_duration) / 1e6
         delivered_bits += useful_bits
 
-        # Format: SNR post-equalization (before FEC), SER %, bit errors, throughput
+        # Format: SNR post-equalization (before FEC), SER %, bit errors, throughput, elapsed time
         ber_desc = (f"{metrics['bit_errors']:,d}/{metrics['payload_bits']:,d} bits")
         printer(
             f"  Chunk {chunk_idx+1:02d}: "
             f"SNR_postEQ={metrics['snr_dB']:.2f} dB | "
             f"BER={metrics['ber_percent']:.3f}% ({ber_desc}) | "
             f"SER={metrics['ser_percent']:.3f}% | "
-            f"Tput={throughput_mbps:.2f} Mbps"
+            f"Tput={throughput_mbps:.2f} Mbps | "
+            f"Time={chunk_elapsed_time:.3f}s"
         )
 
         if (not snr_warning_emitted) and metrics['snr_dB'] < snr_guard_threshold:
@@ -427,12 +392,15 @@ def run_video_stream_workflow(network: RISNetwork,
 
         chunk_idx += 1
 
+    stream_elapsed_time = time.time() - stream_start_time
+
     total_time = chunk_idx * chunk_duration
     avg_throughput = (delivered_bits / total_time) / 1e6 if total_time > 0 else 0.0
     printer("\nSummary:")
     printer(f"  Chunks sent:        {chunk_idx:,d}")
     printer(f"  Delivered bits:     {delivered_bits:,d}")
-    printer(f"  Total time (s):     {total_time:.3f}")
+    printer(f"  Simulation time:    {total_time:.3f}s (chunk duration × count)")
+    printer(f"  Wall-clock time:    {stream_elapsed_time:.3f}s (actual elapsed)")
     printer(f"  Avg throughput:     {avg_throughput:.2f} Mbps")
     printer(f"  Payload/chunk:      {bits_per_chunk:,d} bits ({bits_per_chunk/8:,.0f} bytes)")
     printer(f"  Config modulation:  {signal_cfg.modulation} @ {signal_cfg.symbol_rate/1e6:.1f} MSym/s")
@@ -447,19 +415,11 @@ def run_video_stream_workflow(network: RISNetwork,
     printer(f"  Capacity gain:      {capacity_gain:.2f}× | +{capacity_pct:.1f}% vs direct")
     bw_mhz = getattr(ap, 'bandwidth_MHz', 100.0) if ap else 100.0
     printer(f"  Capacity model:     Shannon (C = BW × log₂(1+SNR)) with {bw_mhz:.0f} MHz BW\n")
-    printer("  Beam sweep recap:")
-    printer(f"    Linear brute-force best: {sweep_compare['linear']['best_absolute_deg']:.2f}° "
-            f"({sweep_compare['linear']['best_snr_dB']:.2f} dB, "
-            f"{sweep_compare['linear']['angles_tested']} angles)")
-    printer(f"    ML-only best:            {sweep_compare['ml']['best_absolute_deg']:.2f}° "
-            f"({sweep_compare['ml']['best_snr_dB']:.2f} dB, "
-            f"{sweep_compare['ml']['angles_tested']} suggestions)\n")
 
     return {
         "no_ris": no_ris,
         "waveform_baseline": baseline,
         "link_state": link_state,
-        "sweep_comparison": sweep_compare,
         "streaming": {
             "chunks_sent": chunk_idx,
             "delivered_bits": delivered_bits,

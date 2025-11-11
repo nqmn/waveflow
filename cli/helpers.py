@@ -267,7 +267,7 @@ class NetworkIO:
     def load(self, net, filepath):
         """Load network state from JSON file"""
         if not os.path.exists(filepath):
-            return  # File doesn't exist, start fresh
+            raise FileNotFoundError(f"Network file not found: {filepath}")
 
         try:
             with open(filepath, 'r') as f:
