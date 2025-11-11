@@ -3,6 +3,9 @@
 from .base import SweepMLPredictor
 from .trivial import ZeroOffsetPredictor
 from .xgb import XGBPredictor
+from .rf import RFPredictor
+from .svr import SVRPredictor
+from .mlp import MLPPredictor
 
 
 class MLPredictorLoader:
@@ -11,6 +14,9 @@ class MLPredictorLoader:
     PREDICTORS = {
         'default': XGBPredictor,
         'xgb': XGBPredictor,
+        'rf': RFPredictor,
+        'svr': SVRPredictor,
+        'mlp': MLPPredictor,
         'zero': ZeroOffsetPredictor,
     }
 
@@ -38,4 +44,7 @@ __all__ = [
     'SweepMLPredictor',
     'MLPredictorLoader',
     'XGBPredictor',
+    'RFPredictor',
+    'SVRPredictor',
+    'MLPPredictor',
 ]

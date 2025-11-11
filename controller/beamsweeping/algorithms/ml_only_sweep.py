@@ -72,8 +72,8 @@ class MLOnlySweep(SweepAlgorithmBase):
         except ValueError as e:
             raise ValueError(f"Failed to load ML predictor: {e}")
 
-        # Get ML predictions
-        ml_suggestions = predictor.predict_local_angles(
+        # Get ML predictions with metrics
+        ml_suggestions, ml_metrics = predictor.predict_with_metrics(
             ap_name, ris_name, ue_name, fov, top_k=top_k
         )
 
@@ -162,6 +162,7 @@ class MLOnlySweep(SweepAlgorithmBase):
             'best_local': float(best_local),
             'specular_angle': float(specular_angle),
             'num_angles_tested': len(ml_suggestions),
+            'ml_metrics': ml_metrics,
         }
 
         # Add SER if waveform simulation was used

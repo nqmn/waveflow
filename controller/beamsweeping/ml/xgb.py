@@ -1,4 +1,4 @@
-"""XGBoost-based beam prior (falls back to zero-offset if model unavailable)."""
+"""XGBoost-based beam prior."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from typing import List, Optional
 import numpy as np
 
 from .base import SweepMLPredictor
-from .trivial import ZeroOffsetPredictor
 
 try:
     import xgboost as xgb  # type: ignore
@@ -25,9 +24,9 @@ class XGBPredictor(SweepMLPredictor):
 
     def __init__(self, network):
         super().__init__(network)
-        self._fallback = ZeroOffsetPredictor(network)
         self._booster: Optional["xgb.Booster"] = None
         self._model_path = None
+        self._model_error = None
         self._load_model()
 
     @property
@@ -36,10 +35,9 @@ class XGBPredictor(SweepMLPredictor):
 
     @property
     def description(self) -> str:
-        base = "Predicts promising local beams using an XGBoost regressor."
         if self._booster is None:
-            return f"{base} (fallback active: {self._fallback.name})"
-        return base
+            return f"XGBoost predictor (Error: {self._model_error})"
+        return "Predicts promising local beams using an XGBoost regressor."
 
     def _load_model(self):
         """Attempt to load the XGBoost model; fallback if missing."""
@@ -77,30 +75,29 @@ class XGBPredictor(SweepMLPredictor):
         top_k: int = 3
     ) -> List[float]:
         """Return ML-prioritized local beam angles."""
+        if self._booster is None or xgb is None:
+            raise RuntimeError(f"XGBoost model not available: {self._model_error}")
+
         ap = self.network.get(ap_name)
         ris = self.network.get(ris_name)
         ue = self.network.get(ue_name)
 
-        fallback = self._fallback.predict_local_angles(ap_name, ris_name, ue_name, fov, top_k)
-        if self._booster is None or xgb is None or not (ap and ris and ue):
-            return fallback
+        if not (ap and ris and ue):
+            raise ValueError(f"Invalid nodes: AP={ap_name}, RIS={ris_name}, UE={ue_name}")
 
         features = self._build_feature_vector(ap, ris, ue)
         try:
             dmatrix = xgb.DMatrix(np.array([features], dtype=float))
             pred = float(self._booster.predict(dmatrix)[0])
-        except Exception:  # pragma: no cover - prediction failure
-            return fallback
+        except Exception as e:  # pragma: no cover - prediction failure
+            raise RuntimeError(f"XGBoost prediction failed: {e}")
 
         pred_local = float(np.clip(pred, -fov, fov))
-        suggestions = [pred_local]
-        for angle in fallback:
-            if all(abs(angle - existing) > 1e-3 for existing in suggestions):
-                suggestions.append(angle)
-            if len(suggestions) >= top_k:
-                break
+        return [pred_local]
 
-        return suggestions[:top_k]
+    def _is_model_available(self) -> bool:
+        """Check if XGBoost model is loaded."""
+        return self._booster is not None and xgb is not None
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""

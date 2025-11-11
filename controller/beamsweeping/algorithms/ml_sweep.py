@@ -79,8 +79,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
         except ValueError as e:
             raise ValueError(f"Failed to load ML predictor: {e}")
 
-        # Get ML predictions
-        ml_suggestions = predictor.predict_local_angles(
+        # Get ML predictions with metrics
+        ml_suggestions, ml_metrics = predictor.predict_with_metrics(
             ap_name, ris_name, ue_name, fov, top_k=top_k
         )
 
@@ -232,6 +232,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
             'best_local_fine': float(best_local_fine),
             'best_snr_fine': float(np.max(snr_fine)),
             'specular_angle': float(specular_angle),
+            'ml_metrics': ml_metrics,
         }
 
         # Add SER if waveform simulation was used
