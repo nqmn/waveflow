@@ -7,6 +7,7 @@ import cmd
 import os
 import shlex
 import pprint
+import readline
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -32,6 +33,75 @@ class RISNetCLI(cmd.Cmd):
         self.network_io = NetworkIO()
         # Load network state on startup
         self._load_network()
+        # Setup tab completion
+        self._setup_completer()
+
+    def _setup_completer(self):
+        """Setup readline for tab completion"""
+        # Get all available commands
+        self.all_commands = [name[3:] for name in dir(self) if name.startswith('do_')]
+
+        # Setup readline completer
+        readline.set_completer(self._completer)
+        # Enable tab completion
+        readline.parse_and_bind('tab: complete')
+
+    def _completer(self, text, state):
+        """Custom completer for command and argument suggestions"""
+        if state == 0:
+            # Get the current line
+            line = readline.get_line_buffer()
+
+            # If we're at the beginning (no space), complete commands
+            if ' ' not in line or line.endswith(' '):
+                # Complete command names
+                self.completion_matches = [cmd for cmd in self.all_commands if cmd.startswith(text)]
+            else:
+                # For arguments, provide context-specific completion
+                parts = line.split()
+                cmd = parts[0]
+                self.completion_matches = self._get_argument_completions(cmd, text)
+
+        # Return completions one by one
+        if state < len(self.completion_matches):
+            return self.completion_matches[state]
+        else:
+            return None
+
+    def _get_argument_completions(self, cmd, text):
+        """Get argument completions based on command"""
+        completions = []
+
+        # Command-specific argument completions
+        if cmd in ['connect', 'status', 'delete', 'edit']:
+            # Suggest node names for commands that work with nodes
+            node_names = list(self.net.nodes.keys()) if self.net.nodes else []
+            completions = [n for n in node_names if n.startswith(text)]
+
+        elif cmd in ['load', 'plot']:
+            # Suggest file names for load and plot commands
+            try:
+                cwd = os.getcwd()
+                files = [f for f in os.listdir(cwd) if f.startswith(text)]
+                completions = [f for f in files if f.endswith(('.json', '.csv', '.png', '.jpg'))]
+            except:
+                pass
+
+        elif cmd in ['save']:
+            # Suggest .json files
+            try:
+                cwd = os.getcwd()
+                files = [f for f in os.listdir(cwd) if f.startswith(text) and f.endswith('.json')]
+                completions = files
+            except:
+                pass
+
+        elif cmd == 'add':
+            # Complete node types and names
+            if text.startswith('ap') or text.startswith('ris') or text.startswith('ue'):
+                completions = ['ap', 'ris', 'ue']
+
+        return completions
 
     # =====================================================================
     # Help Commands

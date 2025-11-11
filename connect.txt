@@ -1,0 +1,122 @@
+  Step-by-Step: What Happens During connect Command
+
+  Phase 1: RIS Computation (Lines 178-181)
+
+  RIS computes optimal phase configuration:
+    ris.compute_phases(ap_position, ue_position)  ← Calculates phases to steer beam from AP→RIS→UE
+    ris.quantize_phases()  ← Rounds to discrete levels (4-bit, 2-bit, etc.)
+  The RIS calculates what phase shifts each element needs to create constructive interference toward UE and
+  destructive interference away from UE.
+
+  ---
+  Phase 2: AP Transmits Signal (Lines 191-193)
+
+  AP → RIS path loss:
+    Distance: d_ap_ris = ||RIS_position - AP_position||
+    Path Loss = -20*log10(4πd/λ) dB  ← Free space path loss formula
+
+  Example: If 100m away at 5.8 GHz = ~80 dB loss
+  The AP broadcasts at 20 dBm (100 mW) - this signal travels through air to RIS.
+
+  ---
+  Phase 3: RIS Reflects Signal (Lines 195-220)
+
+  RIS receives AP's signal and COHERENTLY reflects with computed phases:
+
+  1. Each element multiplies incoming signal by e^(j*phase_element)
+     - This shifts the phase of that element's reflection
+
+  2. Total RIS gain depends on:
+     - Array size: N×N elements (32×32 = 1024 elements = 30 dB gain)
+     - Phase accuracy: 2-bit, 4-bit, 8-bit quantization
+     - Beam steering efficiency: How well phases align toward UE
+
+  3. Example calculation:
+     - Array gain: 30 dBi
+     - Quantization loss: -1.67 dB (for 4-bit)
+     - Angle loss: -0.5 dB (if beam slightly misaligned)
+     - Net RIS gain: ~28 dBi toward UE
+
+  Critical: The RIS doesn't amplify - it just phases and redirects the signal. Gain comes from coherent array
+  interference.
+
+  ---
+  Phase 4: RIS → UE Path Loss (Lines 196-197)
+
+  RIS → UE path loss:
+    Distance: d_ris_ue = ||UE_position - RIS_position||
+    Path Loss = -20*log10(4πd/λ) dB
+
+  Example: If 50m away at 5.8 GHz = ~74 dB loss
+
+  ---
+  Phase 5: Received Power at UE (Lines 237-238)
+
+  Received Power (dBm) = TX_Power + AP_Gain + UE_Gain + RIS_Gain - PL_AP_RIS - PL_RIS_UE
+
+  Example:
+    = 20 dBm (TX) + 3 dBi (AP) + 3 dBi (UE) + 28 dBi (RIS)
+      - 80 dB (path loss AP→RIS) - 74 dB (path loss RIS→UE)
+    = 20 + 3 + 3 + 28 - 80 - 74
+    = -100 dBm  ← Received power at UE antenna
+
+  SNR = Received_Power - Noise_Floor
+      = -100 dBm - (-174 + 10*log10(20MHz) + 6dB NF)
+      = -100 - (-143)
+      = 43 dB SNR  ← Very good!
+
+  ---
+  Phase 6: UE Receives & Measures SNR (Lines 246-252)
+
+  UE measures the received signal quality:
+    SNR = Signal_Power / Noise_Power
+
+  Then evaluates channel quality:
+    SNR > 20 dB  → Can use 64QAM (6 bits/symbol)
+    SNR > 10 dB  → Can use 16QAM (4 bits/symbol)
+    SNR > 5 dB   → Can use QPSK (2 bits/symbol)
+    SNR < 5 dB   → Link fails
+
+  ---
+  Phase 7: CSI Feedback Loop (If Enabled) (Lines 298-302)
+
+  UE sends feedback back to AP:
+    UE → AP: "I measured SNR = 43 dB, can use 64QAM"
+
+  AP adapts:
+    - Increases transmit power from 20 dBm → 23 dBm (uses more power)
+    - OR
+    - Uses higher modulation (QPSK → 16QAM → 64QAM)
+
+  Loop repeats (max 3 iterations):
+    Iteration 0: AP at 20 dBm, QPSK
+    Iteration 1: SNR measured, UE sends "try 16QAM"
+    Iteration 2: AP increases power slightly, retransmits with 16QAM
+
+  Converges when SNR stable or target modulation achieved
+
+  ---
+  Timeline Diagram
+
+  TIME →
+
+  AP (5.8 GHz):                  [Transmit 20 dBm signal]
+                                          ↓
+                                 (80 dB path loss)
+                                          ↓
+  RIS (32×32 elements):  [Compute phases for UE direction]
+                         [Reflect with 28 dBi gain] → ← [Quantize to 4-bit]
+                                          ↓
+                                 (74 dB path loss)
+                                          ↓
+  UE receiver:            [Receive -100 dBm signal]
+                          [Measure SNR = 43 dB]
+                          [Calculate: "can use 64QAM"]
+                                          ↓
+  UE → AP feedback:       [Send CSI: "SNR=43dB, try 64QAM"]
+                                          ↓
+  (Feedback loop repeats if enabled)
+                                          ↓
+  Display results:        SNR, Power, Gain, Modulation, SER
+
+  ---

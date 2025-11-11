@@ -4,16 +4,15 @@ RISNet v2.0 - Advanced RIS Network Simulator
 Modular entry point with clean separation of concerns
 
 Usage:
-    python main_new.py --web        # Run web interface
-    python main_new.py --cli        # Run CLI interface (default)
-    python main_new.py --topology FILE  # Load topology on startup
+    python main.py --web        # Run web interface
+    python main.py --cli        # Run CLI interface (default)
+    python main.py --topology FILE  # Load topology on startup
 """
 
 import sys
 import argparse
 from core import RISNetwork
 from controller.ris_controller import RISController
-from config import Config
 from app import create_app
 from cli.main_shell import RISNetCLI
 
@@ -53,10 +52,17 @@ def run_web(net, controller, host='127.0.0.1', port=5000):
     signal.signal(signal.SIGINT, shutdown_handler)
     signal.signal(signal.SIGTERM, shutdown_handler)
 
-    try:
-        waitress_serve(app, host=host, port=port, threads=4)
-    except KeyboardInterrupt:
-        shutdown_handler(None, None)
+    waitress_serve(app, host=host, port=port, threads=4)
+
+
+def cleanup_cli(net, cli):
+    """Clean up CLI resources"""
+    print('\nClearing topology...')
+    if net.nodes:
+        net.nodes.clear()
+        cli._save_network()
+        print('✓ Topology cleared')
+    print('Exiting RISNet CLI')
 
 
 def main():
@@ -66,18 +72,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main_new.py --web                          # Run web interface
-  python main_new.py --cli                          # Run CLI interface (default)
-  python main_new.py --cli --topology topology.json # Load topology on startup
-  python main_new.py testall --exec-only            # Run testall and exit
+  python main.py --web                          # Run web interface
+  python main.py --cli                          # Run CLI interface (default)
+  python main.py --cli --topology topology.json # Load topology on startup
+  python main.py testall --exec-only            # Run testall and exit
         """
     )
     parser.add_argument('--web', action='store_true',
                         help='Run web interface')
     parser.add_argument('--cli', action='store_true',
                         help='Run CLI interface (default)')
-    parser.add_argument('--config', type=str,
-                        help='Config file path')
     parser.add_argument('--topology', type=str,
                         help='Load topology from JSON file')
     parser.add_argument('--host', type=str, default='127.0.0.1',
@@ -92,17 +96,8 @@ Examples:
 
     # Initialize core components
     net = RISNetwork()
-    config = Config()
     controller = RISController(net, net.environment)
     net.set_controller(controller)
-
-    # Load config if provided
-    if args.config:
-        try:
-            config.load(args.config)
-            print(f"✓ Config loaded: {args.config}")
-        except Exception as e:
-            print(f"Warning: Failed to load config: {e}")
 
     # Run web interface
     if args.web:
@@ -124,40 +119,27 @@ Examples:
         cli._load_network_from_file(args.topology)
         print(f"✓ Topology loaded: {args.topology}\n")
 
-    # Execute command if provided
-    if args.command:
-        command_str = ' '.join(args.command)
-        exit_requested = False
-        try:
-            exit_requested = bool(cli.onecmd(command_str))
-        except Exception as e:
-            print(f"Error: {e}")
-            exit_requested = True
-
-        if not args.exec_only and not exit_requested:
-            print("\n" + "-" * 70)
-            print("Continuing in interactive CLI (type 'help' for commands, 'quit' to exit)")
-            print("-" * 70 + "\n")
+    try:
+        # Execute command if provided
+        if args.command:
+            command_str = ' '.join(args.command)
             try:
+                exit_requested = bool(cli.onecmd(command_str))
+            except Exception as e:
+                print(f"Error: {e}")
+                exit_requested = True
+
+            # Continue to interactive CLI unless --exec-only or exit was requested
+            if not args.exec_only and not exit_requested:
+                print("\n" + "-" * 70)
+                print("Continuing in interactive CLI (type 'help' for commands, 'quit' to exit)")
+                print("-" * 70 + "\n")
                 cli.cmdloop()
-            except KeyboardInterrupt:
-                print('\nClearing topology...')
-                if net.nodes:
-                    net.nodes.clear()
-                    cli._save_network()
-                    print('✓ Topology cleared')
-                print('Exiting RISNet CLI')
-    else:
-        # Default to interactive CLI
-        try:
+        else:
+            # Default to interactive CLI
             cli.cmdloop()
-        except KeyboardInterrupt:
-            print('\nClearing topology...')
-            if net.nodes:
-                net.nodes.clear()
-                cli._save_network()
-                print('✓ Topology cleared')
-            print('Exiting RISNet CLI')
+    except KeyboardInterrupt:
+        cleanup_cli(net, cli)
 
 
 if __name__ == '__main__':

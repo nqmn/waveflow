@@ -10,6 +10,9 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
+import platform
+import ctypes
+import winreg
 
 
 class RISNetSetup:
@@ -110,6 +113,87 @@ class RISNetSetup:
         """Add RISNet to PATH"""
         self.print_header("Setting up PATH")
 
+        if platform.system() == "Windows":
+            return self._add_to_path_windows()
+        else:
+            return self._add_to_path_unix()
+
+    def _add_to_path_windows(self):
+        """Add RISNet to Windows PATH via environment variables"""
+        print(f"Adding to Windows PATH: {self.bin_dir}\n")
+
+        try:
+            # Read current PATH from registry
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+                    current_path = winreg.QueryValueEx(key, "PATH")[0]
+            except FileNotFoundError:
+                current_path = ""
+
+            # Check if already in PATH
+            bin_dir_str = str(self.bin_dir)
+            if bin_dir_str in current_path:
+                print("✓ RISNet already in Windows PATH")
+                return True
+
+            # Add to PATH
+            if current_path:
+                new_path = f"{bin_dir_str};{current_path}"
+            else:
+                new_path = bin_dir_str
+
+            # Try to set in user environment variables
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE
+                ) as key:
+                    winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, new_path)
+                print(f"✓ Added to Windows PATH (HKEY_CURRENT_USER)")
+                print(f"\n  Path: {bin_dir_str}")
+                print(f"\n  Note: Close and reopen your terminal for changes to take effect")
+                return True
+            except PermissionError:
+                print("⚠ Permission denied. Trying system PATH (requires admin)...")
+                return self._add_to_path_windows_with_admin()
+
+        except Exception as e:
+            print(f"❌ Failed to add to Windows PATH: {e}")
+            return False
+
+    def _add_to_path_windows_with_admin(self):
+        """Add RISNet to Windows PATH with admin privileges"""
+        try:
+            # Try to modify system PATH (requires admin)
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                "SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+                0,
+                winreg.KEY_READ | winreg.KEY_WRITE,
+            ) as key:
+                current_path = winreg.QueryValueEx(key, "PATH")[0]
+                bin_dir_str = str(self.bin_dir)
+
+                if bin_dir_str in current_path:
+                    print("✓ RISNet already in Windows PATH (system)")
+                    return True
+
+                new_path = f"{current_path};{bin_dir_str}"
+                winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, new_path)
+                print(f"✓ Added to Windows PATH (system-wide)")
+                print(f"\n  Path: {bin_dir_str}")
+                print(f"\n  Note: Close and reopen your terminal for changes to take effect")
+                return True
+
+        except PermissionError:
+            print("⚠ Admin privileges required. Please run setup.py as Administrator")
+            print("  Right-click setup.py and select 'Run as administrator'")
+            return False
+        except Exception as e:
+            print(f"❌ Failed to add to Windows PATH: {e}")
+            return False
+
+    def _add_to_path_unix(self):
+        """Add RISNet to Unix-like PATH via shell profile"""
         profile = self.find_shell_profile()
         path_export = f'export PATH="{self.bin_dir}:$PATH"'
         path_comment = "# RISNet installation"
@@ -130,6 +214,7 @@ class RISNetSetup:
                 f.write(f"\n{path_comment}\n{path_export}\n")
             print(f"✓ Added to {profile.name}")
             print(f"\n  Command: {path_export}")
+            print(f"\n  Note: Run 'source {profile}' or restart your terminal for changes to take effect")
             return True
         except Exception as e:
             print(f"❌ Failed to add to PATH: {e}")
