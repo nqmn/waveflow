@@ -23,6 +23,7 @@ from ..common import (
     validate_and_get_nodes,
     FeedbackCollector,
     clamp_to_ris_fov,
+    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -124,7 +125,12 @@ class MLGuidedSweep(SweepAlgorithmBase):
 
         # Phase 2: Coarse sweep (adaptive center-out from specular)
         local_coarse, num_coarse = generate_codebook(fov, step)
-        abs_angles = specular_angle + local_coarse
+
+        # Clamp local deflection angles to RIS FOV constraint
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        clamped_local_coarse = clamp_local_deflection_to_ris_fov(local_coarse, ris_max_angle)
+
+        abs_angles = specular_angle + clamped_local_coarse
 
         snr_array = np.full(num_coarse, np.nan)
         pwr_array = np.full(num_coarse, np.nan)

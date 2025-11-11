@@ -258,7 +258,7 @@ class RIS(Node):
     """Reconfigurable Intelligent Surface with phase control"""
 
     def __init__(self, name, x, y, z=0.0, N=32, bits=2, spacing=None,
-                 freq=10e9, max_angle_deg=60, active_mode=False,
+                 freq=10e9, max_angle_deg=60, normal_angle_deg=0.0, active_mode=False,
                  amplifier_gain=1.0, element_efficiency=0.95,
                  phase_error_std_deg=8.0, amp_std=0.15,
                  coupling_enabled=True, K_db=10, noise_floor=-90.0):
@@ -267,6 +267,7 @@ class RIS(Node):
         self.bits = int(bits)  # Phase quantization bits
         self.freq = freq
         self.max_angle_deg = max_angle_deg  # Maximum steering angle
+        self.normal_angle_deg = normal_angle_deg  # RIS normal/facing direction (0° = east)
         self.active_mode = active_mode  # Active vs passive RIS
         self.amplifier_gain = amplifier_gain if active_mode else 1.0
         self.element_efficiency = element_efficiency
@@ -430,10 +431,16 @@ class UE(Node):
     """User Equipment (receiver) node with customizable impairments and CSI estimation"""
 
     def __init__(self, name, x, y, z=0.0, antenna_gain_dBi=3.0,
-                 noise_figure_dB=6.0):
+                 noise_figure_dB=6.0, max_angle_deg=90.0, normal_angle_deg=0.0):
         super().__init__(name, x, y, z)
         self.antenna_gain_dBi = antenna_gain_dBi
         self.noise_figure_dB = noise_figure_dB
+
+        # Antenna FOV parameters for directional reception
+        # max_angle_deg: Field of view (±angle from normal, 0-180°)
+        # normal_angle_deg: Direction antenna points toward (0-360°)
+        self.max_angle_deg = float(max_angle_deg)
+        self.normal_angle_deg = float(normal_angle_deg)
 
         # CSI feedback mechanism
         self.csi_report = None
@@ -497,6 +504,8 @@ class UE(Node):
         d.update({
             'antenna_gain_dBi': self.antenna_gain_dBi,
             'noise_figure_dB': self.noise_figure_dB,
+            'max_angle_deg': self.max_angle_deg,
+            'normal_angle_deg': self.normal_angle_deg,
             'snr_measurement_dB': self.snr_measurement_dB,
             'feedback_enabled': self.feedback_enabled
         })

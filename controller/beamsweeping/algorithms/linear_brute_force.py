@@ -20,6 +20,7 @@ from ..common import (
     validate_and_get_nodes,
     FeedbackCollector,
     clamp_to_ris_fov,
+    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -76,7 +77,12 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
         # Single phase: test all angles from -FOV to +FOV at specified resolution
         angles, num_angles = generate_codebook(fov, step)
-        abs_angles = base_angle + angles
+
+        # Clamp local deflection angles to RIS FOV constraint (native RIS capability)
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        clamped_angles = clamp_local_deflection_to_ris_fov(angles, ris_max_angle)
+
+        abs_angles = base_angle + clamped_angles
 
         snr_values = [None] * num_angles
         power_values = [None] * num_angles

@@ -50,6 +50,31 @@ def clamp_to_ris_fov(angles: np.ndarray, ris_max_angle: float) -> np.ndarray:
     return np.clip(angles, -ris_max_angle, ris_max_angle)
 
 
+def clamp_local_deflection_to_ris_fov(
+    local_deflections: np.ndarray, ris_max_angle: float
+) -> np.ndarray:
+    """Clamp local beam deflections to RIS field of view constraint.
+
+    Clamps the local deflection angle (relative to RIS normal) to stay within
+    the RIS maximum steering angle, ensuring the beam stays within the RIS FOV.
+
+    Args:
+        local_deflections: Array of local deflection angles in degrees
+                          (relative to RIS normal)
+        ris_max_angle: RIS maximum steering angle (±max_angle_deg)
+
+    Returns:
+        Clamped local deflections array where each deflection is within
+        [-ris_max_angle, +ris_max_angle]
+
+    Example:
+        If RIS normal is 170° and max_angle is 60°, then valid beam angles
+        are [110°, 230°]. A local deflection of -80° would be clamped to -60°,
+        resulting in a final beam angle of 170° - 60° = 110°.
+    """
+    return np.clip(local_deflections, -ris_max_angle, ris_max_angle)
+
+
 def create_waveform_link(
     enable_waveform: bool, settings: WaveformSettings
 ) -> Optional["SignalLevelLink"]:

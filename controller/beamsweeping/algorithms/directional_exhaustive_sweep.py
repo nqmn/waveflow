@@ -27,6 +27,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     clamp_to_ris_fov,
+    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -94,7 +95,12 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
 
         # Generate codebook around specular angle
         codebook_local, num_codebook = generate_codebook(fov, step)
-        codebook_absolute = specular_angle + codebook_local
+
+        # Clamp local deflection angles to RIS FOV constraint (native RIS capability)
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        clamped_codebook_local = clamp_local_deflection_to_ris_fov(codebook_local, ris_max_angle)
+
+        codebook_absolute = specular_angle + clamped_codebook_local
 
         print(f"\n[DIRECTIONAL EXHAUSTIVE SWEEP]")
         print(f"Incident angle: {incident_angle:.1f}°")

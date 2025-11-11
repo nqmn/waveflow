@@ -18,7 +18,7 @@ class RISNodeShell(cmd.Cmd):
         self.last_connect_result = None  # Store phase data from connect() command
         self._print_status()
         print("\nAvailable commands: help, status, config, info, phases, exit")
-        print("Phase formats: compact (default), grid, stats, plot")
+        print("Phase formats: compact, grid, stats, plot, codebook, transmit, export")
         print("Type 'help' for more information\n")
 
     def do_help(self, arg):
@@ -40,6 +40,9 @@ Phase Formats (use: phases <format>):
   grid                    - 16×16 grid visualization with bar indicators
   stats                   - Statistics (min/max/mean/std + quantization error)
   plot                    - Plot phase distribution (if available)
+  codebook                - Phase state codebook (0, 1, 2, ... for each element)
+  transmit                - RIS transmission-ready format (hex, UART, checksum)
+  export <file> <fmt>     - Export codebook (hex, binary, csv, json)
         """
         print(help_text)
 
@@ -58,6 +61,7 @@ Phase Formats (use: phases <format>):
         print(f"  Phase Bits:    {self.ris_node.bits} bits per element")
         print(f"  Phase Range:   0 to {360 * (1 - 1/(2**self.ris_node.bits)):.1f}°")
         print(f"  States/Element:{2**self.ris_node.bits}")
+        print(f"  Field of View: ±{self.ris_node.max_angle_deg}°")
 
         try:
             total_elements = self.ris_node.N * self.ris_node.N
@@ -102,23 +106,37 @@ Phase Formats (use: phases <format>):
 
         Link Index: Use status command to see numbered active links [1], [2], etc.
 
-        Formats: compact (default), grid, stats, plot
+        Formats: compact (default), grid, stats, plot, codebook, transmit
+        Export:  export <filename> <format>  (hex, binary, csv, json)
+
         Examples:
-            phases                  # Most recent phases
-            phases 2                # Phases from link [2]
-            phases 2 grid           # Link [2] phases in grid format
-            phases grid             # Most recent phases in grid format
+            phases                          # Most recent phases
+            phases 2                        # Phases from link [2]
+            phases 2 grid                   # Link [2] phases in grid format
+            phases codebook                 # Show phase state codebook
+            phases transmit                 # Show transmission format
+            phases export codebook.hex hex  # Export as hex file
         """
         parts = arg.split() if arg else []
         link_index = None
         format_type = 'compact'
+        export_filename = None
+        export_format = None
 
-        # Parse arguments: could be "2 grid" or just "grid" or just "2"
-        for part in parts:
-            if part.isdigit():
+        # Parse arguments
+        i = 0
+        while i < len(parts):
+            part = parts[i]
+            if part == 'export' and i + 2 < len(parts):
+                export_filename = parts[i + 1]
+                export_format = parts[i + 2].lower()
+                i += 3
+            elif part.isdigit():
                 link_index = int(part)
+                i += 1
             else:
                 format_type = part.lower()
+                i += 1
 
         # If link_index specified, load phases from that active link
         if link_index is not None:
@@ -164,6 +182,12 @@ Phase Formats (use: phases <format>):
             print(f"  Or use: phases <link_index>  (e.g., phases 2)")
             return
 
+        # Handle export first (special case)
+        if export_filename and export_format:
+            self._export_phases(export_filename, export_format)
+            return
+
+        # Handle display formats
         if format_type == 'stats':
             self._print_phase_stats()
         elif format_type == 'compact':
@@ -172,6 +196,10 @@ Phase Formats (use: phases <format>):
             self._plot_phase_grid()
         elif format_type == 'grid':
             self._print_phase_grid()
+        elif format_type == 'codebook':
+            self._print_phase_codebook()
+        elif format_type == 'transmit':
+            self._print_phase_transmit()
         else:  # invalid format, default to compact
             print(f"Unknown format: {format_type}. Using 'compact'.")
             self._print_phase_compact()
@@ -188,6 +216,7 @@ Phase Formats (use: phases <format>):
         print(f"  Grid Size (N): {self.ris_node.N}")
         print(f"  Phase Bits:    {self.ris_node.bits}")
         print(f"  Phase States:  {2**self.ris_node.bits}")
+        print(f"  Field of View: ±{self.ris_node.max_angle_deg}°")
         print(f"  Active:        Yes")
 
     def _load_phases_from_result(self, connect_result):
@@ -573,3 +602,213 @@ PERFORMANCE METRICS:
             return "Plane Wave"
         else:
             return "Spherical Wave"
+
+    def _print_phase_codebook(self):
+        """Print phase state codebook (0, 1, 2, ... for each element)"""
+        if not hasattr(self.ris_node, 'phase_states') or self.ris_node.phase_states is None:
+            print("✗ No phase states available. Quantized phases required.")
+            return
+
+        phase_states = self.ris_node.phase_states
+        N = self.ris_node.N
+        bits = getattr(self.ris_node, 'bits', 1) or 1
+        num_levels = 2 ** bits
+
+        print(f"\n{self.ris_node.name} Phase Codebook ({bits}-bit, {num_levels} levels):")
+        print(f"  Array size: {N}×{N} = {N*N} elements")
+        print()
+
+        # Show codebook as grid
+        phase_states_grid = phase_states.reshape((N, N))
+        print("Codebook Grid (state values):")
+        for i in range(N):
+            print("  ", end="")
+            for j in range(N):
+                state = int(phase_states_grid[i, j])
+                print(f"[{state}]", end=" ")
+            print()
+
+        print()
+
+        # Show distribution
+        print("Distribution:")
+        for level in range(num_levels):
+            count = np.sum(phase_states == level)
+            percent = 100 * count / len(phase_states)
+            phase_deg = (level * 360) // num_levels  # Convert state to degrees
+            bar = "█" * int(percent // 5)
+            print(f"  State {level} ({phase_deg:>3}°): {count:3d} elements ({percent:5.1f}%) {bar}")
+
+        print()
+
+        # Show linear codebook vector
+        print("Linear Codebook Vector:")
+        print(f"  {list(phase_states)}")
+
+        print()
+
+        # Show as hex
+        codebook_binary = ''.join([str(int(x)) for x in phase_states])
+        codebook_hex = hex(int(codebook_binary, 2))[2:].upper()
+        # Pad to match expected length
+        expected_hex_len = (N * N * bits + 3) // 4  # Round up to nearest nibble
+        codebook_hex = codebook_hex.zfill(expected_hex_len)
+
+        print("Hex Representation:")
+        print(f"  0x{codebook_hex}")
+
+        print()
+
+        # Show byte-by-byte for transmission
+        print("Transmission Format (hex bytes):")
+        hex_bytes = ' '.join([codebook_hex[i:i+2] for i in range(0, len(codebook_hex), 2)])
+        print(f"  {hex_bytes}")
+
+    def _print_phase_transmit(self):
+        """Print RIS transmission-ready format with checksum"""
+        import binascii
+
+        if not hasattr(self.ris_node, 'phase_states') or self.ris_node.phase_states is None:
+            print("✗ No phase states available. Quantized phases required.")
+            return
+
+        phase_states = self.ris_node.phase_states
+        N = self.ris_node.N
+        bits = getattr(self.ris_node, 'bits', 1) or 1
+
+        # Generate codebook hex
+        codebook_binary = ''.join([str(int(x)) for x in phase_states])
+        codebook_hex = hex(int(codebook_binary, 2))[2:].upper()
+        expected_hex_len = (N * N * bits + 3) // 4
+        codebook_hex = codebook_hex.zfill(expected_hex_len)
+
+        # Calculate CRC32 checksum
+        data_bytes = bytes.fromhex(codebook_hex)
+        crc32_value = binascii.crc32(data_bytes) & 0xffffffff
+
+        print(f"\n{self.ris_node.name} Transmission Format:")
+        print("=" * 70)
+
+        print()
+        print("RAW CODEBOOK:")
+        print(f"  Hex String: 0x{codebook_hex}")
+        print(f"  Length: {len(codebook_hex) // 2} bytes ({N*N*bits} bits)")
+
+        print()
+        print("WITH CHECKSUM (CRC32):")
+        print(f"  Checksum: 0x{crc32_value:08X}")
+        print(f"  Data + CRC: {codebook_hex} {crc32_value:08X}")
+
+        print()
+        print("TRANSMISSION FRAME (UART/SPI):")
+        stx = "0xAA"  # Start of transmission
+        etx = "0x55"  # End of transmission
+        length = len(codebook_hex) // 2
+        print(f"  [STX] [LEN] [DATA...] [CRC] [ETX]")
+        print(f"  {stx}   {length:02X}   {codebook_hex}   {crc32_value:08X}   {etx}")
+
+        print()
+        print("BYTE-BY-BYTE (for transmission):")
+        hex_bytes = ' '.join([codebook_hex[i:i+2] for i in range(0, len(codebook_hex), 2)])
+        print(f"  {hex_bytes}")
+
+        print()
+        print("BASE64 ENCODING (for wireless):")
+        b64_data = __import__('base64').b64encode(data_bytes).decode('ascii')
+        print(f"  {b64_data}")
+
+        print()
+        print("JSON FORMAT (with metadata):")
+        import json
+        json_data = {
+            "ris_name": self.ris_node.name,
+            "array_size": N,
+            "bits": bits,
+            "codebook_hex": codebook_hex,
+            "length_bytes": length,
+            "checksum_crc32": f"0x{crc32_value:08X}",
+            "timestamp": str(datetime.now())
+        }
+        print(f"  {json.dumps(json_data, indent=2)}")
+
+    def _export_phases(self, filename, format_type):
+        """Export phase codebook to file"""
+        import json
+        import binascii
+
+        if not hasattr(self.ris_node, 'phase_states') or self.ris_node.phase_states is None:
+            print("✗ No phase states available. Quantized phases required.")
+            return
+
+        phase_states = self.ris_node.phase_states
+        N = self.ris_node.N
+        bits = getattr(self.ris_node, 'bits', 1) or 1
+
+        try:
+            if format_type == 'hex':
+                # Export as hex string
+                codebook_binary = ''.join([str(int(x)) for x in phase_states])
+                codebook_hex = hex(int(codebook_binary, 2))[2:].upper()
+                expected_hex_len = (N * N * bits + 3) // 4
+                codebook_hex = codebook_hex.zfill(expected_hex_len)
+
+                with open(filename, 'w') as f:
+                    f.write(codebook_hex)
+
+                print(f"✓ Exported codebook to {filename} (hex format)")
+                print(f"  Length: {len(codebook_hex) // 2} bytes")
+
+            elif format_type == 'binary':
+                # Export as binary string
+                codebook_binary = ''.join([str(int(x)) for x in phase_states])
+                with open(filename, 'w') as f:
+                    f.write(codebook_binary)
+
+                print(f"✓ Exported codebook to {filename} (binary format)")
+                print(f"  Length: {len(codebook_binary)} bits")
+
+            elif format_type == 'csv':
+                # Export as CSV table
+                phase_states_grid = phase_states.reshape((N, N))
+                with open(filename, 'w') as f:
+                    for i in range(N):
+                        f.write(','.join([str(int(x)) for x in phase_states_grid[i, :]]) + '\n')
+
+                print(f"✓ Exported codebook to {filename} (CSV format)")
+                print(f"  Grid: {N}×{N}")
+
+            elif format_type == 'json':
+                # Export as JSON with metadata
+                codebook_binary = ''.join([str(int(x)) for x in phase_states])
+                codebook_hex = hex(int(codebook_binary, 2))[2:].upper()
+                expected_hex_len = (N * N * bits + 3) // 4
+                codebook_hex = codebook_hex.zfill(expected_hex_len)
+
+                data_bytes = bytes.fromhex(codebook_hex)
+                crc32_value = binascii.crc32(data_bytes) & 0xffffffff
+
+                json_data = {
+                    "ris_name": self.ris_node.name,
+                    "array_size": int(N),
+                    "bits": int(bits),
+                    "num_states": int(2 ** bits),
+                    "codebook_hex": codebook_hex,
+                    "codebook_binary": codebook_binary,
+                    "codebook_array": [int(x) for x in phase_states],
+                    "length_bytes": len(codebook_hex) // 2,
+                    "checksum_crc32": f"0x{crc32_value:08X}",
+                    "timestamp": str(datetime.now())
+                }
+
+                with open(filename, 'w') as f:
+                    json.dump(json_data, f, indent=2)
+
+                print(f"✓ Exported codebook to {filename} (JSON format)")
+                print(f"  Contains: hex, binary, array, metadata, checksum")
+
+            else:
+                print(f"✗ Unknown export format: {format_type}")
+                print(f"  Supported formats: hex, binary, csv, json")
+
+        except IOError as e:
+            print(f"✗ Error writing to file: {e}")

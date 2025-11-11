@@ -19,6 +19,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     clamp_to_ris_fov,
+    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -79,19 +80,25 @@ class MLOnlySweep(SweepAlgorithmBase):
         # Calculate base direction (UE direction from RIS)
         specular_angle = compute_specular_angle(ris, ue)
 
+        # Clamp ML-suggested angles to RIS FOV constraint (native RIS capability)
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        clamped_ml_suggestions = clamp_local_deflection_to_ris_fov(
+            np.array(ml_suggestions), ris_max_angle
+        ).tolist()
+
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
-        # PHASE 1: Test ONLY ML-suggested angles
+        # PHASE 1: Test ONLY ML-suggested angles (clamped to RIS FOV)
         print(f"\n[ML-ONLY SWEEP]")
         print(f"ML Predictor: {ml_predictor}")
-        print(f"Testing {len(ml_suggestions)} ML-predicted angles (top_k={top_k})")
+        print(f"Testing {len(clamped_ml_suggestions)} ML-predicted angles (top_k={top_k})")
 
         ml_results = []
         local_angles = []
         snr_values = []
         ser_values = [] if use_waveform else None
 
-        for i, ml_angle in enumerate(ml_suggestions):
+        for i, ml_angle in enumerate(clamped_ml_suggestions):
             abs_angle = specular_angle + ml_angle
             local_angles.append(ml_angle)
 

@@ -20,6 +20,7 @@ from ..common import (
     validate_and_get_nodes,
     FeedbackCollector,
     clamp_to_ris_fov,
+    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -74,7 +75,12 @@ class CoarseFineSweep(SweepAlgorithmBase):
 
         # Generate codebook centered on specular angle
         local_coarse, num_coarse = generate_codebook(fov, step)
-        abs_angles = specular_angle + local_coarse
+
+        # Clamp local deflection angles to RIS FOV constraint (native RIS capability)
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        clamped_local_coarse = clamp_local_deflection_to_ris_fov(local_coarse, ris_max_angle)
+
+        abs_angles = specular_angle + clamped_local_coarse
 
         snr_coarse = []
         pwr_coarse = []
@@ -139,11 +145,15 @@ class CoarseFineSweep(SweepAlgorithmBase):
         best_idx = int(np.argmax(snr_array))
         best_local = local_coarse[best_idx]
 
-        # Phase 2: Fine sweep (constrained within original FOV)
+        # Phase 2: Fine sweep (constrained within original FOV and RIS constraint)
         fine_start = max(best_local - fine_span, -fov)
         fine_end = min(best_local + fine_span, fov)
         local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
-        abs_angles_fine = specular_angle + local_fine
+
+        # Clamp fine phase angles to RIS FOV constraint
+        clamped_local_fine = clamp_local_deflection_to_ris_fov(local_fine, ris_max_angle)
+
+        abs_angles_fine = specular_angle + clamped_local_fine
         snr_fine = []
         ser_fine = [None] * len(local_fine) if use_waveform else None
 

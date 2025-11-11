@@ -144,47 +144,129 @@ class RISNetCLI(cmd.Cmd):
     # =====================================================================
 
     def do_add(self, arg):
-        """add <ap|ris|ue> [name]
+        """add <ap|ris|ue> [name] [--ris-aware [distance]]
         Auto-generates random positions and parameters.
+        For UE: can optionally position within RIS deflection FOV to avoid clamping.
+
         Examples:
-          add ap          -> Creates AP1
-          add ap MyAP     -> Creates MyAP
-          add ris         -> Creates R1
-          add ue          -> Creates UE1
+          add ap                    -> Creates AP1 (random position)
+          add ap MyAP               -> Creates MyAP (random position)
+          add ris                   -> Creates R1 (random position)
+          add ue                    -> Creates UE1 (random position)
+          add ue UE2 --ris-aware    -> Creates UE2 within RIS FOV (auto distance)
+          add ue UE3 --ris-aware 8  -> Creates UE3 within RIS FOV at distance 8m
         """
         try:
             parts = shlex.split(arg)
             if len(parts) < 1:
-                print("usage: add <ap|ris|ue> [name]")
+                print("usage: add <ap|ris|ue> [name] [--ris-aware [distance]]")
                 return
 
             typ = parts[0].lower()
-            name = parts[1] if len(parts) > 1 else None
+            name = None
+            ris_aware = False
+            distance = None
+
+            # Parse arguments
+            idx = 1
+            while idx < len(parts):
+                if parts[idx] == '--ris-aware':
+                    ris_aware = True
+                    # Check if next arg is distance (number)
+                    if idx + 1 < len(parts) and parts[idx + 1].replace('.', '', 1).isdigit():
+                        distance = float(parts[idx + 1])
+                        idx += 2
+                    else:
+                        idx += 1
+                else:
+                    if not name:
+                        name = parts[idx]
+                    idx += 1
 
             if not name:
                 name = self.topology_helper.generate_auto_name(typ)
 
-            x, y = self.topology_helper.generate_position(typ)
             z = 0.0
 
             if typ == 'ap':
+                x, y = self.topology_helper.generate_position(typ)
                 self.net.add_ap(name, x, y, z)
                 print(f"✓ Added AP {name} at ({x:.2f}, {y:.2f})")
             elif typ == 'ris':
+                x, y = self.topology_helper.generate_position(typ)
                 N = 16
                 bits = 1
                 self.net.add_ris(name, x, y, z, N, bits)
                 print(f"✓ Added RIS {name} at ({x:.2f}, {y:.2f}) (N={N}, bits={bits})")
             elif typ == 'ue':
+                # Check if RIS exists in network
+                ris_list = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+                has_ris = len(ris_list) > 0
+
+                # If RIS exists, default to RIS-aware placement (unless explicitly set to False)
+                # User can override with explicit flag
+                use_ris_aware = ris_aware or (has_ris and not ris_aware)
+
+                if use_ris_aware and has_ris:
+                    x, y = self._add_ue_within_ris_fov(name, distance)
+                else:
+                    x, y = self.topology_helper.generate_position(typ)
+
                 self.net.add_ue(name, x, y, z)
-                print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f})")
+                if use_ris_aware and has_ris:
+                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (RIS-aware placement)")
+                else:
+                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f})")
             else:
-                print('usage: add <ap|ris|ue> [name]')
+                print('usage: add <ap|ris|ue> [name] [--ris-aware [distance]]')
                 return
 
             self._save_network()
         except Exception as e:
             print('error:', e)
+
+    def _add_ue_within_ris_fov(self, ue_name, distance=None):
+        """Position UE within RIS deflection FOV to avoid clamping.
+
+        Args:
+            ue_name: Name of UE being added
+            distance: Distance from RIS (optional, auto-calculated if None)
+
+        Returns:
+            (x, y) position within RIS reachable angles
+        """
+        import numpy as np
+
+        # Check if RIS exists
+        ris_list = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+        if not ris_list:
+            print("  Warning: No RIS in network, using random position")
+            return self.topology_helper.generate_position('ue')
+
+        ris = ris_list[0]  # Use first RIS
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
+
+        # Auto-calculate distance if not provided
+        if distance is None:
+            distance = np.random.uniform(5.0, 15.0)
+
+        # Random angle within RIS deflection range
+        # Valid range is: ris_normal ± ris_max_angle
+        min_angle = ris_normal - ris_max_angle
+        max_angle = ris_normal + ris_max_angle
+
+        random_angle_deg = np.random.uniform(min_angle, max_angle)
+        random_angle_rad = np.radians(random_angle_deg)
+
+        # Calculate position relative to RIS
+        x = ris.pos[0] + distance * np.cos(random_angle_rad)
+        y = ris.pos[1] + distance * np.sin(random_angle_rad)
+
+        print(f"  RIS normal: {ris_normal:.2f}°, valid range: [{min_angle:.2f}°, {max_angle:.2f}°]")
+        print(f"  Placed at angle: {random_angle_deg:.2f}°, distance: {distance:.2f}m")
+
+        return x, y
 
     def do_list(self, arg):
         """list nodes - Show network topology"""
@@ -549,8 +631,13 @@ class RISNetCLI(cmd.Cmd):
 
     def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed):
         """Execute single-angle connect measurement"""
-        res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
-                              enable_feedback=enable_feedback, max_feedback_iterations=3)
+        try:
+            res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
+                                  enable_feedback=enable_feedback, max_feedback_iterations=3)
+        except ValueError as e:
+            # Clean error output without traceback
+            print(f"\n✗ {e}\n")
+            return
 
         # Apply waveform simulation if enabled
         if use_waveform:
@@ -600,6 +687,22 @@ class RISNetCLI(cmd.Cmd):
                 return f"{value:.{precision}f}"
             return str(value)
 
+        def _get_direction_desc(deflection_deg):
+            """Convert deflection angle to human-readable direction"""
+            deflection_deg = float(deflection_deg)
+            # Normalize to [-180, 180]
+            while deflection_deg > 180:
+                deflection_deg -= 360
+            while deflection_deg < -180:
+                deflection_deg += 360
+
+            if abs(deflection_deg) < 5:
+                return "aligned with RIS normal"
+            elif deflection_deg > 0:
+                return f"clockwise from RIS normal"
+            else:
+                return f"counterclockwise from RIS normal"
+
         def _print_table(title, rows):
             printable = [(label, _fmt_value(val)) for label, val in rows if val is not None]
             if not printable:
@@ -633,6 +736,20 @@ class RISNetCLI(cmd.Cmd):
                     value = abs(value)
                 physics_rows.append((label, value))
         _print_table("PHYSICS METRICS", physics_rows)
+
+        # Add RIS beam steering details
+        if 'ris_normal_angle_deg' in res and 'local_deflection_deg' in res:
+            ris_normal = float(res.get('ris_normal_angle_deg', 0))
+            local_deflection = float(res.get('local_deflection_deg', 0))
+            target_angle = float(res.get('target_angle_deg', 0))
+            direction_desc = _get_direction_desc(local_deflection)
+
+            beam_rows = [
+                ("RIS Normal Angle", f"{ris_normal:.2f}°"),
+                ("Target Angle (UE)", f"{target_angle:.2f}°"),
+                ("Local Deflection", f"{local_deflection:.2f}°  ({direction_desc})")
+            ]
+            _print_table("RIS BEAM STEERING", beam_rows)
 
         if 'feedback_info' in res:
             fb = res['feedback_info']
@@ -943,12 +1060,27 @@ class RISNetCLI(cmd.Cmd):
 
             best_final_abs = specular_angle + best_final_local
 
+            # Calculate deflection direction description
+            deflection = best_final_local
+            # Normalize to [-180, 180]
+            while deflection > 180:
+                deflection -= 360
+            while deflection < -180:
+                deflection += 360
+
+            if abs(deflection) < 5:
+                direction_desc = "aligned with RIS normal"
+            elif deflection > 0:
+                direction_desc = "clockwise from RIS normal"
+            else:
+                direction_desc = "counterclockwise from RIS normal"
+
             # Show recommendation for RIS
             print('RECOMMENDATION TO SEND TO RIS:')
             print('-'*70)
-            print(f'Beam Angle (Local):     {best_final_local:>8.2f}°')
+            print(f'Beam Angle (Local):     {best_final_local:>8.2f}°  ({direction_desc})')
             print(f'Beam Angle (Absolute):  {best_final_abs:>8.2f}°')
-            print(f'Specular/Base Angle:    {specular_angle:>8.2f}°')
+            print(f'RIS Normal Angle:       {specular_angle:>8.2f}°')
             print(f'Expected SNR:           {best_final_snr:>8.2f} dB')
             print()
 
@@ -1008,10 +1140,11 @@ class RISNetCLI(cmd.Cmd):
             }
             self.net.last_sweep_result = sanitize_for_json(sweep_record)
 
+        except ValueError as e:
+            # Clean error output for FOV violations
+            print(f"\n✗ {e}\n")
         except Exception as e:
-            print(f"Error during sweep: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"\nError during sweep: {e}\n")
 
     def do_sweep(self, arg):
         """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
