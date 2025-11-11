@@ -562,7 +562,7 @@ class RISNetCLI(cmd.Cmd):
         fov = None
         step = None
         algo_name = 'linear'
-        ml_predictor = 'xgb'
+        ml_predictor = 'rf'  # Default: Random Forest (best performance)
         algo_specified = False  # Track if user explicitly provided --algo
         ml_predictor_specified = False  # Track if user explicitly provided --ml-predictor
 

@@ -20,7 +20,6 @@ FIELDNAMES = [
     'ue_x', 'ue_y', 'ue_z',
     'ap_power_dBm', 'ap_freq',
     'ris_N', 'ris_bits',
-    'ris_normal_deg',  # NEW: RIS normal angle (bisector of AP and UE)
     'best_angle', 'best_snr'
 ]
 
@@ -138,16 +137,8 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
     )
     net.add_ue('UE', *ue_pos)
 
-    # Compute RIS normal as bisector of AP and UE (matches connect/sweep behavior)
-    ap_vec = ap_pos - ris_pos
-    ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
-    ue_vec = ue_pos - ris_pos
-    ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
-    ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
-
-    # Set RIS normal before sweep (ensures connect uses correct normal)
-    net.get('RIS').normal_angle_deg = ris_normal
-
+    # Sweep will compute RIS normal internally as bisector of AP and UE
+    # Do NOT force it before sweep - let sweep calculate it naturally
     result = net.sweep('AP', 'RIS', 'UE', fov=bounds['fov'], step=bounds['step'])
 
     best_angle = result['best_local_fine']
@@ -161,7 +152,6 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
         'ap_freq': ap_cfg['freq'],
         'ris_N': ris_cfg['N'],
         'ris_bits': ris_cfg['bits'],
-        'ris_normal_deg': float(ris_normal),  # Include RIS normal in training data
         'best_angle': best_angle,
         'best_snr': snr
     }
@@ -183,7 +173,6 @@ def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
         'ap_freq': sample['ap_freq'],
         'ris_N': sample['ris_N'],
         'ris_bits': sample['ris_bits'],
-        'ris_normal_deg': sample['ris_normal_deg'],  # NEW: Include RIS normal
         'best_angle': sample['best_angle'],
         'best_snr': sample['best_snr']
     }

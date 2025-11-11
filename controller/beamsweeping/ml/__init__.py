@@ -12,7 +12,7 @@ class MLPredictorLoader:
     """Factory for ML-based beam sweep predictors."""
 
     PREDICTORS = {
-        'default': XGBPredictor,
+        'default': RFPredictor,
         'xgb': XGBPredictor,
         'rf': RFPredictor,
         'svr': SVRPredictor,
