@@ -80,7 +80,7 @@ class RISnetCLI(cmd.Cmd):
         return super().onecmd(line)
 
     def do_add(self, arg):
-        """add <ap|ris|ue> [name] <x> <y> [z] [N] [bits]
+        """add <ap|ris|ue> [name] <x> <y> [z] [params]
 
         Add a node to the network. Name is optional - auto-generated if omitted.
 
@@ -94,8 +94,12 @@ class RISnetCLI(cmd.Cmd):
             add ris ris1 5 0        # Creates RIS named 'ris1'
             add ue ue1 10 3         # Creates UE named 'ue1'
 
-        RIS with parameters:
-            add ris 5 0 0 16 2      # R1 at (5,0,0) with N=16, bits=2
+        RIS with parameters (positional or keyword):
+            add ris 5 0 0 16 2                          # N=16, bits=2
+            add ris ris1 5 0 N=16 bits=2 normal=172.98  # With normal angle
+
+        UE with antenna parameters (keyword):
+            add ue ue1 10 3 normal=165.96 fov=90        # Normal angle & FOV
         """
         try:
             parts = arg.split()
@@ -151,8 +155,9 @@ class RISnetCLI(cmd.Cmd):
             elif node_type == 'ris':
                 N = 16
                 bits = 2
+                normal_angle_deg = 0.0
 
-                # Parse optional positional or keyword arguments for N and bits
+                # Parse optional positional or keyword arguments
                 if len(parts) > idx:
                     if '=' in parts[idx]:
                         # Keyword arguments
@@ -163,18 +168,37 @@ class RISnetCLI(cmd.Cmd):
                                     N = int(val)
                                 elif key.lower() == 'bits':
                                     bits = int(val)
+                                elif key.lower() == 'normal_angle_deg' or key.lower() == 'normal':
+                                    normal_angle_deg = float(val)
                     else:
                         # Positional arguments
                         N = int(parts[idx])
                         if len(parts) > idx + 1:
                             bits = int(parts[idx + 1])
+                        if len(parts) > idx + 2:
+                            normal_angle_deg = float(parts[idx + 2])
 
-                node = self.net.addRIS(name, position=(x, y, z), N=N, bits=bits)
-                print(f"✓ Added RIS '{name}' at ({x}, {y}, {z}) [N={N}, bits={bits}]")
+                node = self.net.addRIS(name, position=(x, y, z), N=N, bits=bits,
+                                      normal_angle_deg=normal_angle_deg)
+                print(f"✓ Added RIS '{name}' at ({x}, {y}, {z}) [N={N}, bits={bits}, normal={normal_angle_deg:.2f}°]")
 
             elif node_type == 'ue':
-                node = self.net.addUE(name, position=(x, y, z))
-                print(f"✓ Added UE '{name}' at ({x}, {y}, {z})")
+                max_angle_deg = 180.0
+                normal_angle_deg = 0.0
+
+                # Parse optional keyword arguments for antenna parameters
+                if len(parts) > idx:
+                    for part in parts[idx:]:
+                        if '=' in part:
+                            key, val = part.split('=')
+                            if key.lower() == 'max_angle_deg' or key.lower() == 'fov':
+                                max_angle_deg = float(val)
+                            elif key.lower() == 'normal_angle_deg' or key.lower() == 'normal':
+                                normal_angle_deg = float(val)
+
+                node = self.net.addUE(name, position=(x, y, z), max_angle_deg=max_angle_deg,
+                                     normal_angle_deg=normal_angle_deg)
+                print(f"✓ Added UE '{name}' at ({x}, {y}, {z}) [normal={normal_angle_deg:.2f}°, FOV=±{max_angle_deg:.1f}°]")
             else:
                 print(f"Unknown node type: {node_type}")
                 return

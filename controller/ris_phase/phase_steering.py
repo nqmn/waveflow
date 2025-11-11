@@ -235,7 +235,11 @@ class BeamSteeringController:
         Steer RIS beam to target angle.
 
         Args:
-            beam_angle_deg: Target steering angle in degrees
+            beam_angle_deg: Target steering angle in degrees.
+                           IMPORTANT: This should be the LOCAL deflection angle (relative to RIS normal),
+                           NOT the absolute world angle. The RIS uses linear phased array steering with:
+                           φ(i) = k × x(i) × sin(θ), where θ is this local angle.
+                           Valid range: -max_angle_deg to +max_angle_deg (typically ±60° for phased arrays)
 
         Returns:
             Dictionary with:

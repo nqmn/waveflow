@@ -167,7 +167,16 @@ Phase Formats (use: phases <format>):
                 self.ris_node.phase_states = np.array(link_info['phase_states'])
 
             print(f"Displaying phases from: [{link_index}] {link_name}")
-            if 'beam_angle' in link_info:
+            if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
+                print(f"Beam Angle (Local):     {link_info['beam_angle_local']:.2f}° (relative to RIS normal)")
+                print(f"RIS Normal Angle:       {link_info['ris_normal_angle']:.2f}°")
+                if 'beam_angle_absolute' in link_info:
+                    print(f"Beam Angle (Absolute):  {link_info['beam_angle_absolute']:.2f}° (world reference)")
+            elif 'beam_angle_absolute' in link_info:
+                # Fallback for older format
+                print(f"Beam Angle (Absolute):  {link_info['beam_angle_absolute']:.2f}°")
+            elif 'beam_angle' in link_info:
+                # Legacy support
                 print(f"Beam Angle: {link_info['beam_angle']:.2f}°")
             print()
         else:

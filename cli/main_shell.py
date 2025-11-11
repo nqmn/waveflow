@@ -316,6 +316,19 @@ class RISNetCLI(cmd.Cmd):
                 if hasattr(node, 'antenna_gain_dBi'):
                     print(f"      Antenna Gain:  {node.antenna_gain_dBi:.1f} dBi")
 
+            # Show distances between all node pairs
+            node_names = list(self.net.nodes.keys())
+            if len(node_names) > 1:
+                print(f"\nDISTANCES:")
+                print("-" * 70)
+                import numpy as np
+                for i, node1_name in enumerate(node_names):
+                    for node2_name in node_names[i+1:]:
+                        node1 = self.net.nodes[node1_name]
+                        node2 = self.net.nodes[node2_name]
+                        distance = float(np.linalg.norm(node1.pos - node2.pos))
+                        print(f"  {node1_name} ↔ {node2_name:<15}: {distance:>8.2f} m")
+
         # Show active links with indices
         active_links = self.net.get_active_links()
         if not active_links:
@@ -331,7 +344,17 @@ class RISNetCLI(cmd.Cmd):
                 print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
                 print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
-                print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                # Display angles with coordinate system clarity
+                if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
+                    print(f"      Beam Angle (Local):     {link_info['beam_angle_local']:>8.2f}° (to RIS)")
+                    print(f"      RIS Normal Angle:       {link_info['ris_normal_angle']:>8.2f}°")
+                    if 'beam_angle_absolute' in link_info:
+                        print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}° (world)")
+                elif 'beam_angle_absolute' in link_info:
+                    print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}°")
+                elif 'beam_angle' in link_info:
+                    # Legacy support
+                    print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
                 print(f"      Quant Penalty: {penalty:>8.2f} dB")
@@ -359,7 +382,17 @@ class RISNetCLI(cmd.Cmd):
                 print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
                 print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
-                print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                # Display angles with coordinate system clarity
+                if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
+                    print(f"      Beam Angle (Local):     {link_info['beam_angle_local']:>8.2f}° (to RIS)")
+                    print(f"      RIS Normal Angle:       {link_info['ris_normal_angle']:>8.2f}°")
+                    if 'beam_angle_absolute' in link_info:
+                        print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}° (world)")
+                elif 'beam_angle_absolute' in link_info:
+                    print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}°")
+                elif 'beam_angle' in link_info:
+                    # Legacy support
+                    print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
                 print(f"      Quant Penalty: {penalty:>8.2f} dB")
@@ -737,19 +770,20 @@ class RISNetCLI(cmd.Cmd):
                 physics_rows.append((label, value))
         _print_table("PHYSICS METRICS", physics_rows)
 
-        # Add RIS beam steering details
-        if 'ris_normal_angle_deg' in res and 'local_deflection_deg' in res:
+        # Add RIS beam angle recommendation (what to send to RIS)
+        if 'ris_normal_angle_deg' in res and 'local_deflection_deg' in res and 'beam_angle' in res:
             ris_normal = float(res.get('ris_normal_angle_deg', 0))
             local_deflection = float(res.get('local_deflection_deg', 0))
-            target_angle = float(res.get('target_angle_deg', 0))
+            beam_angle_absolute = float(res.get('beam_angle', 0))
+            snr_dB = float(res.get('snr_dB', 0))
             direction_desc = _get_direction_desc(local_deflection)
 
-            beam_rows = [
-                ("RIS Normal Angle", f"{ris_normal:.2f}°"),
-                ("Target Angle (UE)", f"{target_angle:.2f}°"),
-                ("Local Deflection", f"{local_deflection:.2f}°  ({direction_desc})")
-            ]
-            _print_table("RIS BEAM STEERING", beam_rows)
+            print("\n[RECOMMENDATION TO SEND TO RIS]")
+            print("-"*70)
+            print(f"Beam Angle (Local):     {local_deflection:>8.2f}°  ({direction_desc})")
+            print(f"Beam Angle (Absolute):  {beam_angle_absolute:>8.2f}°")
+            print(f"RIS Normal Angle:       {ris_normal:>8.2f}°")
+            print(f"Expected SNR:           {snr_dB:>8.2f} dB")
 
         if 'feedback_info' in res:
             fb = res['feedback_info']
@@ -1112,7 +1146,9 @@ class RISNetCLI(cmd.Cmd):
                 'ue': ue_key,
                 'snr_dB': float(best_final_snr),
                 'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
-                'beam_angle': float(best_final_abs),
+                'beam_angle_local': float(best_final_local),  # LOCAL deflection (what to send to RIS: -60 to +60)
+                'beam_angle_absolute': float(best_final_abs),  # ABSOLUTE angle (world/global reference)
+                'ris_normal_angle': float(specular_angle),  # RIS normal angle (for coordinate conversion)
                 'gain_dBi': 47.46,
                 'quant_loss_dB': -0.75,
                 'source': 'connect_sweep',

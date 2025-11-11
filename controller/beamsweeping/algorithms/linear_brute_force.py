@@ -13,7 +13,7 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
     apply_waveform_realism,
-    compute_specular_angle,
+    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -71,9 +71,10 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # Calculate base direction (UE direction from RIS)
-        # This is the optimal beamforming direction for AP->RIS->UE link
-        base_angle = compute_specular_angle(ris, ue)
+        # Calculate optimal RIS normal as bisector of AP and UE directions
+        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with single connect command
+        base_angle = compute_ris_normal_for_sweep(ap, ris, ue)
 
         # Single phase: test all angles from -FOV to +FOV at specified resolution
         angles, num_angles = generate_codebook(fov, step)

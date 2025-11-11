@@ -89,7 +89,7 @@ class RISnet:
         self.aps[name] = node
         return node
 
-    def addRIS(self, name, position=None, N=16, bits=2, max_angle_deg=60):
+    def addRIS(self, name, position=None, N=16, bits=2, max_angle_deg=60, normal_angle_deg=0.0):
         """Add RIS surface
 
         Args:
@@ -98,6 +98,7 @@ class RISnet:
             N: Grid size (creates N x N array)
             bits: Phase quantization bits
             max_angle_deg: Maximum steering angle
+            normal_angle_deg: Antenna normal/boresight direction in degrees
 
         Returns:
             RIS node object
@@ -108,17 +109,20 @@ class RISnet:
         x, y = position[0], position[1]
         z = position[2] if len(position) > 2 else 0.0
 
-        self.network.add_ris(name, x, y, z, N, bits, max_angle_deg=max_angle_deg)
+        self.network.add_ris(name, x, y, z, N, bits, max_angle_deg=max_angle_deg,
+                            normal_angle_deg=normal_angle_deg)
         node = self.network.get(name)
         self.riss[name] = node
         return node
 
-    def addUE(self, name, position=None):
+    def addUE(self, name, position=None, max_angle_deg=180.0, normal_angle_deg=0.0):
         """Add User Equipment
 
         Args:
             name: UE name
             position: (x, y) or (x, y, z) tuple
+            max_angle_deg: Antenna FOV in degrees (±max_angle_deg)
+            normal_angle_deg: Antenna normal/boresight direction in degrees
 
         Returns:
             UE node object
@@ -129,7 +133,8 @@ class RISnet:
         x, y = position[0], position[1]
         z = position[2] if len(position) > 2 else 0.0
 
-        self.network.add_ue(name, x, y, z)
+        self.network.add_ue(name, x, y, z, max_angle_deg=max_angle_deg,
+                           normal_angle_deg=normal_angle_deg)
         node = self.network.get(name)
         self.ues[name] = node
         return node

@@ -322,7 +322,11 @@ class RIS(Node):
         """Set current beam configuration
 
         Args:
-            beam_angle: Beam steering angle in degrees
+            beam_angle: Beam steering angle in degrees.
+                       IMPORTANT: This should be the LOCAL deflection angle (relative to RIS normal),
+                       NOT the absolute world angle. For example, if RIS normal is 45° and you want
+                       to steer +20° from normal, pass beam_angle=20.0, not 65.0.
+                       Valid range: -max_angle_deg to +max_angle_deg (typically ±60°)
             phases: Optional explicit phase array (radians)
         """
         self.current_beam_angle = beam_angle
@@ -431,7 +435,7 @@ class UE(Node):
     """User Equipment (receiver) node with customizable impairments and CSI estimation"""
 
     def __init__(self, name, x, y, z=0.0, antenna_gain_dBi=3.0,
-                 noise_figure_dB=6.0, max_angle_deg=90.0, normal_angle_deg=0.0):
+                 noise_figure_dB=6.0, max_angle_deg=180.0, normal_angle_deg=0.0):
         super().__init__(name, x, y, z)
         self.antenna_gain_dBi = antenna_gain_dBi
         self.noise_figure_dB = noise_figure_dB

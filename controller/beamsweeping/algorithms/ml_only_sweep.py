@@ -15,7 +15,7 @@ from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
     apply_waveform_realism,
-    compute_specular_angle,
+    compute_ris_normal_for_sweep,
     setup_waveform_simulator,
     validate_and_get_nodes,
     clamp_to_ris_fov,
@@ -78,7 +78,10 @@ class MLOnlySweep(SweepAlgorithmBase):
         )
 
         # Calculate base direction (UE direction from RIS)
-        specular_angle = compute_specular_angle(ris, ue)
+        # Calculate optimal RIS normal as bisector of AP and UE directions
+        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with single connect command
+        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
 
         # Clamp ML-suggested angles to RIS FOV constraint (native RIS capability)
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)

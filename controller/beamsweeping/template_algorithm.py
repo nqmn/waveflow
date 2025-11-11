@@ -18,6 +18,7 @@ ALGORITHM DESCRIPTION:
 import numpy as np
 from typing import Dict
 from .base import SweepAlgorithmBase  # When moved under algorithms/, change to `from ..base import ...`
+from .common import compute_ris_normal_for_sweep, validate_and_get_nodes  # [REQUIRED: For standardized RIS normal]
 
 
 class [TEMPLATE_CLASS_NAME](SweepAlgorithmBase):
@@ -105,8 +106,10 @@ class [TEMPLATE_CLASS_NAME](SweepAlgorithmBase):
         # - Specular reflection angle (AP-RIS-UE)
         # - Midpoint angle between multiple candidates
 
-        vec = ue.pos - ris.pos
-        base_dir = np.degrees(np.arctan2(vec[1], vec[0]))
+        # [REQUIRED] Use standardized RIS normal for consistency with all algorithms
+        # This ensures the RIS can serve both AP (receive) and UE (transmit) within FOV
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
+        base_dir = compute_ris_normal_for_sweep(ap, ris, ue)
 
         # SECTION 3: PHASE 1 - COARSE SEARCH
         # ===================================

@@ -6,6 +6,7 @@ Instead of generic stub, learns from topology and recent measurements
 import numpy as np
 from typing import List, Dict, Tuple
 from .base import SweepMLPredictor
+from ..common import compute_optimal_ris_normal  # [REQUIRED: For standardized RIS normal]
 
 
 class SmartGeometryPredictor(SweepMLPredictor):
@@ -31,7 +32,7 @@ class SmartGeometryPredictor(SweepMLPredictor):
 
     def _compute_geometry_angles(self, ap_pos: np.ndarray, ris_pos: np.ndarray,
                                 ue_pos: np.ndarray) -> Dict[str, float]:
-        """Compute key geometric angles"""
+        """Compute key geometric angles using standardized RIS normal"""
         # AP->RIS direction
         ap_ris_vec = ris_pos - ap_pos
         ap_ris_angle = np.degrees(np.arctan2(ap_ris_vec[1], ap_ris_vec[0]))
@@ -40,8 +41,10 @@ class SmartGeometryPredictor(SweepMLPredictor):
         ris_ue_vec = ue_pos - ris_pos
         ris_ue_angle = np.degrees(np.arctan2(ris_ue_vec[1], ris_ue_vec[0]))
 
-        # Optimal RIS reflection angle (average)
-        optimal_angle = (ap_ris_angle + ris_ue_angle) / 2
+        # [REQUIRED] Use standardized bisector calculation for RIS normal
+        # This ensures RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with all other algorithms
+        optimal_angle = compute_optimal_ris_normal(ap_ris_angle, ris_ue_angle)
 
         # Calculate distances
         d_ap_ris = np.linalg.norm(ap_ris_vec)

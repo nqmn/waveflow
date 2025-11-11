@@ -7,6 +7,14 @@ from typing import Dict, List, Optional
 from .nodes import AccessPoint, RIS, UE
 from .physics import Physics
 from .environment import Environment
+from .angle_utils import (
+    normalize_angle_to_pm180,
+    compute_offset_from_normal,
+    is_within_fov,
+    clamp_offset_to_fov,
+    compute_absolute_angle_from_offset,
+    compute_optimal_ris_normal
+)
 
 
 class RISNetwork:
@@ -57,7 +65,7 @@ class RISNetwork:
         return self.nodes[name]
 
     def add_ue(self, name, x, y, z=0.0, antenna_gain_dBi=3.0,
-               noise_figure_dB=6.0, max_angle_deg=90.0, normal_angle_deg=0.0):
+               noise_figure_dB=6.0, max_angle_deg=180.0, normal_angle_deg=0.0):
         """Add user equipment
 
         Args:
@@ -65,7 +73,7 @@ class RISNetwork:
             x, y, z: Position coordinates (z=0 for 2D)
             antenna_gain_dBi: Antenna gain in dBi (default 3.0)
             noise_figure_dB: Noise figure in dB (default 6.0)
-            max_angle_deg: Antenna FOV in degrees (±angle from normal, default 90°)
+            max_angle_deg: Antenna FOV in degrees (±angle from normal, default 180°)
             normal_angle_deg: Antenna boresight direction in degrees (default 0°)
         """
         self.nodes[name] = UE(name, x, y, z,
@@ -231,113 +239,64 @@ class RISNetwork:
 
         # Check if default RIS normal (0°) works for both
         if ris_normal == 0.0:
-            ap_offset_default = ap_angle - ris_normal
-            ue_offset_default = ue_angle - ris_normal
-
-            # Normalize to [-180, 180]
-            while ap_offset_default > 180:
-                ap_offset_default -= 360
-            while ap_offset_default < -180:
-                ap_offset_default += 360
-            while ue_offset_default > 180:
-                ue_offset_default -= 360
-            while ue_offset_default < -180:
-                ue_offset_default += 360
+            ap_offset_default = compute_offset_from_normal(ap_angle, ris_normal)
+            ue_offset_default = compute_offset_from_normal(ue_angle, ris_normal)
 
             # If default doesn't work, compute bisector as optimal RIS normal
             if abs(ap_offset_default) > max_angle or abs(ue_offset_default) > max_angle:
-                # Compute bisector by averaging unit direction vectors
-                # Both angles are from RIS perspective (toward AP and toward UE)
-                ap_rad = np.radians(ap_angle)
-                ap_unit = np.array([np.cos(ap_rad), np.sin(ap_rad)])
-                ue_rad = np.radians(ue_angle)
-                ue_unit = np.array([np.cos(ue_rad), np.sin(ue_rad)])
-                bisector_vec = ap_unit + ue_unit
-                ris_normal = np.degrees(np.arctan2(bisector_vec[1], bisector_vec[0]))
+                # Use global helper to compute bisector (optimal RIS normal)
+                # This ensures all algorithms use the same RIS normal calculation
+                ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
 
         # Check AP direction (RIS must be able to receive from AP)
-        ap_relative_angle = ap_angle - ris_normal
+        ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
 
-        # Normalize to [-180, 180] range for proper comparison
-        while ap_relative_angle > 180:
-            ap_relative_angle -= 360
-        while ap_relative_angle < -180:
-            ap_relative_angle += 360
-
-        if abs(ap_relative_angle) > max_angle:
+        if not is_within_fov(ap_offset, max_angle):
             # AP is outside RIS field of view (relative to RIS normal)
             raise ValueError(
                 f"AP outside RIS FOV: AP is at {ap_angle:.2f}° (absolute), "
-                f"{ap_relative_angle:.2f}° relative to RIS normal, "
+                f"{ap_offset:.2f}° relative to RIS normal, "
                 f"but RIS FOV is ±{max_angle}°. "
                 f"RIS cannot serve AP from this direction."
             )
 
         # Calculate angle relative to RIS normal (not absolute angle)
-        relative_angle = target_angle - ris_normal
+        ue_offset = compute_offset_from_normal(target_angle, ris_normal)
 
-        # Normalize to [-180, 180] range for proper comparison
-        while relative_angle > 180:
-            relative_angle -= 360
-        while relative_angle < -180:
-            relative_angle += 360
-
-        if abs(relative_angle) > max_angle:
+        if not is_within_fov(ue_offset, max_angle):
             # UE is outside RIS field of view (relative to RIS normal)
             raise ValueError(
                 f"UE outside RIS FOV: UE is at {target_angle:.2f}° (absolute), "
-                f"{relative_angle:.2f}° relative to RIS normal, "
+                f"{ue_offset:.2f}° relative to RIS normal, "
                 f"but RIS FOV is ±{max_angle}°"
             )
 
         # Clamp local deflection to RIS FOV constraint (native RIS capability)
         # Calculate the ideal local deflection needed to reach the target
-        ideal_local_deflection = beam_angle_deg - ris_normal
-        # Normalize to [-180, 180]
-        while ideal_local_deflection > 180:
-            ideal_local_deflection -= 360
-        while ideal_local_deflection < -180:
-            ideal_local_deflection += 360
+        ideal_local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
 
         # Clamp to RIS maximum steering angle
-        clamped_local_deflection = np.clip(ideal_local_deflection, -max_angle, max_angle)
+        clamped_local_deflection = clamp_offset_to_fov(ideal_local_deflection, max_angle)
 
         # If clamping occurred, the actual beam angle changes
         if abs(clamped_local_deflection - ideal_local_deflection) > 0.01:  # Allow small numerical error
             # RIS steers to the clamped position
-            clamped_beam_angle = ris_normal + clamped_local_deflection
-            # Normalize to [0, 360) for consistency
-            while clamped_beam_angle < 0:
-                clamped_beam_angle += 360
-            while clamped_beam_angle >= 360:
-                clamped_beam_angle -= 360
-
-            beam_angle_deg = clamped_beam_angle
+            beam_angle_deg = compute_absolute_angle_from_offset(ris_normal, clamped_local_deflection)
             # Note: We don't raise an error; RIS simply steers to nearest reachable position
 
         # Check UE can receive from RIS (based on FINAL beam angle after clamping)
-        # This validation uses the deflection angle, not raw RIS direction
-        ue_max_angle = getattr(ue, 'max_angle_deg', 90.0)  # Default: 90° FOV (nearly omnidirectional)
+        # This validation uses the offset angle, not raw RIS direction
+        ue_max_angle = getattr(ue, 'max_angle_deg', 180.0)  # Default: 180° FOV (nearly omnidirectional)
         ue_normal = getattr(ue, 'normal_angle_deg', 0.0)
 
-        # Calculate where the UE is relative to RIS normal
-        # The RIS will steer beam_angle_deg toward the UE
-        # We need to check if UE can receive from direction of that beam
-
         # From UE's perspective, the final beam comes from angle beam_angle_deg
-        # We need to check if this angle is within UE's FOV
-        beam_relative_to_ue = beam_angle_deg - ue_normal
+        # We need to check if UE can receive from that direction
+        beam_offset_to_ue = compute_offset_from_normal(beam_angle_deg, ue_normal)
 
-        # Normalize to [-180, 180] range for proper comparison
-        while beam_relative_to_ue > 180:
-            beam_relative_to_ue -= 360
-        while beam_relative_to_ue < -180:
-            beam_relative_to_ue += 360
-
-        if abs(beam_relative_to_ue) > ue_max_angle:
+        if not is_within_fov(beam_offset_to_ue, ue_max_angle):
             raise ValueError(
                 f"UE cannot receive from final beam: RIS will steer to {beam_angle_deg:.2f}° (absolute), "
-                f"which is {beam_relative_to_ue:.2f}° relative to UE antenna normal, "
+                f"which is {beam_offset_to_ue:.2f}° relative to UE antenna normal, "
                 f"but UE FOV is only ±{ue_max_angle}°. "
                 f"Ensure UE antenna is pointed toward RIS."
             )
@@ -416,12 +375,7 @@ class RISNetwork:
                 ris_node.local_beam_deflection_deg = getattr(ris, 'local_beam_deflection_deg', None)
 
         # Calculate local deflection from RIS normal
-        local_deflection = beam_angle_deg - ris_normal
-        # Normalize to [-180, 180]
-        while local_deflection > 180:
-            local_deflection -= 360
-        while local_deflection < -180:
-            local_deflection += 360
+        local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
 
         result = {
             "snr_dB": float(snr_dB),
@@ -461,7 +415,9 @@ class RISNetwork:
                 'ue': ue_key,
                 'snr_dB': result['snr_dB'],
                 'pwr_dBm': result['pwr_dBm'],
-                'beam_angle': beam_angle_deg,
+                'beam_angle_local': float(local_deflection),  # LOCAL deflection (what to send to RIS: -60 to +60)
+                'beam_angle_absolute': float(beam_angle_deg),  # ABSOLUTE angle (world/global reference)
+                'ris_normal_angle': float(ris_normal),  # RIS normal angle (for coordinate conversion)
                 'gain_dBi': result.get('gain_dBi', 0.0),
                 'quant_loss_dB': result.get('quant_loss_dB', 0.0),
                 'source': 'connect',
@@ -707,8 +663,14 @@ class RISNetwork:
         if ap is None or ris is None or ue is None:
             raise ValueError("Invalid node name in sweep")
 
-        vec = ue.pos - ris.pos
-        base_dir = np.degrees(np.arctan2(vec[1], vec[0]))
+        # Use optimal RIS normal as bisector of AP and UE directions
+        # This ensures consistency with all sweep algorithms
+        ap_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
+        ue_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+        base_dir = compute_optimal_ris_normal(ap_angle, ue_angle)
 
         # Coarse sweep
         local_coarse = np.arange(-fov, fov + 1, step)

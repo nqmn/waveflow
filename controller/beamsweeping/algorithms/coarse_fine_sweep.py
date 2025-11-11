@@ -13,7 +13,7 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
     apply_waveform_realism,
-    compute_specular_angle,
+    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -70,10 +70,12 @@ class CoarseFineSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # Use UE direction as the reference (same baseline as linear sweep/connect)
-        specular_angle = compute_specular_angle(ris, ue)
+        # Calculate optimal RIS normal as bisector of AP and UE directions
+        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with single connect command
+        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
 
-        # Generate codebook centered on specular angle
+        # Generate codebook centered on optimal RIS normal
         local_coarse, num_coarse = generate_codebook(fov, step)
 
         # Clamp local deflection angles to RIS FOV constraint (native RIS capability)

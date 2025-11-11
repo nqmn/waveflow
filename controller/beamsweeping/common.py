@@ -19,6 +19,43 @@ except ImportError:  # pragma: no cover - optional dependency
     SignalConfig = SignalLevelLink = apply_signal_level_realism = None  # type: ignore
     WAVEFORM_AVAILABLE = False
 
+# Import standardized angle utilities
+try:
+    from core.angle_utils import (
+        normalize_angle_to_pm180,
+        compute_offset_from_normal,
+        is_within_fov,
+        clamp_offset_to_fov,
+        compute_absolute_angle_from_offset,
+        compute_optimal_ris_normal
+    )
+except ImportError:
+    # Fallback: define locally if core module not available
+    def normalize_angle_to_pm180(angle: float) -> float:
+        while angle > 180:
+            angle -= 360
+        while angle < -180:
+            angle += 360
+        return angle
+
+    def compute_offset_from_normal(target_angle: float, normal_angle: float) -> float:
+        offset = target_angle - normal_angle
+        return normalize_angle_to_pm180(offset)
+
+    def is_within_fov(offset_angle: float, max_angle: float, tolerance_deg: float = 0.01) -> bool:
+        return abs(offset_angle) <= (max_angle + tolerance_deg)
+
+    def clamp_offset_to_fov(offset_angle: float, max_angle: float) -> float:
+        return float(np.clip(offset_angle, -max_angle, max_angle))
+
+    def compute_absolute_angle_from_offset(normal_angle: float, offset_angle: float) -> float:
+        absolute = normal_angle + offset_angle
+        while absolute < 0:
+            absolute += 360
+        while absolute >= 360:
+            absolute -= 360
+        return absolute
+
 
 @dataclass(frozen=True)
 class WaveformSettings:
@@ -31,10 +68,136 @@ class WaveformSettings:
     pilot_ratio: Optional[float] = None
 
 
+def normalize_angle_to_pm180(angle: float) -> float:
+    """Normalize angle to [-180, 180] range.
+
+    Args:
+        angle: Angle in degrees (any range)
+
+    Returns:
+        Normalized angle in [-180, 180] degrees
+    """
+    while angle > 180:
+        angle -= 360
+    while angle < -180:
+        angle += 360
+    return angle
+
+
+def compute_offset_from_normal(target_angle: float, normal_angle: float) -> float:
+    """Compute offset angle relative to a normal direction.
+
+    This computes the signed offset from a normal direction (boresight) to a target
+    direction, properly normalized to [-180, 180] range.
+
+    Args:
+        target_angle: Target direction in absolute degrees [0, 360)
+        normal_angle: Reference/normal direction in absolute degrees [0, 360)
+
+    Returns:
+        Offset angle in [-180, 180] degrees
+        Positive = clockwise from normal (increasing angle)
+        Negative = counter-clockwise from normal (decreasing angle)
+    """
+    offset = target_angle - normal_angle
+    return normalize_angle_to_pm180(offset)
+
+
+def is_within_fov(offset_angle: float, max_angle: float, tolerance_deg: float = 0.01) -> bool:
+    """Check if an offset angle is within field of view limits.
+
+    Args:
+        offset_angle: Angle offset from normal, in [-180, 180] range
+        max_angle: Maximum FOV half-angle (±max_angle_deg)
+        tolerance_deg: Numerical tolerance (default 0.01°)
+
+    Returns:
+        True if |offset_angle| <= max_angle (within tolerance)
+    """
+    return abs(offset_angle) <= (max_angle + tolerance_deg)
+
+
+def clamp_offset_to_fov(offset_angle: float, max_angle: float) -> float:
+    """Clamp an offset angle to stay within FOV limits.
+
+    Args:
+        offset_angle: Offset angle in degrees (any range, but typically [-180, 180])
+        max_angle: Maximum FOV half-angle (±max_angle_deg)
+
+    Returns:
+        Clamped offset angle in [-max_angle, +max_angle] range
+    """
+    return float(np.clip(offset_angle, -max_angle, max_angle))
+
+
+def compute_absolute_angle_from_offset(normal_angle: float, offset_angle: float) -> float:
+    """Compute absolute angle from normal and offset.
+
+    Args:
+        normal_angle: Normal/boresight direction in degrees
+        offset_angle: Offset from normal in degrees
+
+    Returns:
+        Absolute angle in [0, 360) range
+    """
+    absolute = normal_angle + offset_angle
+    # Normalize to [0, 360)
+    while absolute < 0:
+        absolute += 360
+    while absolute >= 360:
+        absolute -= 360
+    return absolute
+
+
 def compute_specular_angle(ris, ue) -> float:
-    """Return the specular UE direction relative to the RIS."""
+    """Return the specular UE direction relative to the RIS.
+
+    DEPRECATED: For new sweep algorithms, use compute_ris_normal_for_sweep() instead.
+    This function returns only the UE direction and doesn't account for AP direction,
+    which can result in AP being outside RIS FOV in some geometries.
+    """
     ue_vec = ue.pos - ris.pos
     return float(np.degrees(np.arctan2(ue_vec[1], ue_vec[0])))
+
+
+def compute_ris_normal_for_sweep(ap, ris, ue) -> float:
+    """Compute optimal RIS normal for beam sweep that serves both AP and UE.
+
+    For a cascaded AP→RIS→UE link, the RIS must simultaneously:
+    - Receive signals from AP
+    - Transmit signals toward UE
+
+    With a phased array RIS having limited FOV (typically ±60°), the optimal
+    RIS normal is the bisector between AP and UE directions. This minimizes the
+    maximum offset angle to either AP or UE, ensuring both stay within FOV.
+
+    This function ensures all sweep algorithms use the same RIS normal calculation
+    as the single connect command, providing consistent angle measurements.
+
+    Args:
+        ap: Access Point node
+        ris: RIS node
+        ue: User Equipment node
+
+    Returns:
+        Optimal RIS normal angle in degrees [0, 360)
+
+    Example:
+        >>> ris_normal = compute_ris_normal_for_sweep(ap, ris, ue)
+        >>> # Returns: 157.54° (bisector between AP and UE)
+        >>> # AP offset: 22.46° ✓ (within ±60° FOV)
+        >>> # UE offset: -22.46° ✓ (within ±60° FOV)
+    """
+    # Compute angles from RIS perspective
+    ap_vec = ap.pos - ris.pos
+    ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
+
+    ue_vec = ue.pos - ris.pos
+    ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+    # Use global helper to compute bisector (optimal RIS normal)
+    # This ensures consistency with single connect command
+    return compute_optimal_ris_normal(ap_angle, ue_angle)
 
 
 def clamp_to_ris_fov(angles: np.ndarray, ris_max_angle: float) -> np.ndarray:

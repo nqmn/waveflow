@@ -22,7 +22,7 @@ from typing import Dict, List, Tuple
 from ..base import SweepAlgorithmBase
 from ..common import (
     apply_waveform_realism,
-    compute_specular_angle,
+    compute_ris_normal_for_sweep,
     generate_codebook,
     setup_waveform_simulator,
     validate_and_get_nodes,
@@ -91,7 +91,10 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         incident_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
 
         # Calculate specular reflection angle (UE direction from RIS)
-        specular_angle = compute_specular_angle(ris, ue)
+        # Calculate optimal RIS normal as bisector of AP and UE directions
+        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with single connect command
+        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
 
         # Generate codebook around specular angle
         codebook_local, num_codebook = generate_codebook(fov, step)

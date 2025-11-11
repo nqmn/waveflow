@@ -71,8 +71,23 @@ class TopologyHelper:
         return f"{type_name}1"
 
     def generate_position(self, node_type, max_angle_deg=60.0, distance_range=(5, 15)):
-        """Generate random position within angle constraints"""
+        """Generate random position with optional RIS-aware placement."""
         ris_nodes = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+
+        if node_type == 'ue' and len(ris_nodes) == 1:
+            # Focused single-RIS support: keep UE within that RIS FOV
+            ris = ris_nodes[0]
+            ris_x, ris_y = ris.pos[0], ris.pos[1]
+            ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
+            ris_fov = getattr(ris, 'max_angle_deg', max_angle_deg)
+
+            angle_deg = np.random.uniform(ris_normal - ris_fov, ris_normal + ris_fov)
+            angle_rad = np.radians(angle_deg)
+            distance = np.random.uniform(distance_range[0], distance_range[1])
+
+            x = ris_x + distance * np.cos(angle_rad)
+            y = ris_y + distance * np.sin(angle_rad)
+            return x, y
 
         if not ris_nodes:
             # No RIS yet, generate unconstrained position
@@ -80,21 +95,14 @@ class TopologyHelper:
             y = np.random.uniform(0, 15)
             return x, y
 
-        # Use first RIS as reference
+        # Default legacy behavior: reference first RIS for angle-relative placement
         ris = ris_nodes[0]
         ris_x, ris_y = ris.pos[0], ris.pos[1]
-
-        # Generate random angle within [-max_angle_deg, +max_angle_deg]
         angle_deg = np.random.uniform(-max_angle_deg, max_angle_deg)
         angle_rad = np.radians(angle_deg)
-
-        # Generate random distance from RIS
         distance = np.random.uniform(distance_range[0], distance_range[1])
-
-        # Convert to Cartesian coordinates relative to RIS
         x = ris_x + distance * np.cos(angle_rad)
         y = ris_y + distance * np.sin(angle_rad)
-
         return x, y
 
     def print_topology(self):
@@ -223,6 +231,7 @@ class NetworkIO:
                 node_info['bits'] = node.bits
                 node_info['freq'] = getattr(node, 'freq', 10e9)
                 node_info['max_angle_deg'] = getattr(node, 'max_angle_deg', 60.0)
+                node_info['normal_angle_deg'] = getattr(node, 'normal_angle_deg', 0.0)
                 node_info['current_beam_angle'] = sanitize_for_json(getattr(node, 'current_beam_angle', None))
 
                 def _phase_matrix(values, to_degrees=False):
@@ -241,6 +250,8 @@ class NetworkIO:
             elif node_type == 'UE':
                 node_info['antenna_gain_dBi'] = getattr(node, 'antenna_gain_dBi', 3.0)
                 node_info['noise_figure_dB'] = getattr(node, 'noise_figure_dB', 6.0)
+                node_info['max_angle_deg'] = getattr(node, 'max_angle_deg', 180.0)
+                node_info['normal_angle_deg'] = getattr(node, 'normal_angle_deg', 0.0)
 
             network_data['nodes'].append(sanitize_for_json(node_info))
 
@@ -297,13 +308,16 @@ class NetworkIO:
                     bits = node_info.get('bits', 1)
                     freq = node_info.get('freq', 10e9)
                     max_angle = node_info.get('max_angle_deg', 60.0)
+                    normal_angle = node_info.get('normal_angle_deg', 0.0)
                     net.add_ris(
                         name, x, y, z, N, bits, freq,
-                        max_angle_deg=max_angle
+                        max_angle_deg=max_angle,
+                        normal_angle_deg=normal_angle
                     )
                     ris_node = net.get(name)
                     ris_node.freq = freq
                     ris_node.max_angle_deg = max_angle
+                    ris_node.normal_angle_deg = normal_angle
                     ris_node.current_beam_angle = node_info.get('current_beam_angle', ris_node.current_beam_angle)
 
                     def _restore_phase(key, radians=False):
@@ -334,10 +348,14 @@ class NetworkIO:
                 elif node_type == 'UE':
                     ant_gain = node_info.get('antenna_gain_dBi', 3.0)
                     noise_fig = node_info.get('noise_figure_dB', 6.0)
+                    max_angle = node_info.get('max_angle_deg', 180.0)
+                    normal_angle = node_info.get('normal_angle_deg', 0.0)
                     net.add_ue(
                         name, x, y, z,
                         antenna_gain_dBi=ant_gain,
-                        noise_figure_dB=noise_fig
+                        noise_figure_dB=noise_fig,
+                        max_angle_deg=max_angle,
+                        normal_angle_deg=normal_angle
                     )
         except Exception as e:
             print(f"Warning: Failed to load network from {filepath}: {e}")

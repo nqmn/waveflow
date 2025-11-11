@@ -16,7 +16,7 @@ from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
     apply_waveform_realism,
-    compute_specular_angle,
+    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -85,7 +85,10 @@ class MLGuidedSweep(SweepAlgorithmBase):
         )
 
         # Calculate base direction (UE direction from RIS)
-        specular_angle = compute_specular_angle(ris, ue)
+        # Calculate optimal RIS normal as bisector of AP and UE directions
+        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
+        # within its FOV constraints, consistent with single connect command
+        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
 
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
