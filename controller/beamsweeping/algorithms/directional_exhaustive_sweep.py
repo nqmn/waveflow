@@ -21,10 +21,11 @@ import numpy as np
 from typing import Dict, List, Tuple
 from ..base import SweepAlgorithmBase
 from ..common import (
-    WaveformSettings,
     apply_waveform_realism,
     compute_specular_angle,
-    create_waveform_link,
+    generate_codebook,
+    setup_waveform_simulator,
+    validate_and_get_nodes,
 )
 from ..registry import register_algorithm
 
@@ -68,12 +69,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         Returns:
             Dictionary with comprehensive sweep results for each link
         """
-        ap = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue = self.network.get(ue_name)
-
-        if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in sweep")
+        # Validate nodes
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         # =====================================================================
         # Step 1: Define all links to be swept
@@ -95,21 +92,16 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         specular_angle = compute_specular_angle(ris, ue)
 
         # Generate codebook around specular angle
-        codebook_local = np.arange(-fov, fov + step, step)
+        codebook_local, num_codebook = generate_codebook(fov, step)
         codebook_absolute = specular_angle + codebook_local
 
         print(f"\n[DIRECTIONAL EXHAUSTIVE SWEEP]")
         print(f"Incident angle: {incident_angle:.1f}°")
         print(f"Specular reflection angle: {specular_angle:.1f}°")
-        print(f"Codebook: {len(codebook_absolute)} angles from {codebook_absolute[0]:.1f}° to {codebook_absolute[-1]:.1f}°")
+        print(f"Codebook: {num_codebook} angles from {codebook_absolute[0]:.1f}° to {codebook_absolute[-1]:.1f}°")
 
         # Setup waveform simulator if requested
-        waveform_settings = WaveformSettings(
-            modulation=modulation,
-            num_symbols=num_symbols,
-            pilot_ratio=0.1,
-        )
-        link_simulator = create_waveform_link(use_waveform, waveform_settings)
+        link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
         # =====================================================================
         # Step 3: Perform exhaustive sweep for each link
@@ -217,7 +209,7 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                 'snr_coarse': snr_measurements,
                 'pwr_coarse': pwr_measurements,
                 'ground_truth_angle': ground_truth_angle,
-                'num_angles_tested': len(codebook_absolute),
+                'num_angles_tested': num_codebook,
             }
 
             if use_waveform and ser_measurements:
@@ -240,7 +232,7 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
             'best_snr': primary_result['peak_snr'],
             'best_pwr': primary_result['peak_pwr'],
             'ground_truth_angle': primary_result['ground_truth_angle'],
-            'num_angles_tested': len(codebook_absolute),
+            'num_angles_tested': num_codebook,
             'all_link_results': all_sweep_results,
             'ser_coarse': primary_result.get('ser_coarse', None),
         }

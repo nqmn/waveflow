@@ -12,10 +12,13 @@ import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
-    WaveformSettings,
     apply_waveform_realism,
     compute_specular_angle,
-    create_waveform_link,
+    generate_codebook,
+    local_angle_to_index,
+    setup_waveform_simulator,
+    validate_and_get_nodes,
+    FeedbackCollector,
 )
 from ..registry import register_algorithm
 
@@ -62,33 +65,23 @@ class CoarseFineSweep(SweepAlgorithmBase):
         Returns:
             Dictionary with sweep results including optional 'ser_coarse' and 'ser_fine' keys
         """
-        ap = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue = self.network.get(ue_name)
-
-        if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in sweep")
+        # Validate nodes
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         # Use UE direction as the reference (same baseline as linear sweep/connect)
         specular_angle = compute_specular_angle(ris, ue)
 
         # Generate codebook centered on specular angle
-        num_steps = int(2 * fov / step) + 1
-        local_coarse = np.arange(-fov, fov + 1, step)
+        local_coarse, num_coarse = generate_codebook(fov, step)
         abs_angles = specular_angle + local_coarse
 
         snr_coarse = []
         pwr_coarse = []
-        ser_coarse = [None] * len(local_coarse) if use_waveform else None
-        feedback_details = [] if enable_feedback else None
+        ser_coarse = [None] * num_coarse if use_waveform else None
+        feedback_collector = FeedbackCollector(enable_feedback)
 
         # Setup signal simulator if waveform mode is enabled
-        waveform_settings = WaveformSettings(
-            modulation=modulation,
-            num_symbols=num_symbols,
-            pilot_ratio=0.1,
-        )
-        link_simulator = create_waveform_link(use_waveform, waveform_settings)
+        link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
         # Coarse phase: test center first, then expand
         center_idx = len(local_coarse) // 2
@@ -102,8 +95,8 @@ class CoarseFineSweep(SweepAlgorithmBase):
                 test_order.append(center_idx + offset)
 
         # Test angles in center-out order
-        snr_array = np.full(len(local_coarse), np.nan)
-        pwr_array = np.full(len(local_coarse), np.nan)
+        snr_array = np.full(num_coarse, np.nan)
+        pwr_array = np.full(num_coarse, np.nan)
 
         def measure_idx(idx: int):
             if not np.isnan(snr_array[idx]):
@@ -127,24 +120,12 @@ class CoarseFineSweep(SweepAlgorithmBase):
                 ser_coarse[idx] = ser_val
 
             if enable_feedback and 'feedback_info' in res:
-                feedback_details.append({
-                    'angle': float(abs_angles[idx]),
-                    'local_angle': float(local_coarse[idx]),
-                    'phase': 'coarse',
-                    'feedback_info': res['feedback_info']
-                })
-
-        def local_angle_to_index(local_angle: float) -> int:
-            clamped = max(-fov, min(fov, local_angle))
-            rel = (clamped + fov) / step
-            idx = int(round(rel))
-            idx = max(0, min(len(local_coarse) - 1, idx))
-            return idx
+                feedback_collector.add(float(abs_angles[idx]), float(local_coarse[idx]), res['feedback_info'], phase='coarse')
 
         # Measure ML suggestions ahead of center-out traversal
         if ml_angles:
             for suggested in ml_angles:
-                idx = local_angle_to_index(float(suggested))
+                idx = local_angle_to_index(float(suggested), fov, step, num_coarse)
                 measure_idx(idx)
 
         for idx in test_order:
@@ -185,12 +166,7 @@ class CoarseFineSweep(SweepAlgorithmBase):
 
             # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in r:
-                feedback_details.append({
-                    'angle': float(abs_a),
-                    'local_angle': float(local_fine[i]),
-                    'phase': 'fine',
-                    'feedback_info': r['feedback_info']
-                })
+                feedback_collector.add(float(abs_a), float(local_fine[i]), r['feedback_info'], phase='fine')
 
         best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
@@ -205,7 +181,7 @@ class CoarseFineSweep(SweepAlgorithmBase):
             'best_snr_fine': float(np.max(snr_fine)),
             'specular_angle': float(specular_angle),
             'feedback_enabled': enable_feedback,
-            'feedback_details': feedback_details
+            'feedback_details': feedback_collector.get_details()
         }
 
         # Add SER if waveform simulation was used

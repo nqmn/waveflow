@@ -14,10 +14,10 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
-    WaveformSettings,
     apply_waveform_realism,
     compute_specular_angle,
-    create_waveform_link,
+    setup_waveform_simulator,
+    validate_and_get_nodes,
 )
 from ..registry import register_algorithm
 
@@ -61,12 +61,8 @@ class MLOnlySweep(SweepAlgorithmBase):
         Returns:
             Dictionary with ML predictions and results
         """
-        ap = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue = self.network.get(ue_name)
-
-        if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in sweep")
+        # Validate nodes
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         # Load ML predictor
         try:
@@ -82,12 +78,7 @@ class MLOnlySweep(SweepAlgorithmBase):
         # Calculate base direction (UE direction from RIS)
         specular_angle = compute_specular_angle(ris, ue)
 
-        waveform_settings = WaveformSettings(
-            modulation=modulation,
-            num_symbols=num_symbols,
-            pilot_ratio=0.1,
-        )
-        link_simulator = create_waveform_link(use_waveform, waveform_settings)
+        link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
         # PHASE 1: Test ONLY ML-suggested angles
         print(f"\n[ML-ONLY SWEEP]")

@@ -12,10 +12,13 @@ import numpy as np
 from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
-    WaveformSettings,
     apply_waveform_realism,
     compute_specular_angle,
-    create_waveform_link,
+    generate_codebook,
+    local_angle_to_index,
+    setup_waveform_simulator,
+    validate_and_get_nodes,
+    FeedbackCollector,
 )
 from ..registry import register_algorithm
 
@@ -63,32 +66,24 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                 - feedback_enabled: Whether feedback was used
                 - feedback_details: List of feedback iteration results (if enabled)
         """
-        ap = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue = self.network.get(ue_name)
-
-        if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in sweep")
+        # Validate nodes
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         # Calculate base direction (UE direction from RIS)
         # This is the optimal beamforming direction for AP->RIS->UE link
         base_angle = compute_specular_angle(ris, ue)
 
         # Single phase: test all angles from -FOV to +FOV at specified resolution
-        angles = np.arange(-fov, fov + step, step)
+        angles, num_angles = generate_codebook(fov, step)
         abs_angles = base_angle + angles
 
-        snr_values = [None] * len(angles)
-        power_values = [None] * len(angles)
-        ser_values = [None] * len(angles) if use_waveform else None
-        feedback_details = [] if enable_feedback else None
+        snr_values = [None] * num_angles
+        power_values = [None] * num_angles
+        ser_values = [None] * num_angles if use_waveform else None
+        feedback_collector = FeedbackCollector(enable_feedback)
 
         # Setup waveform simulator if requested
-        waveform_settings = WaveformSettings(
-            modulation=modulation,
-            num_symbols=num_symbols,
-        )
-        link_simulator = create_waveform_link(use_waveform, waveform_settings)
+        link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
 
         def measure_index(idx: int):
             if snr_values[idx] is not None:
@@ -115,23 +110,12 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
             power_values[idx] = res['pwr_dBm']
 
             if enable_feedback and 'feedback_info' in res:
-                feedback_details.append({
-                    'angle': float(abs_a),
-                    'local_angle': float(angles[idx]),
-                    'feedback_info': res['feedback_info']
-                })
-
-        def local_angle_to_index(local_angle: float) -> int:
-            clamped = max(-fov, min(fov, local_angle))
-            rel = (clamped + fov) / step
-            idx = int(round(rel))
-            idx = max(0, min(len(angles) - 1, idx))
-            return idx
+                feedback_collector.add(float(abs_a), float(angles[idx]), res['feedback_info'])
 
         # Measure ML-suggested angles first (if provided)
         if ml_angles:
             for suggested in ml_angles:
-                idx = local_angle_to_index(float(suggested))
+                idx = local_angle_to_index(float(suggested), fov, step, num_angles)
                 measure_index(idx)
 
         # Test each angle
@@ -152,9 +136,9 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
             'best_snr': float(best_snr),
             'best_power': float(best_power),
             'base_angle': float(base_angle),
-            'num_angles_tested': len(angles),
+            'num_angles_tested': num_angles,
             'feedback_enabled': enable_feedback,
-            'feedback_details': feedback_details,
+            'feedback_details': feedback_collector.get_details(),
             # Keep legacy keys for backward compatibility with adaptive algorithm output
             'local_coarse': angles.tolist(),
             'snr_coarse': np.array(snr_values).tolist(),

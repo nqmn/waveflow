@@ -15,10 +15,13 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
-    WaveformSettings,
     apply_waveform_realism,
     compute_specular_angle,
-    create_waveform_link,
+    generate_codebook,
+    local_angle_to_index,
+    setup_waveform_simulator,
+    validate_and_get_nodes,
+    FeedbackCollector,
 )
 from ..registry import register_algorithm
 
@@ -65,12 +68,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
         Returns:
             Dictionary with sweep results including ML predictions and optional SER
         """
-        ap = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue = self.network.get(ue_name)
-
-        if ap is None or ris is None or ue is None:
-            raise ValueError("Invalid node name in sweep")
+        # Validate nodes
+        ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         # Load ML predictor
         try:
@@ -86,12 +85,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Calculate base direction (UE direction from RIS)
         specular_angle = compute_specular_angle(ris, ue)
 
-        waveform_settings = WaveformSettings(
-            modulation=modulation,
-            num_symbols=num_symbols,
-            pilot_ratio=0.1,
-        )
-        link_simulator = create_waveform_link(use_waveform, waveform_settings)
+        link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
         # Phase 1: Test ML-suggested angles first
         ml_results = []
@@ -128,12 +122,12 @@ class MLGuidedSweep(SweepAlgorithmBase):
             tested_angles.add(round(ml_angle, 2))
 
         # Phase 2: Coarse sweep (adaptive center-out from specular)
-        local_coarse = np.arange(-fov, fov + 1, step)
+        local_coarse, num_coarse = generate_codebook(fov, step)
         abs_angles = specular_angle + local_coarse
 
-        snr_array = np.full(len(local_coarse), np.nan)
-        pwr_array = np.full(len(local_coarse), np.nan)
-        ser_coarse = [None] * len(local_coarse) if use_waveform else None
+        snr_array = np.full(num_coarse, np.nan)
+        pwr_array = np.full(num_coarse, np.nan)
+        ser_coarse = [None] * num_coarse if use_waveform else None
 
         # Prioritize center and ML suggestions
         center_idx = len(local_coarse) // 2
@@ -141,8 +135,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
 
         # Add ML-suggested indices
         for angle in ml_suggestions:
-            idx = self._angle_to_index(angle, fov, step)
-            if 0 <= idx < len(local_coarse) and idx not in test_order:
+            idx = local_angle_to_index(angle, fov, step, num_coarse)
+            if 0 <= idx < num_coarse and idx not in test_order:
                 test_order.append(idx)
 
         # Add center-out expansion
@@ -191,7 +185,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
         local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
         abs_angles_fine = specular_angle + local_fine
         snr_fine = []
-        ser_fine = [None] * len(local_fine) if use_waveform else None
+        num_fine = len(local_fine)
+        ser_fine = [None] * num_fine if use_waveform else None
 
         for i, abs_a in enumerate(abs_angles_fine):
             with self._ap_state_guard(ap):
@@ -235,11 +230,3 @@ class MLGuidedSweep(SweepAlgorithmBase):
             result['ser_ml'] = ser_ml if ser_ml else []
 
         return result
-
-    def _angle_to_index(self, local_angle: float, fov: float, step: float) -> int:
-        """Convert local angle to coarse array index"""
-        clamped = max(-fov, min(fov, local_angle))
-        rel = (clamped + fov) / step
-        idx = int(round(rel))
-        idx = max(0, min(int(2 * fov / step), idx))
-        return idx
