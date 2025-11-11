@@ -18,6 +18,7 @@ from ..common import (
     compute_specular_angle,
     setup_waveform_simulator,
     validate_and_get_nodes,
+    clamp_to_ris_fov,
 )
 from ..registry import register_algorithm
 

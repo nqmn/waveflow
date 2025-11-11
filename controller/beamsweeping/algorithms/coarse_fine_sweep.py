@@ -19,6 +19,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     FeedbackCollector,
+    clamp_to_ris_fov,
 )
 from ..registry import register_algorithm
 

@@ -22,6 +22,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     FeedbackCollector,
+    clamp_to_ris_fov,
 )
 from ..registry import register_algorithm
 
@@ -184,6 +185,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         fine_end = min(best_local + fine_span, fov)
         local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
         abs_angles_fine = specular_angle + local_fine
+
         snr_fine = []
         num_fine = len(local_fine)
         ser_fine = [None] * num_fine if use_waveform else None

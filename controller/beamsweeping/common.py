@@ -37,6 +37,19 @@ def compute_specular_angle(ris, ue) -> float:
     return float(np.degrees(np.arctan2(ue_vec[1], ue_vec[0])))
 
 
+def clamp_to_ris_fov(angles: np.ndarray, ris_max_angle: float) -> np.ndarray:
+    """Clamp absolute beam angles to RIS field of view constraint.
+
+    Args:
+        angles: Array of absolute beam angles in degrees
+        ris_max_angle: RIS maximum steering angle (±max_angle_deg)
+
+    Returns:
+        Clamped angles array where each angle is within [-ris_max_angle, +ris_max_angle]
+    """
+    return np.clip(angles, -ris_max_angle, ris_max_angle)
+
+
 def create_waveform_link(
     enable_waveform: bool, settings: WaveformSettings
 ) -> Optional["SignalLevelLink"]:
