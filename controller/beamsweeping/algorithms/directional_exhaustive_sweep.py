@@ -146,7 +146,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                         beam_angle_deg=test_angle,
                         seed=seed,
                         enable_feedback=enable_feedback,
-                        max_feedback_iterations=max_feedback_iterations
+                        max_feedback_iterations=max_feedback_iterations,
+                        store_in_active_links=False  # Don't store intermediate measurements
                     )
 
                 current_snr = res['snr_dB']

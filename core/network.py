@@ -124,7 +124,7 @@ class RISNetwork:
     # Basic connectivity (legacy method, kept for compatibility)
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
-                use_isolated_copy=True):
+                use_isolated_copy=True, store_in_active_links=True):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -139,6 +139,8 @@ class RISNetwork:
             max_feedback_iterations: Maximum iterations for feedback loop (default 10)
             use_isolated_copy: If True (default), use cloned nodes to prevent state pollution.
                               If False, modify original nodes (for persistent adaptation).
+            store_in_active_links: If False, skip storing result in active_links (for intermediate sweep measurements).
+                                  Default: True
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -298,25 +300,33 @@ class RISNetwork:
         if enable_feedback:
             result["feedback_info"] = self._run_adaptive_feedback_loop(
                 ap_name, ris_name, ue_name, snr_dB, max_feedback_iterations,
-                bandwidth_MHz, seed, use_isolated_copy=use_isolated_copy
+                bandwidth_MHz, seed, use_isolated_copy=use_isolated_copy,
+                store_in_active_links=store_in_active_links
             )
 
-        # Track active link
+        # Get node names for tracking
         ap_key = ap.name if ap else ap_name
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
-        link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"
-        self.active_links[link_key] = {
-            'ap': ap_key,
-            'ris': ris_key,
-            'ue': ue_key,
-            'snr_dB': result['snr_dB'],
-            'pwr_dBm': result['pwr_dBm'],
-            'beam_angle': beam_angle_deg,
-            'gain_dBi': result.get('gain_dBi', 0.0),
-            'quant_loss_dB': result.get('quant_loss_dB', 0.0),
-            'source': 'connect'
-        }
+
+        # Track active link (only if not an intermediate sweep measurement)
+        if store_in_active_links:
+            link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"
+            self.active_links[link_key] = {
+                'ap': ap_key,
+                'ris': ris_key,
+                'ue': ue_key,
+                'snr_dB': result['snr_dB'],
+                'pwr_dBm': result['pwr_dBm'],
+                'beam_angle': beam_angle_deg,
+                'gain_dBi': result.get('gain_dBi', 0.0),
+                'quant_loss_dB': result.get('quant_loss_dB', 0.0),
+                'source': 'connect',
+                # Store phase data for retrieval by phases command
+                'current_phases': result.get('current_phases', None),
+                'quantized_phases': result.get('quantized_phases', None),
+                'phase_states': result.get('phase_states', None)
+            }
 
         self.last_connect_result = {
             'ap': ap_key,
@@ -337,7 +347,8 @@ class RISNetwork:
         return result
 
     def _run_adaptive_feedback_loop(self, ap_name, ris_name, ue_name, initial_snr_dB,
-                                    max_iterations, bandwidth_MHz, seed, use_isolated_copy=True):
+                                    max_iterations, bandwidth_MHz, seed, use_isolated_copy=True,
+                                    store_in_active_links=True):
         """Run closed-loop feedback between UE and AP for adaptation
 
         Mimics real hardware: UE measures SNR and sends feedback to AP,
@@ -345,6 +356,7 @@ class RISNetwork:
 
         Args:
             use_isolated_copy: Whether feedback loop uses isolated copies
+            store_in_active_links: Whether to store feedback iteration results in active_links
         """
         ap = self.get(ap_name)
         ue = self.get(ue_name)
@@ -396,7 +408,8 @@ class RISNetwork:
                     compute_phases=True,
                     bandwidth_MHz=bandwidth_MHz,
                     seed=seed,
-                    enable_feedback=False
+                    enable_feedback=False,
+                    store_in_active_links=store_in_active_links
                 )
                 snr_measured = _to_float(link_result["snr_dB"])
 

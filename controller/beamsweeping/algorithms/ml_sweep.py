@@ -112,7 +112,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     ap_name, ris_name, ue_name,
                     beam_angle_deg=abs_angle, seed=seed,
                     enable_feedback=enable_feedback,
-                    max_feedback_iterations=max_feedback_iterations
+                    max_feedback_iterations=max_feedback_iterations,
+                    store_in_active_links=False  # Don't store intermediate measurements
                 )
             snr_ml.append(res['snr_dB'])
 
@@ -167,7 +168,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     ap_name, ris_name, ue_name,
                     beam_angle_deg=abs_a, seed=seed,
                     enable_feedback=enable_feedback,
-                    max_feedback_iterations=max_feedback_iterations
+                    max_feedback_iterations=max_feedback_iterations,
+                    store_in_active_links=False  # Don't store intermediate measurements
                 )
             snr_array[idx] = res['snr_dB']
             pwr_array[idx] = res['pwr_dBm']
@@ -201,7 +203,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     ap_name, ris_name, ue_name,
                     beam_angle_deg=abs_a, seed=seed,
                     enable_feedback=enable_feedback,
-                    max_feedback_iterations=max_feedback_iterations
+                    max_feedback_iterations=max_feedback_iterations,
+                    store_in_active_links=False  # Don't store intermediate measurements
                 )
             snr_fine.append(r['snr_dB'])
 

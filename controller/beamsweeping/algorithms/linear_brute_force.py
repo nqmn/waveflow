@@ -103,7 +103,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     ap_name, ris_name, ue_name,
                     beam_angle_deg=abs_a, seed=seed,
                     enable_feedback=enable_feedback,
-                    max_feedback_iterations=max_feedback_iterations
+                    max_feedback_iterations=max_feedback_iterations,
+                    store_in_active_links=False  # Don't store intermediate measurements
                 )
 
             # If waveform simulation is enabled, convert physics SNR to real signal SNR/SER

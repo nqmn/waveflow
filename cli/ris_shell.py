@@ -9,9 +9,10 @@ from datetime import datetime
 class RISNodeShell(cmd.Cmd):
     """Interactive shell for RIS node management"""
 
-    def __init__(self, ris_node):
+    def __init__(self, ris_node, network=None):
         super().__init__()
         self.ris_node = ris_node
+        self.network = network  # Reference to network for accessing active_links
         self.prompt = f"{ris_node.name}> "
         self.intro = f"\n{'='*60}\nRIS Node Shell: {ris_node.name}\n{'='*60}\n"
         self.last_connect_result = None  # Store phase data from connect() command
@@ -95,20 +96,73 @@ Phase Formats (use: phases <format>):
                 print("Usage: config <grid|bits> <value>")
 
     def do_phases(self, arg):
-        """phases [format] - Display phase elements
+        """phases [link_index] [format] - Display phase elements from an active link
+
+        With no arguments, shows phases from most recent connect/sweep.
+
+        Link Index: Use status command to see numbered active links [1], [2], etc.
+
         Formats: compact (default), grid, stats, plot
+        Examples:
+            phases                  # Most recent phases
+            phases 2                # Phases from link [2]
+            phases 2 grid           # Link [2] phases in grid format
+            phases grid             # Most recent phases in grid format
         """
-        # Try to use phase data from recent connect() result
-        if self.last_connect_result and 'current_phases' in self.last_connect_result:
-            self._load_phases_from_result(self.last_connect_result)
+        parts = arg.split() if arg else []
+        link_index = None
+        format_type = 'compact'
+
+        # Parse arguments: could be "2 grid" or just "grid" or just "2"
+        for part in parts:
+            if part.isdigit():
+                link_index = int(part)
+            else:
+                format_type = part.lower()
+
+        # If link_index specified, load phases from that active link
+        if link_index is not None:
+            if self.network is None:
+                print("✗ Network not available (cannot access active links)")
+                return
+
+            active_links = self.network.get_active_links()
+            if not active_links:
+                print("✗ No active links found")
+                return
+
+            if link_index < 1 or link_index > len(active_links):
+                print(f"✗ Invalid link index. Available links: [1] to [{len(active_links)}]")
+                print(f"  Use 'status' command to see active links")
+                return
+
+            # Get the link by index
+            link_name = list(active_links.keys())[link_index - 1]
+            link_info = active_links[link_name]
+
+            # Restore phases from the link info
+            if 'current_phases' in link_info:
+                self.ris_node.current_phases = np.array(link_info['current_phases'])
+            if 'quantized_phases' in link_info:
+                self.ris_node.quantized_phases = np.array(link_info['quantized_phases'])
+            if 'phase_states' in link_info:
+                self.ris_node.phase_states = np.array(link_info['phase_states'])
+
+            print(f"Displaying phases from: [{link_index}] {link_name}")
+            if 'beam_angle' in link_info:
+                print(f"Beam Angle: {link_info['beam_angle']:.2f}°")
+            print()
+        else:
+            # Try to use phase data from recent connect() result
+            if self.last_connect_result and 'current_phases' in self.last_connect_result:
+                self._load_phases_from_result(self.last_connect_result)
 
         # Fall back to node's own phase data
         if self.ris_node.current_phases is None:
             print(f"✗ No phase configuration computed yet.")
             print(f"  Run 'connect' command first to compute phases.")
+            print(f"  Or use: phases <link_index>  (e.g., phases 2)")
             return
-
-        format_type = arg.lower() if arg else 'compact'
 
         if format_type == 'stats':
             self._print_phase_stats()

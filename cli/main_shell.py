@@ -211,58 +211,123 @@ class RISNetCLI(cmd.Cmd):
                 pos_str = f"({node.pos[0]:.1f}, {node.pos[1]:.1f}, {node.pos[2]:.1f})"
                 print(f"  {node_name:<15} : {node_type:<12} at {pos_str}")
 
-        # Show active links
+        # Show active links with indices
         active_links = self.net.get_active_links()
         if not active_links:
             print("\n✗ No active links")
         else:
             print(f"\nACTIVE LINKS ({len(active_links)}):")
             print("-" * 70)
-            for link_name, link_info in active_links.items():
-                print(f"\n  {link_name}")
+            for idx, (link_name, link_info) in enumerate(active_links.items(), 1):
+                print(f"\n  [{idx}] {link_name}")
                 origin = link_info.get('source', 'unknown')
                 origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
-                print(f"    Source:        {origin_label}")
-                print(f"    SNR:           {link_info['snr_dB']:>8.2f} dB")
-                print(f"    Power:         {link_info['pwr_dBm']:>8.2f} dBm")
-                print(f"    Gain:          {link_info['gain_dBi']:>8.2f} dBi")
-                print(f"    Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                print(f"      Source:        {origin_label}")
+                print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
+                print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
+                print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
+                print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
-                print(f"    Quant Penalty: {penalty:>8.2f} dB")
+                print(f"      Quant Penalty: {penalty:>8.2f} dB")
+
+        print("\n" + "="*70 + "\n")
+
+    def do_links(self, arg):
+        """links - Show all active connection links"""
+        active_links = self.net.get_active_links()
+
+        print("\n" + "="*70)
+        print("ACTIVE LINKS")
+        print("="*70)
+
+        if not active_links:
+            print("\nNo active links")
+        else:
+            print(f"\nACTIVE LINKS ({len(active_links)}):")
+            print("-" * 70)
+            for idx, (link_name, link_info) in enumerate(active_links.items(), 1):
+                print(f"\n  [{idx}] {link_name}")
+                origin = link_info.get('source', 'unknown')
+                origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
+                print(f"      Source:        {origin_label}")
+                print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
+                print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
+                print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
+                print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                # Show as absolute penalty value (positive dB loss)
+                penalty = abs(link_info['quant_loss_dB'])
+                print(f"      Quant Penalty: {penalty:>8.2f} dB")
 
         print("\n" + "="*70 + "\n")
 
     def do_clear(self, arg):
-        """clear - Remove all nodes from network"""
-        if not self.net.nodes:
-            print("Network is already empty")
-            return
-        self.net.nodes.clear()
-        self.net.clear_links()
-        if hasattr(self.net, 'last_connect_result'):
-            self.net.last_connect_result = None
-        if hasattr(self.net, 'last_sweep_result'):
-            self.net.last_sweep_result = None
-        self._save_network()
-        print(f"✓ All nodes cleared")
+        """clear [net|links] - Clear network or links
+
+        Usage:
+            clear           - Clear entire network (nodes + links) [DEFAULT]
+            clear net       - Clear entire network (nodes + links)
+            clear links     - Clear active links only (keep nodes)
+        """
+        parts = arg.split() if arg else []
+
+        # Default behavior: clear net (entire network)
+        if not parts or parts[0].lower() == 'net':
+            if not self.net.nodes:
+                print("Network is already empty")
+                return
+            self.net.nodes.clear()
+            self.net.clear_links()
+            if hasattr(self.net, 'last_connect_result'):
+                self.net.last_connect_result = None
+            if hasattr(self.net, 'last_sweep_result'):
+                self.net.last_sweep_result = None
+            self._save_network()
+            print(f"✓ Cleared entire network (nodes + links)")
+
+        elif parts[0].lower() == 'links':
+            if not self.net.get_active_links():
+                print("No active links to clear")
+                return
+            num_links = len(self.net.get_active_links())
+            self.net.active_links.clear()
+            if hasattr(self.net, 'last_connect_result'):
+                self.net.last_connect_result = None
+            if hasattr(self.net, 'last_sweep_result'):
+                self.net.last_sweep_result = None
+            self._save_network()
+            print(f"✓ Cleared {num_links} active link(s) (nodes kept)")
+        else:
+            print(f"Error: Unknown clear option '{parts[0]}'. Use 'clear net' or 'clear links'")
 
     # =====================================================================
     # Connection & Control Commands
     # =====================================================================
 
     def do_connect(self, arg):
-        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback]
-        Smart connect - automatically infers missing nodes. Establish 100% real signal-level connection.
-        Examples:
-            connect                                        # Auto-detect all nodes (if unambiguous)
-            connect ap1                                    # Auto-detect RIS and UE for AP1
-            connect ap1 ris1                               # Auto-detect UE for AP1→RIS1
-            connect ap1 ris1 ue1                           # Explicit (traditional)
+        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback] [--sweep fov step] [--algo algorithm]
+        Unified connect command: single-angle measurement OR multi-angle beam optimization via --sweep flag.
+
+        SINGLE-ANGLE MODE (default, traditional behavior):
+            connect ap1 ris1 ue1                           # Auto-compute specular angle, single measurement
             connect ap1 ris1 ue1 30                        # Beam at 30°, real signal
             connect ap1 ris1 ue1 30 --modulation 16QAM     # Beam at 30°, 16QAM modulation
             connect ap1 ris1 ue1 30 --no-waveform          # Beam at 30°, physics-only
             connect ap1 ris1 ue1 30 --no-feedback          # No closed-loop adaptation
+
+        MULTI-ANGLE SWEEP MODE (explicit --sweep flag):
+            connect ap1 ris1 ue1 --sweep 60 10             # Sweep ±60° at 10° steps (linear algo)
+            connect ap1 ris1 ue1 --sweep 60 10 --algo center-out   # Two-phase coarse-fine sweep
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor xgb  # ML-guided sweep
+            connect ap1 ris1 ue1 --sweep 90 5 --modulation 16QAM  # Sweep with signal-level sim
+
+        Examples:
+            connect                                        # Auto-detect nodes, single angle (specular)
+            connect ap1                                    # Auto-detect RIS/UE, single angle
+            connect ap1 ris1 ue1                           # Auto-compute angle, single measurement
+            connect ap1 ris1 ue1 30                        # Single angle at 30°
+            connect ap1 ris1 ue1 --sweep 60 10             # Multi-angle sweep ±60° at 10°
+            connect ap1 ris1 ue1 --sweep 60 10 --algo center-out  # Coarse-fine sweep
         Default: 100% real signal-level simulation (generates actual waveforms, measures SNR and SER)
         """
         parts = shlex.split(arg) if arg else []
@@ -353,7 +418,14 @@ class RISNetCLI(cmd.Cmd):
         enable_feedback = True
         use_waveform = True  # ALWAYS enabled by default
         modulation = 'QPSK'
+        fov = None
+        step = None
+        algo_name = 'linear'
+        ml_predictor = 'xgb'
+        algo_specified = False  # Track if user explicitly provided --algo
+        ml_predictor_specified = False  # Track if user explicitly provided --ml-predictor
 
+        # Parse flags
         if '--no-feedback' in parts:
             enable_feedback = False
             parts.remove('--no-feedback')
@@ -368,12 +440,69 @@ class RISNetCLI(cmd.Cmd):
                 modulation = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
+        # Parse sweep parameters
+        if '--sweep' in parts:
+            idx = parts.index('--sweep')
+            fov = 60.0  # Default FOV
+            step = 10.0  # Default step
+
+            # Try to parse FOV from next token
+            if idx + 1 < len(parts) and not parts[idx + 1].startswith('--'):
+                try:
+                    fov = float(parts[idx + 1])
+                    # Try to parse STEP from token after FOV
+                    if idx + 2 < len(parts) and not parts[idx + 2].startswith('--'):
+                        try:
+                            step = float(parts[idx + 2])
+                            parts = parts[:idx] + parts[idx+3:]
+                        except ValueError:
+                            parts = parts[:idx] + parts[idx+2:]
+                    else:
+                        parts = parts[:idx] + parts[idx+2:]
+                except ValueError:
+                    # FOV not a number, use defaults and don't consume it
+                    parts = parts[:idx] + parts[idx+1:]
+            else:
+                # No FOV/STEP parameters, just remove --sweep flag
+                parts = parts[:idx] + parts[idx+1:]
+
+        if '--algo' in parts:
+            idx = parts.index('--algo')
+            if idx + 1 < len(parts):
+                algo_name = parts[idx + 1]
+            algo_specified = True
+            parts = parts[:idx] + parts[idx+2:]
+
+        if '--ml-predictor' in parts:
+            idx = parts.index('--ml-predictor')
+            if idx + 1 < len(parts):
+                ml_predictor = parts[idx + 1]
+            ml_predictor_specified = True
+            parts = parts[:idx] + parts[idx+2:]
+
         def _is_number(token):
             try:
                 float(token)
                 return True
             except (TypeError, ValueError):
                 return False
+
+        # Check for unknown flags (anything starting with - or --)
+        unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
+        if unknown_flags:
+            print(f"Error: Unknown flag(s): {', '.join(unknown_flags)}")
+            print(f"Valid flags: --sweep, --algo, --modulation, --ml-predictor, --no-waveform, --no-feedback")
+            return
+
+        # Validate flag combinations
+        if fov is None:
+            # Single-angle mode
+            if algo_specified:
+                print(f"Error: --algo flag only valid with --sweep mode")
+                return
+            if ml_predictor_specified:
+                print(f"Error: --ml-predictor flag only valid with --sweep mode")
+                return
 
         # Parse optional numeric args (beam angle first, then optional seed)
         numeric_args = [p for p in parts if _is_number(p)]
@@ -384,6 +513,19 @@ class RISNetCLI(cmd.Cmd):
                 seed = int(candidate)
                 break
 
+        # Determine mode: single-angle vs sweep
+        if fov is not None:
+            # Multi-angle sweep mode (explicit --sweep flag)
+            return self._do_connect_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor,
+                                         enable_feedback, use_waveform, modulation, seed)
+        else:
+            # Single-angle connect mode (traditional behavior - preserves current default)
+            # If no angle provided, network.connect() will auto-compute specular angle
+            return self._do_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform,
+                                          modulation, seed)
+
+    def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed):
+        """Execute single-angle connect measurement"""
         res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
                               enable_feedback=enable_feedback, max_feedback_iterations=3)
 
@@ -528,70 +670,8 @@ class RISNetCLI(cmd.Cmd):
         }
         self.net.last_connect_result = sanitize_for_json(connection_record)
 
-    def do_sweep(self, arg):
-        """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
-        Sweep beam angles using physics-based simulation. Optional: add real signal-level emulation with waveforms.
-        Examples:
-            sweep AP1 R1 UE1                                      # Default: physics-based sweep (linear)
-            sweep AP1 R1 UE1 60 10 --modulation 16QAM             # Physics-based + signal-level SER (16QAM)
-            sweep AP1 R1 UE1 60 10 --algo center-out              # Two-phase center-out sweep (~30% faster)
-            sweep AP1 R1 UE1 60 10 --algo exhaustive              # Directional exhaustive multi-link sweep
-            sweep AP1 R1 UE1 60 10 --algo ml --ml-predictor xgb   # ML-only sweep (1-phase)
-            sweep AP1 R1 UE1 60 10 --no-waveform                  # Physics-based only (no signal simulation)
-        Available algorithms:
-          linear (default)         - Exhaustive brute-force search
-          center-out               - Two-phase center-out sweep (~30% faster)
-          exhaustive               - Directional exhaustive multi-link sweep
-          ml, ml-guided            - ML-only sweep (1-phase, ML predictions only)
-        Available modulations: QPSK (default), 16QAM, 64QAM (for signal-level simulation)
-        Available ML predictors: xgb (default), zero, default
-        Note: Signal-level emulation is integrated into each algorithm via use_waveform parameter
-        """
-        parts = shlex.split(arg)
-        if len(parts) < 3:
-            print('usage: sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type]')
-            return
-
-        ap, ris, ue = parts[0], parts[1], parts[2]
-
-        # Parse flags
-        algo_name = 'linear'
-        enable_feedback = True
-        ml_predictor = 'xgb'
-        modulation = 'QPSK'
-        use_waveform = True  # ALWAYS enabled by default
-
-        if '--algo' in parts:
-            idx = parts.index('--algo')
-            if idx + 1 < len(parts):
-                algo_name = parts[idx + 1]
-            parts = parts[:idx] + parts[idx+2:]
-
-        if '--ml-predictor' in parts:
-            idx = parts.index('--ml-predictor')
-            if idx + 1 < len(parts):
-                ml_predictor = parts[idx + 1]
-            parts = parts[:idx] + parts[idx+2:]
-
-        if '--modulation' in parts:
-            idx = parts.index('--modulation')
-            if idx + 1 < len(parts):
-                modulation = parts[idx + 1]
-            parts = parts[:idx] + parts[idx+2:]
-
-        # Optional: disable waveform with flag if needed
-        if '--no-waveform' in parts:
-            use_waveform = False
-            parts.remove('--no-waveform')
-
-        if '--no-feedback' in parts:
-            enable_feedback = False
-            parts.remove('--no-feedback')
-
-        fov = float(parts[3]) if len(parts) > 3 else 60.0
-        step = float(parts[4]) if len(parts) > 4 else 10.0
-        seed = None  # Optional seed for reproducibility
-
+    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed):
+        """Execute multi-angle sweep within unified connect command"""
         algo_requested = algo_name
         algo_requested_lower = algo_requested.lower()
 
@@ -600,17 +680,20 @@ class RISNetCLI(cmd.Cmd):
         except ValueError as e:
             print(f"Error: {e}")
             return
+        except Exception as e:
+            print(f"Error loading sweep algorithm: {e}")
+            return
 
         if not self.net.get(ap) or not self.net.get(ris) or not self.net.get(ue):
             print(f"Error: Invalid node names")
             return
 
         print('\n' + '='*70)
-        print('BEAM SWEEP')
+        print('BEAM SWEEP (via unified connect command)')
         print('='*70)
 
         try:
-            # Pass parameters to algorithm based on type
+            # Pass parameters to algorithm
             kwargs = {
                 'fov': fov,
                 'step': step,
@@ -643,7 +726,6 @@ class RISNetCLI(cmd.Cmd):
                     # Convert physics SNR to signal-level SNR/SER for coarse phase
                     ser_coarse = []
                     for snr_val in out.get('snr_coarse', []):
-                        # Simulate real signal for this SNR value
                         noise_power = 10 ** (-snr_val / 10)
                         noise_power_dB = 10 * np.log10(noise_power)
                         signal_result = link_simulator.simulate_link(
@@ -805,14 +887,12 @@ class RISNetCLI(cmd.Cmd):
                 print()
 
             # Calculate final best beam angle
-            # Try to get the base/specular angle from the output
             specular_angle = out.get('specular_angle', None)
             if specular_angle is None:
                 specular_angle = out.get('base_angle', 0.0)
 
             if has_fine_phase and local_fine and snr_fine:
                 if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                    # For real signal, use SER-best angle
                     ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
                     if ser_vals_idx:
                         best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
@@ -822,12 +902,10 @@ class RISNetCLI(cmd.Cmd):
                         best_final_local = local_fine[int(np.argmax(snr_fine))]
                         best_final_snr = float(np.max(snr_fine))
                 else:
-                    # For physics-based, use SNR-best angle
                     best_final_local = local_fine[int(np.argmax(snr_fine))]
                     best_final_snr = float(np.max(snr_fine))
             else:
                 if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                    # For real signal, use SER-best angle
                     ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
                     if ser_vals_idx:
                         best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
@@ -837,7 +915,6 @@ class RISNetCLI(cmd.Cmd):
                         best_final_local = local_coarse[int(np.argmax(snr_coarse))]
                         best_final_snr = float(np.max(snr_coarse))
                 else:
-                    # For physics-based, use SNR-best angle
                     best_final_local = local_coarse[int(np.argmax(snr_coarse))]
                     best_final_snr = float(np.max(snr_coarse))
 
@@ -853,14 +930,26 @@ class RISNetCLI(cmd.Cmd):
             print()
 
             # Update/create active link with best result from sweep
-            link_key = f"{ap}→{ris}→{ue}"
             ap_node = self.net.get(ap)
             ris_node = self.net.get(ris)
             ue_node = self.net.get(ue)
             ap_key = ap_node.name if ap_node else ap
             ris_key = ris_node.name if ris_node else ris
             ue_key = ue_node.name if ue_node else ue
-            link_key = f"{ap_key}→{ris_key}→{ue_key} (Sweep)"
+
+            # Extract algorithm name from algo object
+            algo_display_name = getattr(algo, 'name', algo_name).replace('Sweep', '').strip()
+            link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect Sweep - {algo_display_name})"
+
+            # Retrieve phase data from RIS node if available
+            phase_data = {}
+            ris_node_ref = self.net.get(ris)
+            if ris_node_ref and hasattr(ris_node_ref, 'current_phases'):
+                phase_data['current_phases'] = ris_node_ref.current_phases.tolist() if hasattr(ris_node_ref.current_phases, 'tolist') else ris_node_ref.current_phases
+                if hasattr(ris_node_ref, 'quantized_phases') and ris_node_ref.quantized_phases is not None:
+                    phase_data['quantized_phases'] = ris_node_ref.quantized_phases.tolist() if hasattr(ris_node_ref.quantized_phases, 'tolist') else ris_node_ref.quantized_phases
+                if hasattr(ris_node_ref, 'phase_states') and ris_node_ref.phase_states is not None:
+                    phase_data['phase_states'] = ris_node_ref.phase_states.tolist() if hasattr(ris_node_ref.phase_states, 'tolist') else ris_node_ref.phase_states
 
             self.net.active_links[link_key] = {
                 'ap': ap_key,
@@ -869,44 +958,79 @@ class RISNetCLI(cmd.Cmd):
                 'snr_dB': float(best_final_snr),
                 'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
                 'beam_angle': float(best_final_abs),
-                'gain_dBi': 47.46,  # Typical value
-                'quant_loss_dB': -0.75,  # Typical value
-                'source': 'sweep'
+                'gain_dBi': 47.46,
+                'quant_loss_dB': -0.75,
+                'source': 'connect_sweep',
+                'algorithm': algo_display_name,
+                **phase_data  # Include phase data if available
             }
 
             sweep_record = {
-                'type': 'sweep',
+                'type': 'connect_sweep',
                 'ap': ap_key,
                 'ris': ris_key,
                 'ue': ue_key,
                 'captured_at': datetime.utcnow().isoformat() + 'Z',
-                'algorithm': algo_name,
-                'algorithm_alias': algo_requested,
                 'parameters': {
-                    'fov': fov,
-                    'step': step,
-                    'seed': seed,
-                    'algo': algo_requested,
-                    'ml_predictor': ml_predictor if algo_requested_lower in ['ml', 'ml-guided'] else None,
-                    'use_waveform': use_waveform,
-                    'modulation': modulation if use_waveform else None,
-                    'enable_feedback': enable_feedback,
-                    'num_symbols': kwargs.get('num_symbols')
+                    'fov_deg': float(fov),
+                    'step_deg': float(step),
+                    'algorithm': algo_name,
+                    'enable_feedback': bool(enable_feedback),
+                    'use_waveform': bool(use_waveform),
+                    'modulation': modulation if use_waveform else None
                 },
-                'summary': {
-                    'best_local_deg': float(best_final_local),
-                    'best_abs_deg': float(best_final_abs),
-                    'specular_deg': float(specular_angle),
-                    'expected_snr_dB': float(best_final_snr)
-                },
-                'outputs': out
+                'best_angle_local': float(best_final_local),
+                'best_angle_absolute': float(best_final_abs),
+                'best_snr_dB': float(best_final_snr)
             }
             self.net.last_sweep_result = sanitize_for_json(sweep_record)
 
-            print('='*70 + '\n')
+        except Exception as e:
+            print(f"Error during sweep: {e}")
+            import traceback
+            traceback.print_exc()
 
-        except ValueError as e:
-            print(f"Sweep failed: {e}")
+    def do_sweep(self, arg):
+        """sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type] [--modulation mod] [--no-waveform]
+        DEPRECATED: Use 'connect --sweep' instead. This command now delegates to the unified connect.
+
+        Examples:
+            sweep AP1 R1 UE1 60 10                              # Equivalent to: connect AP1 R1 UE1 --sweep 60 10
+            sweep AP1 R1 UE1 60 10 --algo center-out             # Equivalent to: connect AP1 R1 UE1 --sweep 60 10 --algo center-out
+            sweep AP1 R1 UE1 60 10 --modulation 16QAM            # Equivalent to: connect AP1 R1 UE1 --sweep 60 10 --modulation 16QAM
+
+        For new code, use 'connect --sweep' directly:
+            connect AP1 R1 UE1 --sweep 60 10
+            connect AP1 R1 UE1 --sweep 60 10 --algo center-out
+            connect AP1 R1 UE1 --sweep 60 10 --algo ml --ml-predictor xgb
+        """
+        # Parse basic arguments
+        parts = shlex.split(arg) if arg else []
+        if len(parts) < 3:
+            print('usage: sweep ap ris ue [fov step] [--algo algorithm] [--ml-predictor type]')
+            print('(Use "connect --sweep" for new code)')
+            return
+
+        ap, ris, ue = parts[0], parts[1], parts[2]
+        fov = float(parts[3]) if len(parts) > 3 else 60.0
+        step = float(parts[4]) if len(parts) > 4 else 10.0
+
+        # Reconstruct as connect --sweep command
+        connect_arg = f"{ap} {ris} {ue} --sweep {fov} {step}"
+
+        # Pass remaining flags
+        for flag in ['--algo', '--ml-predictor', '--modulation', '--no-waveform', '--no-feedback']:
+            if flag in parts:
+                idx = parts.index(flag)
+                if idx + 1 < len(parts):
+                    connect_arg += f" {flag} {parts[idx + 1]}"
+                else:
+                    connect_arg += f" {flag}"
+
+        # Delegate to unified connect command
+        print("(delegating to: connect " + connect_arg + ")\n")
+        self.do_connect(connect_arg)
+
 
     def do_stream(self, arg):
         """stream [ap] [ris] [ue] --file path [--modulation MOD] [--chunks N] [--num-symbols N]
@@ -1450,7 +1574,7 @@ class RISNetCLI(cmd.Cmd):
         if len(parts) == 1:
             # Just node name - enter interactive shell
             if node_type == 'RIS':
-                shell = RISNodeShell(node)
+                shell = RISNodeShell(node, self.net)  # Pass network for active_links access
                 # Pass last connect result if available
                 if hasattr(self.net, 'last_connect_result') and self.net.last_connect_result:
                     shell.last_connect_result = self.net.last_connect_result
@@ -1466,7 +1590,7 @@ class RISNetCLI(cmd.Cmd):
             cmd_name = parts[1]
             cmd_args = parts[2:]
             if node_type == 'RIS':
-                shell = RISNodeShell(node)
+                shell = RISNodeShell(node, self.net)  # Pass network for active_links access
                 # Pass last connect result if available
                 if hasattr(self.net, 'last_connect_result') and self.net.last_connect_result:
                     shell.last_connect_result = self.net.last_connect_result
