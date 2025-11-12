@@ -65,24 +65,25 @@ from_source = ris_center - source
 from_source_norm = from_source / np.linalg.norm(from_source)
 
 # ===== AZIMUTH STEERING (Horizontal) =====
-# Extract 2D components (XY plane only)
-vec_in_2d = from_source_norm[:2]
-vec_out_2d = to_target_norm[:2]
-len_in = np.linalg.norm(vec_in_2d)
-len_out = np.linalg.norm(vec_out_2d)
+# Extract 2D positions and compute azimuth angles directly
+AP = source[:2]
+RIS = ris_center[:2]
+UE = target[:2]
 
-# Calculate azimuth deflection angle (angle between incident and reflected directions in XY plane)
-if len_in > 1e-6 and len_out > 1e-6:
-    norm_in_2d = vec_in_2d / len_in
-    norm_out_2d = vec_out_2d / len_out
-    dot_product_az = np.clip(np.dot(norm_in_2d, norm_out_2d), -1, 1)
-    azimuth_deflection_rad = np.arccos(dot_product_az)
-else:
-    azimuth_deflection_rad = np.pi / 2
+# Calculate absolute azimuth angles in XY plane
+theta_in_rad = np.arctan2(AP[1] - RIS[1], AP[0] - RIS[0])
+theta_out_rad = np.arctan2(UE[1] - RIS[1], UE[0] - RIS[0])
 
-# Calculate azimuth angles
-theta_in_rad = np.arctan2(norm_in_2d[1], norm_in_2d[0])
-theta_out_rad = np.arctan2(norm_out_2d[1], norm_out_2d[0])
+# Calculate azimuth deflection angle (angle difference between incident and reflected directions)
+azimuth_angle_diff = theta_out_rad - theta_in_rad
+# Wrap angle to [-π, π]
+while azimuth_angle_diff > np.pi:
+    azimuth_angle_diff -= 2 * np.pi
+while azimuth_angle_diff < -np.pi:
+    azimuth_angle_diff += 2 * np.pi
+
+# Azimuth deflection angle (magnitude)
+azimuth_deflection_rad = abs(azimuth_angle_diff)
 
 # ===== ELEVATION STEERING (Vertical) =====
 # Calculate elevation angles
@@ -184,35 +185,35 @@ print(f"Element spacing: {d*1000:.1f} mm (half-wavelength)")
 # ===========================================================
 # Pre-compute geometry visualization data (used by both plots)
 # ===========================================================
-# Extract 2D positions from 3D coordinates
-AP = source[:2]
-RIS = ris_center[:2]
-UE = target[:2]
+# Convert previously computed angles to degrees for visualization
+phi_AP_deg = np.degrees(theta_in_rad)
+phi_UE_deg = np.degrees(theta_out_rad)
 
-# Calculate angles for geometry visualization
-phi_AP = np.degrees(np.arctan2(AP[1] - RIS[1], AP[0] - RIS[0]))
-phi_UE = np.degrees(np.arctan2(UE[1] - RIS[1], UE[0] - RIS[0]))
+# Calculate deflection angle in degrees
+angle_diff_rad = theta_out_rad - theta_in_rad
+# Wrap angle to [-π, π]
+while angle_diff_rad > np.pi:
+    angle_diff_rad -= 2 * np.pi
+while angle_diff_rad < -np.pi:
+    angle_diff_rad += 2 * np.pi
 
-# Calculate deflection angle
-angle_diff = phi_UE - phi_AP
-if angle_diff > 180:
-    angle_diff -= 360
-elif angle_diff < -180:
-    angle_diff += 360
-
-abs_diff = abs(angle_diff)
-signed_diff = angle_diff
-bisector = phi_AP + signed_diff / 2
+abs_diff = np.degrees(abs(angle_diff_rad))
+signed_diff = np.degrees(angle_diff_rad)
+bisector = phi_AP_deg + signed_diff / 2
 FoV_full = 60  # Full field of view (degrees)
 
 # Pre-compute visualization elements
 arc_radius = 1.2
-theta1 = math.radians(phi_AP)
-theta2 = math.radians(phi_AP + signed_diff)
-theta_vals = np.linspace(theta1, theta2, 200)
+# Normalize angles for arc visualization (theta_out_rad may be negative)
+theta1_norm = theta_in_rad
+theta2_norm = theta_out_rad
+# Ensure arc goes in correct direction (short arc between incident and reflected)
+if theta2_norm < theta1_norm:
+    theta2_norm += 2 * np.pi
+theta_vals = np.linspace(theta1_norm, theta2_norm, 200)
 xs = RIS[0] + arc_radius * np.cos(theta_vals)
 ys = RIS[1] + arc_radius * np.sin(theta_vals)
-mid_ang = math.radians(phi_AP + signed_diff / 2)
+mid_ang = (theta1_norm + theta2_norm) / 2
 
 theta_fill = np.linspace(math.radians(bisector - FoV_full/2),
                          math.radians(bisector + FoV_full/2), 200)
@@ -248,8 +249,8 @@ if plot_components:
     ax0.scatter(UE[0], UE[1], s=120, color='red', marker='o', label='Target (UE)', zorder=5)
 
     # Lines from RIS to other nodes
-    ax0.plot([RIS[0], AP[0]], [RIS[1], AP[1]], 'g--', lw=2, label=f'RIS→AP ({phi_AP:.1f}°)', alpha=0.7)
-    ax0.plot([RIS[0], UE[0]], [RIS[1], UE[1]], 'r--', lw=2, label=f'RIS→UE ({phi_UE:.1f}°)', alpha=0.7)
+    ax0.plot([RIS[0], AP[0]], [RIS[1], AP[1]], 'g--', lw=2, label=f'RIS→AP ({phi_AP_deg:.1f}°)', alpha=0.7)
+    ax0.plot([RIS[0], UE[0]], [RIS[1], UE[1]], 'r--', lw=2, label=f'RIS→UE ({phi_UE_deg:.1f}°)', alpha=0.7)
 
     # Field of View cone
     for sign in (+1, -1):
@@ -340,8 +341,8 @@ ax_g = fig2.add_subplot(gs2[0, :])
 ax_g.scatter(AP[0], AP[1], s=120, color='green', marker='s', label='Source (AP)', zorder=5)
 ax_g.scatter(RIS[0], RIS[1], s=160, color='orange', marker='^', label='RIS', zorder=5)
 ax_g.scatter(UE[0], UE[1], s=120, color='red', marker='o', label='Target (UE)', zorder=5)
-ax_g.plot([RIS[0], AP[0]], [RIS[1], AP[1]], 'g--', lw=2, label=f'RIS→AP ({phi_AP:.1f}°)', alpha=0.7)
-ax_g.plot([RIS[0], UE[0]], [RIS[1], UE[1]], 'r--', lw=2, label=f'RIS→UE ({phi_UE:.1f}°)', alpha=0.7)
+ax_g.plot([RIS[0], AP[0]], [RIS[1], AP[1]], 'g--', lw=2, label=f'RIS→AP ({phi_AP_deg:.1f}°)', alpha=0.7)
+ax_g.plot([RIS[0], UE[0]], [RIS[1], UE[1]], 'r--', lw=2, label=f'RIS→UE ({phi_UE_deg:.1f}°)', alpha=0.7)
 ax_g.plot(xs, ys, color='purple', lw=2.5, label=f'Azimuth Deflection: {abs_diff:.2f}°')
 ax_g.text(RIS[0] + 1.6 * math.cos(mid_ang), RIS[1] + 1.6 * math.sin(mid_ang),
          f"{abs_diff:.2f}°", color='purple', fontsize=10, fontweight='bold')
@@ -363,7 +364,7 @@ vmax_phase = 360.0 / (2 ** n_bit) * ((2 ** n_bit) - 1)
 
 im4 = ax4.imshow(phase_quant_deg, cmap='bwr', origin='lower', vmin=0, vmax=vmax_phase)
 ax4.set_title(f'RIS {n_bit}-Bit Quantized Phase Map (5.8 GHz, {num_levels} levels) — 3D Beamforming\n'
-              f'φ = φ_incident + φ_az + φ_el | Geometric az: {abs_diff:.2f}° | Steering az: {np.degrees(azimuth_deflection_rad):.2f}° | Steering el: {np.degrees(elevation_deflection_rad):.2f}°',
+              f'φ = φ_incident + φ_az + φ_el | Steering az: {np.degrees(azimuth_deflection_rad):.2f}° | Steering el: {np.degrees(elevation_deflection_rad):.2f}°',
               fontsize=12, fontweight='bold')
 ax4.set_xlabel('Element index (x)', fontsize=10)
 ax4.set_ylabel('Element index (y)', fontsize=10)

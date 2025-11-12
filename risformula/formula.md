@@ -47,27 +47,27 @@ Range: x_i, y_i ∈ [-lim_x, lim_x] = [-0.206 m, 0.206 m]
 
 ## 4. Deflection Angle Calculation
 
-**From 3D coordinates to 2D deflection:**
+**From 3D coordinates to 2D deflection (using absolute azimuth angles):**
 
 ```
-to_target = target - ris_center = [Δx_t, Δy_t, Δz_t]
-from_source = ris_center - source = [Δx_s, Δy_s, Δz_s]
+Extract 2D positions:
+AP = [x_s, y_s]              # Source position (XY)
+RIS = [x_r, y_r]             # RIS center (XY)
+UE = [x_t, y_t]              # Target position (XY)
 
-Normalize to unit vectors:
-to_target_norm = to_target / ||to_target||
-from_source_norm = from_source / ||from_source||
+Calculate absolute azimuth angles:
+θ_in = arctan2(AP_y - RIS_y, AP_x - RIS_x)    # Incident azimuth angle
+θ_out = arctan2(UE_y - RIS_y, UE_x - RIS_x)   # Reflected azimuth angle
 
-Extract 2D components (XY plane only):
-vec_out_2d = [to_target_norm_x, to_target_norm_y]
-vec_in_2d = [from_source_norm_x, from_source_norm_y]
+Compute azimuth angle difference:
+Δθ = θ_out - θ_in
 
-Normalize 2D vectors:
-norm_out_2d = vec_out_2d / ||vec_out_2d||
-norm_in_2d = vec_in_2d / ||vec_in_2d||
+Wrap angle to [-π, π]:
+if Δθ > π:   Δθ -= 2π
+if Δθ < -π:  Δθ += 2π
 
-Deflection angle (angle between incident and reflected directions):
-cos(θ_rcv) = norm_in_2d · norm_out_2d
-θ_rcv = arccos(cos(θ_rcv))
+Deflection angle (magnitude of azimuth difference):
+θ_rcv = |Δθ|
 
 Example: θ_rcv ≈ 44.19° ≈ 0.771 rad
 ```
@@ -245,21 +245,23 @@ FUNCTION GenerateRISPhasePattern(source, ris_center, target, n_bit):
             x_rel[i,j] = -lim_x + (i/(N-1)) * 2 * lim_x
             y_rel[i,j] = -lim_y + (j/(N-1)) * 2 * lim_y
 
-    // Step 3: Calculate deflection angle from coordinates
-    to_target = target - ris_center
-    from_source = ris_center - source
+    // Step 3: Calculate deflection angle from 2D azimuth angles
+    AP = [source.x, source.y]
+    RIS = [ris_center.x, ris_center.y]
+    UE = [target.x, target.y]
 
-    to_target_norm = normalize(to_target)
-    from_source_norm = normalize(from_source)
+    theta_in = arctan2(AP.y - RIS.y, AP.x - RIS.x)    // Incident azimuth
+    theta_out = arctan2(UE.y - RIS.y, UE.x - RIS.x)   // Reflected azimuth
 
-    vec_in_2d = [from_source_norm.x, from_source_norm.y]
-    vec_out_2d = [to_target_norm.x, to_target_norm.y]
+    angle_diff = theta_out - theta_in
 
-    norm_in_2d = normalize(vec_in_2d)
-    norm_out_2d = normalize(vec_out_2d)
+    // Wrap angle to [-π, π]
+    WHILE angle_diff > π:
+        angle_diff -= 2π
+    WHILE angle_diff < -π:
+        angle_diff += 2π
 
-    cos_theta_rcv = dot_product(norm_in_2d, norm_out_2d)
-    theta_rcv = arccos(clamp(cos_theta_rcv, -1, 1))
+    theta_rcv = ABS(angle_diff)  // Deflection angle magnitude
 
     // Step 4: Calculate steering angle vector
     u_x = sin(theta_rcv)
