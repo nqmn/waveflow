@@ -83,7 +83,7 @@ theta_in_rad = np.arctan2(norm_in_2d[1], norm_in_2d[0])
 # Calculate reflected angle (from target direction)
 theta_out_rad = np.arctan2(norm_out_2d[1], norm_out_2d[0])
 
-# Steering angle (derived from deflection - angle between incident and reflected directions)
+# Steering angle (derived from deflection)
 theta_rcv_rad = deflection_angle_rad
 
 print(f"Deflection angle: {np.degrees(deflection_angle_rad):.2f}°")
@@ -321,8 +321,8 @@ ax3 = fig2.add_subplot(gs2[1, 0])
 vmax_phase = 360.0 / (2 ** n_bit) * ((2 ** n_bit) - 1)
 
 im3 = ax3.imshow(phase_quant_deg, cmap='bwr', origin='lower', vmin=0, vmax=vmax_phase)
-ax3.set_title(f'RIS {n_bit}-Bit Quantized Phase Map (5.8 GHz, {num_levels} levels) — Deflection Angle Version\n'
-              f'φ = φ_incident + φ_steering | Geometric deflection: {abs_diff:.2f}° | Steering angle: {np.degrees(theta_rcv_rad):.2f}°',
+ax3.set_title(f'RIS {n_bit}-Bit Quantized Phase Map (5.8 GHz, {num_levels} levels)\n'
+              f'φ = φ_incident + φ_steering | Δθ_az={np.degrees(theta_rcv_rad):.2f}°',
               fontsize=12, fontweight='bold')
 ax3.set_xlabel('Element index (x)', fontsize=10)
 ax3.set_ylabel('Element index (y)', fontsize=10)

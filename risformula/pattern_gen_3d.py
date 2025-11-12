@@ -362,7 +362,8 @@ ax4 = fig2.add_subplot(gs2[1, 0])
 vmax_phase = 360.0 / (2 ** n_bit) * ((2 ** n_bit) - 1)
 
 im4 = ax4.imshow(phase_quant_deg, cmap='bwr', origin='lower', vmin=0, vmax=vmax_phase)
-ax4.set_title(f'RIS {n_bit}-Bit Quantized Phase Map (5.8 GHz, {num_levels} levels) — 3D Beamforming\nφ = φ_incident + φ_az + φ_el',
+ax4.set_title(f'RIS {n_bit}-Bit Quantized Phase Map (5.8 GHz, {num_levels} levels) — 3D Beamforming\n'
+              f'φ = φ_incident + φ_az + φ_el | Geometric az: {abs_diff:.2f}° | Steering az: {np.degrees(azimuth_deflection_rad):.2f}° | Steering el: {np.degrees(elevation_deflection_rad):.2f}°',
               fontsize=12, fontweight='bold')
 ax4.set_xlabel('Element index (x)', fontsize=10)
 ax4.set_ylabel('Element index (y)', fontsize=10)
