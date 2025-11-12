@@ -36,7 +36,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ml = [
+    "torch>=1.9.0",
+    "scikit-learn",
+]
 dev = [
+    "pytest>=6.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+]
+all = [
+    "torch>=1.9.0",
+    "scikit-learn",
+    "matplotlib",
     "pytest>=6.0",
     "pytest-cov",
     "black",

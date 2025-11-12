@@ -7,7 +7,11 @@ import cmd
 import os
 import shlex
 import pprint
-import readline
+try:
+    import readline
+except ImportError:
+    # readline is Unix-only; Windows uses pyreadline or native cmd features
+    readline = None
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -41,13 +45,16 @@ class RISNetCLI(cmd.Cmd):
         # Get all available commands
         self.all_commands = [name[3:] for name in dir(self) if name.startswith('do_')]
 
-        # Setup readline completer
-        readline.set_completer(self._completer)
-        # Enable tab completion
-        readline.parse_and_bind('tab: complete')
+        # Setup readline completer (only if readline is available)
+        if readline:
+            readline.set_completer(self._completer)
+            # Enable tab completion
+            readline.parse_and_bind('tab: complete')
 
     def _completer(self, text, state):
         """Custom completer for command and argument suggestions"""
+        if not readline:
+            return None
         if state == 0:
             # Get the current line
             line = readline.get_line_buffer()

@@ -28,7 +28,10 @@ class RISNetSetup:
             Path.home() / ".bash_profile",
             Path.home() / ".profile",
         ]
+        # Core required packages (readline is handled gracefully on Windows)
         self.required_packages = ["numpy", "flask", "pyyaml", "waitress"]
+        # Optional ML packages (torch gracefully handled if missing)
+        self.optional_packages = ["torch", "scikit-learn"]
 
     def print_header(self, text):
         """Print formatted header"""

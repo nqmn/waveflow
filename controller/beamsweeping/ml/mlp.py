@@ -18,26 +18,34 @@ except ImportError:  # pragma: no cover - optional dependency
     nn = None
 
 
-class MLPNetwork(nn.Module):
-    """Multi-layer perceptron for beam angle prediction."""
+# Only define MLPNetwork if PyTorch is available
+if nn is not None:
+    class MLPNetwork(nn.Module):
+        """Multi-layer perceptron for beam angle prediction."""
 
-    def __init__(self, input_size: int = 13):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(input_size, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(0.1),
-            nn.Linear(64, 1),
-        )
+        def __init__(self, input_size: int = 13):
+            super().__init__()
+            self.network = nn.Sequential(
+                nn.Linear(input_size, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(128, 64),
+                nn.ReLU(),
+                nn.Dropout(0.1),
+                nn.Linear(64, 1),
+            )
 
-    def forward(self, x):
-        return self.network(x)
+        def forward(self, x):
+            return self.network(x)
+else:
+    # Fallback stub when PyTorch is not available
+    class MLPNetwork:
+        """Stub class when PyTorch is not available."""
+        def __init__(self, input_size: int = 13):
+            raise RuntimeError("PyTorch is required for MLPNetwork but is not installed")
 
 
 class MLPPredictor(SweepMLPredictor):

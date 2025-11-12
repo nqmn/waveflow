@@ -1,5 +1,20 @@
 {
-  "nodes": [],
+  "nodes": [
+    {
+      "name": "AP1",
+      "type": "AccessPoint",
+      "pos": [
+        2.484226863283137,
+        5.711966461249515,
+        0.0
+      ],
+      "power_dBm": 20.0,
+      "freq": 5800000000.0,
+      "bandwidth_MHz": 20.0,
+      "antenna_gain_dBi": 3.0,
+      "noise_figure_dB": 6.0
+    }
+  ],
   "active_links": {
     "AP1\u2192R1\u2192UE1 (Connect Sweep - ML-Only Beam)": {
       "ap": "AP1",
