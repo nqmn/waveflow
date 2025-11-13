@@ -23,6 +23,7 @@ from cli.ap_shell import APNodeShell
 from cli.ue_shell import UENodeShell
 from cli.helpers import TopologyHelper, NetworkIO, sanitize_for_json
 from cli.video_stream import VideoStreamConfig, run_video_stream_workflow
+from cli.connection_handler import ConnectionHandler
 
 
 class RISNetCLI(cmd.Cmd):
@@ -35,6 +36,7 @@ class RISNetCLI(cmd.Cmd):
         self.net = net
         self.topology_helper = TopologyHelper(net)
         self.network_io = NetworkIO()
+        self.connection_handler = ConnectionHandler(net)
         # Load network state on startup
         self._load_network()
         # Setup tab completion
@@ -768,15 +770,14 @@ class RISNetCLI(cmd.Cmd):
                 Two-phase sweep: coarse center-out search, then fine refinement. ~30% more efficient.
             directional-exhaustive (aliases: directional, exhaustive)
                 Exhaustive sweep of all codebook angles for all network links with directional SNR.
-            ml-guided
-                Uses ML predictor to identify promising angles, then performs intelligent sweep.
-            ml (aliases: ml-only)
-                Pure ML-guided: tests only ML-predicted angles, no exhaustive fallback.
+            ml (aliases: ml-guided)
+                ML-guided beam sweep: validates top ML-predicted angles through measurement.
 
         ML PREDICTORS (use with --ml-predictor when algo is ml or ml-guided):
             rf          Random Forest (recommended, best balance of speed/accuracy)
             xgb         XGBoost (high accuracy, slower)
-            svr         Support Vector Regression (moderate accuracy)
+            svr         Support Vector Regression (very high accuracy)
+            knn         K-Nearest Neighbors (local pattern recognition)
             lr          Linear Regression (fast, simple baseline)
 
         Examples:
@@ -786,815 +787,71 @@ class RISNetCLI(cmd.Cmd):
             connect ap1 ris1 ue1 30                        # Single angle at 30°
             connect ap1 ris1 ue1 --sweep 60 10             # Multi-angle sweep ±60° at 10° (linear)
             connect ap1 ris1 ue1 --sweep 60 10 --algo center-out  # Coarse-fine sweep
-            connect ap1 ris1 ue1 --sweep 60 10 --algo ml-guided --ml-predictor xgb  # ML-guided
-            connect ap1 ris1 ue1 --sweep 60 10 --algo ml  # ML-only sweep
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor xgb  # ML-guided with XGBoost
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor knn  # ML-guided with KNN
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml  # ML-guided sweep with default predictor
 
         Tip: Use TAB completion with --algo and --ml-predictor flags to see available options.
         Default: 100% real signal-level simulation (generates actual waveforms, measures SNR and SER)
         """
-        parts = shlex.split(arg) if arg else []
-
-        # Gather all nodes by type
-        aps = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'AccessPoint']
-        riss = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'RIS']
-        ues = [n for n, nd in self.net.nodes.items() if type(nd).__name__ == 'UE']
-
-        # Smart argument filling
-        ap = None
-        ris = None
-        ue = None
-        remaining_parts = list(parts)
-
-        # Extract node names from arguments
-        if len(remaining_parts) > 0:
-            # Check if first arg is an AP
-            candidate = remaining_parts[0]
-            if candidate in aps:
-                ap = candidate
-                remaining_parts.pop(0)
-            elif candidate.lower() in [a.lower() for a in aps]:
-                ap = next(a for a in aps if a.lower() == candidate.lower())
-                remaining_parts.pop(0)
-
-        if len(remaining_parts) > 0:
-            # Check if next arg is a RIS
-            candidate = remaining_parts[0]
-            if candidate in riss:
-                ris = candidate
-                remaining_parts.pop(0)
-            elif candidate.lower() in [r.lower() for r in riss]:
-                ris = next(r for r in riss if r.lower() == candidate.lower())
-                remaining_parts.pop(0)
-
-        if len(remaining_parts) > 0:
-            # Check if next arg is a UE
-            candidate = remaining_parts[0]
-            if candidate in ues:
-                ue = candidate
-                remaining_parts.pop(0)
-            elif candidate.lower() in [u.lower() for u in ues]:
-                ue = next(u for u in ues if u.lower() == candidate.lower())
-                remaining_parts.pop(0)
-
-        # Auto-fill missing nodes (only if unambiguous)
-        if ap is None:
-            if len(aps) == 1:
-                ap = aps[0]
-            elif len(aps) == 0:
-                print("Error: No Access Points available in network")
-                return
-            else:
-                print("Error: Ambiguous AP selection. Available Access Points:")
-                for a in aps:
-                    print(f"  - {a}")
-                print(f"Usage: connect <ap_name> [ris] [ue] [options]")
-                return
-
-        if ris is None:
-            if len(riss) == 1:
-                ris = riss[0]
-            elif len(riss) == 0:
-                print("Error: No RIS nodes available in network")
-                return
-            else:
-                print(f"Error: Ambiguous RIS selection for AP '{ap}'. Available RIS nodes:")
-                for r in riss:
-                    print(f"  - {r}")
-                print(f"Usage: connect {ap} <ris_name> [ue] [options]")
-                return
-
-        if ue is None:
-            if len(ues) == 1:
-                ue = ues[0]
-            elif len(ues) == 0:
-                print("Error: No User Equipment available in network")
-                return
-            else:
-                print(f"Error: Ambiguous UE selection for {ap}→{ris}. Available UEs:")
-                for u in ues:
-                    print(f"  - {u}")
-                print(f"Usage: connect {ap} {ris} <ue_name> [options]")
-                return
-
-        parts = remaining_parts
-        enable_feedback = True
-        use_waveform = True  # ALWAYS enabled by default
-        modulation = 'QPSK'
-        fov = None
-        step = None
-        algo_name = 'linear'
-        ml_predictor = 'rf'  # Default: Random Forest (best performance)
-        algo_specified = False  # Track if user explicitly provided --algo
-        ml_predictor_specified = False  # Track if user explicitly provided --ml-predictor
-
-        # Parse flags
-        if '--no-feedback' in parts:
-            enable_feedback = False
-            parts.remove('--no-feedback')
-
-        if '--no-waveform' in parts:
-            use_waveform = False
-            parts.remove('--no-waveform')
-
-        if '--modulation' in parts:
-            idx = parts.index('--modulation')
-            if idx + 1 < len(parts):
-                modulation = parts[idx + 1]
-            parts = parts[:idx] + parts[idx+2:]
-
-        # Parse sweep parameters
-        if '--sweep' in parts:
-            idx = parts.index('--sweep')
-            fov = 60.0  # Default FOV
-            step = 10.0  # Default step
-
-            # Try to parse FOV from next token
-            if idx + 1 < len(parts) and not parts[idx + 1].startswith('--'):
-                try:
-                    fov = float(parts[idx + 1])
-                    # Try to parse STEP from token after FOV
-                    if idx + 2 < len(parts) and not parts[idx + 2].startswith('--'):
-                        try:
-                            step = float(parts[idx + 2])
-                            parts = parts[:idx] + parts[idx+3:]
-                        except ValueError:
-                            parts = parts[:idx] + parts[idx+2:]
-                    else:
-                        parts = parts[:idx] + parts[idx+2:]
-                except ValueError:
-                    # FOV not a number, use defaults and don't consume it
-                    parts = parts[:idx] + parts[idx+1:]
-            else:
-                # No FOV/STEP parameters, just remove --sweep flag
-                parts = parts[:idx] + parts[idx+1:]
-
-        if '--algo' in parts:
-            idx = parts.index('--algo')
-            if idx + 1 < len(parts):
-                algo_name = parts[idx + 1]
-            algo_specified = True
-            parts = parts[:idx] + parts[idx+2:]
-
-        if '--ml-predictor' in parts:
-            idx = parts.index('--ml-predictor')
-            if idx + 1 < len(parts):
-                ml_predictor = parts[idx + 1]
-            ml_predictor_specified = True
-            parts = parts[:idx] + parts[idx+2:]
-
-        def _is_number(token):
-            try:
-                float(token)
-                return True
-            except (TypeError, ValueError):
-                return False
-
-        # Check for unknown flags (anything starting with - or --)
-        unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
-        if unknown_flags:
-            print(f"Error: Unknown flag(s): {', '.join(unknown_flags)}")
-            print(f"Valid flags: --sweep, --algo, --modulation, --ml-predictor, --no-waveform, --no-feedback")
+        # Parse arguments using connection handler
+        ap, ris, ue, remaining_parts, error_msg = self.connection_handler.parse_connect_arguments(arg)
+        if error_msg:
+            print(error_msg)
             return
 
-        # Validate flag combinations
-        if fov is None:
-            # Single-angle mode
-            if algo_specified:
-                print(f"Error: --algo flag only valid with --sweep mode")
-                return
-            if ml_predictor_specified:
-                print(f"Error: --ml-predictor flag only valid with --sweep mode")
-                return
+        # Parse flags using connection handler
+        flags_result = self.connection_handler.parse_flags(remaining_parts)
+        if flags_result['error_msg']:
+            print(flags_result['error_msg'])
+            return
 
-        # Parse optional numeric args (beam angle first, then optional seed)
-        numeric_args = [p for p in parts if _is_number(p)]
-        angle = float(numeric_args[0]) if numeric_args else None
-        seed = None
-        for candidate in numeric_args[1:]:
-            if candidate.lstrip('-').isdigit():
-                seed = int(candidate)
-                break
+        enable_feedback = flags_result['enable_feedback']
+        use_waveform = flags_result['use_waveform']
+        modulation = flags_result['modulation']
+        fov = flags_result['fov']
+        step = flags_result['step']
+        algo_name = flags_result['algo_name']
+        ml_predictor = flags_result['ml_predictor']
+        angle = flags_result['angle']
+        seed = flags_result['seed']
 
         # Determine mode: single-angle vs sweep
         if fov is not None:
-            # Multi-angle sweep mode (explicit --sweep flag)
+            # Multi-angle sweep mode
             return self._do_connect_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor,
                                          enable_feedback, use_waveform, modulation, seed)
         else:
-            # Single-angle connect mode (traditional behavior - preserves current default)
-            # If no angle provided, network.connect() will auto-compute specular angle
+            # Single-angle connect mode
             return self._do_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform,
                                           modulation, seed)
 
     def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed):
         """Execute single-angle connect measurement"""
-        try:
-            # Display connection process steps
-            print(f"\n{'='*70}")
-            print(f"CONNECTION PROCESS: {ap} → {ris} → {ue}")
-            print(f"{'='*70}")
-
-            print(f"\n[STEP 1] Retrieve Node References")
-            print(f"  ✓ AP (Access Point):  {ap}")
-            print(f"  ✓ RIS (Reflector):    {ris}")
-            print(f"  ✓ UE (Device):        {ue}")
-
-            print(f"\n[STEP 2] Compute Geometry & FOV Validation")
-            print(f"  Computing: distances, beam angles, field-of-view...")
-
-            print(f"\n[STEP 3] Calculate RIS Phase Configuration")
-            print(f"  Computing: optimal phase steering, quantization...")
-            if angle is not None:
-                print(f"  Using specified beam angle: {angle:.1f}°")
-            else:
-                print(f"  Auto-computing beam angle (specular reflection)...")
-
-            print(f"\n[STEP 4] Calculate Path Loss & Array Gain")
-            print(f"  Computing: AP→RIS path loss")
-            print(f"  Computing: RIS→UE path loss")
-            print(f"  Computing: RIS array gain + antenna gains")
-
-            print(f"\n[STEP 5] Query SNR from UE (via Control Channel)")
-            print(f"  Action: Controller queries UE for measured SNR...")
-
-            res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
-                                  enable_feedback=enable_feedback, max_feedback_iterations=3)
-
-            print(f"  ✓ SNR Result: {res['snr_dB']:.2f} dB")
-
-            print(f"\n[STEP 6] Store Link Metadata on UE")
-            print(f"  Storing: (AP, RIS) → SNR, power, gain, phases...")
-            print(f"  Key: ('{ap}', '{ris}')")
-
-            print(f"\n[STEP 7] Create & Activate Link")
-            link_key = f"{ap}→{ris}→{ue}"
-            print(f"  Link: {link_key}")
-            print(f"  Status: ✓ ESTABLISHED - Ready for data transmission")
-
-        except ValueError as e:
-            # Clean error output without traceback
-            print(f"\n✗ {e}\n")
+        res = self.connection_handler.execute_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed)
+        if res is None:
             return
 
-        # Apply waveform simulation if enabled
-        if use_waveform:
-            try:
-                from core.signal_processor import SignalConfig, SignalLevelLink
-                signal_config = SignalConfig(
-                    modulation=modulation,
-                    symbol_rate=1e6,
-                    sample_rate=10e6,
-                    num_symbols=1000
-                )
-                link_simulator = SignalLevelLink(signal_config)
+        # Print detailed results using connection handler
+        self.connection_handler.print_connect_results(res, ap, ris, ue, enable_feedback, use_waveform, modulation, angle, seed)
 
-                # Convert physics SNR to noise power for signal-level simulation
-                # SNR_dB = 10*log10(Pr / Pn) => Pn = Pr / 10^(SNR_dB/10)
-                # Assume normalized RX power (Pr = 0 dB = 1.0 linear)
-                snr_linear = 10 ** (res['snr_dB'] / 10)
-                noise_power_linear = 1.0 / snr_linear
-                noise_power_dB = 10 * np.log10(noise_power_linear)
-                signal_result = link_simulator.simulate_link(
-                    path_loss_dB=0.0,
-                    noise_power_dB=noise_power_dB,
-                    K_factor=5.0,
-                    seed=seed if seed else None
-                )
-
-                # Add signal-level metrics to result
-                res['signal_level'] = signal_result
-                res['ser_percent'] = signal_result['ser_percent']
-                res['requested_modulation'] = modulation
-                # Extract negotiated modulation from feedback if available
-                if 'feedback_info' in res and 'final_iteration' in res['feedback_info']:
-                    final_iter = res['feedback_info']['final_iteration']
-                    if 'ap_mcs' in final_iter:
-                        res['negotiated_modulation'] = final_iter['ap_mcs']
-                    else:
-                        res['negotiated_modulation'] = modulation
-                else:
-                    res['negotiated_modulation'] = modulation
-            except ImportError:
-                pass  # If signal_processor not available, continue with physics-based
-
-        def _fmt_value(value, precision=2):
-            if isinstance(value, (int, np.integer)) or (isinstance(value, float) and value.is_integer()):
-                return f"{int(value)}"
-            if isinstance(value, (float, np.floating)):
-                return f"{value:.{precision}f}"
-            return str(value)
-
-        def _get_direction_desc(deflection_deg):
-            """Convert deflection angle to human-readable direction"""
-            deflection_deg = float(deflection_deg)
-            # Normalize to [-180, 180]
-            while deflection_deg > 180:
-                deflection_deg -= 360
-            while deflection_deg < -180:
-                deflection_deg += 360
-
-            if abs(deflection_deg) < 5:
-                return "aligned with RIS normal"
-            elif deflection_deg > 0:
-                return f"clockwise from RIS normal"
-            else:
-                return f"counterclockwise from RIS normal"
-
-        def _print_table(title, rows):
-            printable = [(label, _fmt_value(val)) for label, val in rows if val is not None]
-            if not printable:
-                return
-            width = max(len(label) for label, _ in printable)
-            print(f"\n[{title}]")
-            print("-"*70)
-            for label, value in printable:
-                print(f"  {label:<{width}} : {value}")
-
-        print(f"\n{'='*70}")
-        print(f"LINK ESTABLISHED - DETAILED METRICS")
-        print(f"{'='*70}")
-        print(f"Feedback:  {'Enabled (Adaptive)' if enable_feedback else 'Disabled (Single-shot)'}")
-        print(f"Waveform:  {'Enabled (' + modulation + ')' if use_waveform else 'Disabled (Physics-only)'}")
-        print("="*70)
-
-        physics_rows = []
-        for label, key in [
-            ("SNR (dB)", "snr_dB"),
-            ("RSSI (dBm)", "rssi_dBm"),
-            ("Power (dBm)", "pwr_dBm"),
-            ("Gain (dBi)", "gain_dBi"),
-            ("Gain (linear)", "gain_linear"),
-            ("Beam Angle (deg)", "beam_angle"),
-            ("Quant Penalty (dB)", "quant_loss_dB"),  # Shows absolute penalty value
-            ("EVM (%)", "evm_percent"),
-            ("SER (%)", "ser_percent")
-        ]:
-            if key in res:
-                value = res[key]
-                # Convert negative quantization loss to positive penalty
-                if key == "quant_loss_dB" and isinstance(value, (int, float)):
-                    value = abs(value)
-                physics_rows.append((label, value))
-        _print_table("PHYSICS METRICS", physics_rows)
-
-        # Add RIS beam angle recommendation (what to send to RIS)
-        # Display new format: deflection angle with incident/reflected azimuths
-        if 'snr_dB' in res:
-            snr_dB = float(res.get('snr_dB', 0))
-            deflection_angle = res.get('deflection_angle_deg')
-            incident_azimuth = res.get('incident_azimuth_deg')
-            reflected_azimuth = res.get('reflected_azimuth_deg')
-
-            print("\n[RECOMMENDATION TO SEND TO RIS]")
-            print("-"*70)
-
-            # Display new format with deflection angle and azimuths if available
-            if deflection_angle is not None:
-                # Check if FOV clamping was applied
-                fov_clamped = res.get('fov_clamped', False)
-                max_angle = res.get('max_angle_deg', 60)
-
-                if fov_clamped:
-                    print(f"RIS deflection angle above {max_angle:.0f}° hardware FOV limit")
-                else:
-                    print(f"Steering Angle (Deflection):   {float(deflection_angle):>8.2f}°")
-
-                    if incident_azimuth is not None:
-                        print(f"Incident Azimuth (AP→RIS):     {float(incident_azimuth):>8.2f}°")
-                    if reflected_azimuth is not None:
-                        print(f"Reflected Azimuth (RIS→UE):    {float(reflected_azimuth):>8.2f}°")
-            else:
-                # Fallback: use local deflection as steering angle when metadata unavailable
-                local_deflection = float(res.get('local_deflection_deg', 0))
-                print(f"Steering Angle (Deflection):   {local_deflection:>8.2f}°")
-
-            print(f"Expected SNR:                   {snr_dB:>8.2f} dB")
-
-        # TODO: Uncomment below sections for detailed CSI feedback and signal-level diagnostics
-        # These are useful for debugging but disabled in normal operation for cleaner output
-
-        # if 'feedback_info' in res:
-        #     fb = res['feedback_info']
-        #     summary_rows = [
-        #         ("Converged", "Yes" if fb.get('converged') else "No"),
-        #         ("Iterations", fb.get('num_iterations')),
-        #         ("Final MCS", fb.get('final_mcs')),
-        #         ("Final Power (dBm)", fb.get('final_power_dBm')),
-        #         ("Final SNR (dB)", fb.get('final_snr_dB'))
-        #     ]
-        #     _print_table("CSI FEEDBACK SUMMARY", summary_rows)
-        #
-        #     iterations = fb.get('iterations', [])
-        #     if iterations:
-        #         print("\n[CSI ITERATIONS]")
-        #         print("-"*70)
-        #         print("  Iter | SNR (dB) | Power (dBm) | MCS         | ΔSNR (dB) | Status")
-        #         for it in iterations:
-        #             status = "✓" if it.get('converged') else "→"
-        #             print(f"   {it['iteration']:>2}  | "
-        #                   f"{_fmt_value(it.get('measured_snr_dB')):>8} | "
-        #                   f"{_fmt_value(it.get('ap_power_dBm')):>11} | "
-        #                   f"{it.get('ap_mcs', ''):<10} | "
-        #                   f"{_fmt_value(it.get('snr_error_dB')):>8} | {status}")
-        #
-        # if use_waveform and 'signal_level' in res:
-        #     sig = res['signal_level']
-        #     waveform_rows = [
-        #         ("Requested Modulation", res.get('requested_modulation', modulation)),
-        #         ("Negotiated Modulation", res.get('negotiated_modulation', 'Unknown')),
-        #         ("SNR (dB)", sig.get('snr_dB')),
-        #         ("SER (%)", sig.get('ser_percent')),
-        #         ("Symbol Errors", sig.get('symbol_errors')),
-        #         ("Total Symbols", sig.get('total_symbols'))
-        #     ]
-        #     _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
-
-        # Print final connection summary
-        print(f"\n{'='*70}")
-        print(f"FINAL STATUS: LINK ACTIVE & ESTABLISHED")
-        print(f"{'='*70}")
-        print(f"Path:       {ap} → {ris} → {ue}")
-        print(f"SNR:        {res['snr_dB']:.2f} dB")
-        print(f"Power:      {res['pwr_dBm']:.2f} dBm")
-        print(f"Gain:       {res['gain_dBi']:.2f} dBi")
-        print(f"Beam Angle: {res.get('beam_angle', 0):.1f}°")
-        print(f"Status:     ✓ READY FOR DATA TRANSMISSION")
-        print(f"{'='*70}\n")
-
-        connection_record = {
-            'type': 'connect',
-            'ap': ap,
-            'ris': ris,
-            'ue': ue,
-            'captured_at': datetime.utcnow().isoformat() + 'Z',
-            'parameters': {
-                'requested_angle_deg': float(res.get('beam_angle')) if res.get('beam_angle') is not None else angle,
-                'seed': seed,
-                'enable_feedback': enable_feedback,
-                'use_waveform': use_waveform,
-                'modulation': modulation if use_waveform else None
-            },
-            'summary': {
-                'beam_angle_deg': float(res.get('beam_angle')) if res.get('beam_angle') is not None else None,
-                'snr_dB': float(res.get('snr_dB')) if res.get('snr_dB') is not None else None,
-                'pwr_dBm': float(res.get('pwr_dBm')) if res.get('pwr_dBm') is not None else None,
-                'gain_dBi': float(res.get('gain_dBi')) if res.get('gain_dBi') is not None else None
-            },
-            'metrics': res
-        }
+        # Create and save connection record
+        connection_record = self.connection_handler.create_connection_record(ap, ris, ue, res, angle, seed, enable_feedback, use_waveform, modulation)
         self.net.last_connect_result = sanitize_for_json(connection_record)
 
     def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed):
         """Execute multi-angle sweep within unified connect command"""
-        algo_requested = algo_name
-        algo_requested_lower = algo_requested.lower()
+        # Execute sweep using connection handler
+        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed)
+        if out is None:
+            return
 
         try:
-            algo = SweepAlgorithmLoader.get_algorithm(algo_requested, self.net)
-        except ValueError as e:
-            print(f"Error: {e}")
-            return
-        except Exception as e:
-            print(f"Error loading sweep algorithm: {e}")
-            return
+            # Print sweep results using connection handler
+            best_angles_info = self.connection_handler.print_sweep_results(out, fov, step, ap, ris, ue, algo_name)
 
-        if not self.net.get(ap) or not self.net.get(ris) or not self.net.get(ue):
-            print(f"Error: Invalid node names")
-            return
-
-        print('\n' + '='*70)
-        print('BEAM SWEEP (via unified connect command)')
-        print('='*70)
-
-        try:
-            # Pass parameters to algorithm
-            kwargs = {
-                'fov': fov,
-                'step': step,
-                'enable_feedback': enable_feedback,
-                'max_feedback_iterations': 3
-            }
-            if algo_requested_lower in ['ml', 'ml-guided']:
-                kwargs['ml_predictor'] = ml_predictor
-
-            # Add waveform simulation if requested
-            if use_waveform:
-                kwargs['use_waveform'] = True
-                kwargs['modulation'] = modulation
-                kwargs['num_symbols'] = 1000
-
-            out = algo.sweep(ap, ris, ue, **kwargs)
-
-            # Post-process: Apply waveform simulation if enabled and not already applied
-            if use_waveform and 'ser_coarse' not in out:
-                try:
-                    from core.signal_processor import SignalConfig, SignalLevelLink
-                    signal_config = SignalConfig(
-                        modulation=modulation,
-                        symbol_rate=1e6,
-                        sample_rate=10e6,
-                        num_symbols=1000
-                    )
-                    link_simulator = SignalLevelLink(signal_config)
-
-                    # Convert physics SNR to signal-level SNR/SER for coarse phase
-                    ser_coarse = []
-                    for snr_val in out.get('snr_coarse', []):
-                        noise_power = 10 ** (-snr_val / 10)
-                        noise_power_dB = 10 * np.log10(noise_power)
-                        signal_result = link_simulator.simulate_link(
-                            path_loss_dB=0.0,
-                            noise_power_dB=noise_power_dB,
-                            K_factor=5.0,
-                            seed=seed if seed else None
-                        )
-                        ser_coarse.append(signal_result['ser_percent'])
-
-                    out['ser_coarse'] = ser_coarse
-
-                    # Convert for fine phase if available
-                    if 'snr_fine' in out and len(out['snr_fine']) > 0:
-                        ser_fine = []
-                        for snr_val in out['snr_fine']:
-                            noise_power = 10 ** (-snr_val / 10)
-                            noise_power_dB = 10 * np.log10(noise_power)
-                            signal_result = link_simulator.simulate_link(
-                                path_loss_dB=0.0,
-                                noise_power_dB=noise_power_dB,
-                                K_factor=5.0,
-                                seed=seed if seed else None
-                            )
-                            ser_fine.append(signal_result['ser_percent'])
-                        out['ser_fine'] = ser_fine
-                except ImportError:
-                    pass  # If signal_processor not available, continue with physics-based
-
-            # Extract algorithm info
-            algo_name = algo.name
-            has_fine_phase = 'local_fine' in out and len(out.get('local_fine', [])) > 0
-
-            print(f'\n[ALGORITHM: {algo_name}]')
-            print('-'*70)
-
-            local_coarse = out.get('local_coarse', [])
-            snr_coarse = out.get('snr_coarse', [])
-            pwr_coarse = out.get('pwr_coarse', [])
-
-            local_fine = out.get('local_fine', [])
-            snr_fine = out.get('snr_fine', [])
-
-            # Check if Real Signal algorithm
-            ser_coarse = out.get('ser_coarse', [])
-            ser_fine = out.get('ser_fine', [])
-            is_real_signal = ser_coarse is not None and len(ser_coarse) > 0
-
-            # Check if ML algorithm
-            ml_results = out.get('ml_results', [])
-            ml_suggestions = out.get('ml_suggestions', [])
-
-            # Calculate efficiency metrics
-            total_angles_tested = len(local_coarse)
-            if has_fine_phase:
-                total_angles_tested += len(local_fine)
-                exhaustive_count = int(2 * fov / step) + 1
-                efficiency = (1.0 - len(local_coarse) / exhaustive_count) * 100
-                if ml_results:
-                    print(f'[THREE-PHASE SWEEP: ML ({len(ml_results)} suggestions) + Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
-                    total_angles_tested += len(ml_results)
-                    print(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
-                else:
-                    print(f'[TWO-PHASE SWEEP: Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
-                    print(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
-            else:
-                print(f'[SINGLE-PHASE SWEEP]')
-                print(f'Total angles tested: {total_angles_tested}')
-            print()
-
-            # Show ML predictions if available
-            if ml_results:
-                print('ML PREDICTOR RESULTS:')
-                print('-'*70)
-                print(f'Predictor: {out.get("ml_predictor", "unknown")}')
-                print(f'Suggestions: {[f"{a:.1f}°" for a in ml_suggestions]}')
-
-                # Show ML metrics if available
-                ml_metrics = out.get("ml_metrics", {})
-                if ml_metrics:
-                    pred_time = ml_metrics.get('prediction_time_ms', 0)
-                    uncertainty = ml_metrics.get('uncertainty', 0)
-                    error_bounds = ml_metrics.get('error_bounds', 0)
-                    model_avail = ml_metrics.get('model_available', False)
-                    model_status = "✓ Loaded" if model_avail else "✗ Unavailable"
-
-                    print(f'Prediction Time: {pred_time:.3f} ms | Uncertainty: ±{uncertainty:.1f}° | Model: {model_status}')
-                    print(f'Error Bounds: ±{error_bounds:.1f}°')
-                print()
-
-                header = f'{"Suggestion (°)":<18} {"SNR (dB)":<15} {"Power (dBm)":<15}'
-                print(header)
-                print('-'*70)
-                best_ml_idx = int(np.argmax([r["snr_dB"] for r in ml_results]))
-                for i, result in enumerate(ml_results):
-                    marker = " <-- BEST IN ML" if i == best_ml_idx else ""
-                    print(f'{result["local_angle"]:>16.1f}  {result["snr_dB"]:>13.2f}  {result["pwr_dBm"]:>13.2f}{marker}')
-                print()
-
-            if local_coarse and snr_coarse:
-                print('COARSE PHASE RESULTS:')
-                print('-'*70)
-                if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                    # Real signal output with SNR and SER
-                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
-                    print(header)
-                    print('-'*70)
-                    # Use SER for best selection in real signal mode
-                    ser_vals = [s for s in ser_coarse if s is not None]
-                    if ser_vals:
-                        best_idx = int(np.argmin(ser_coarse))  # Lower SER is better
-                    else:
-                        best_idx = int(np.argmax(snr_coarse))
-                    for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
-                        ser = ser_coarse[i] if i < len(ser_coarse) and ser_coarse[i] is not None else 0.0
-                        marker = " <-- BEST" if i == best_idx else ""
-                        print(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
-                else:
-                    # Regular physics-based output
-                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
-                    print(header)
-                    print('-'*70)
-                    best_idx = int(np.argmax(snr_coarse))
-                    for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
-                        pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
-                        marker = " <-- BEST" if i == best_idx else ""
-                        print(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
-                print()
-
-            # Show fine phase results if available
-            if has_fine_phase and local_fine and snr_fine:
-                print('FINE PHASE RESULTS:')
-                print('-'*70)
-                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
-                    print(header)
-                    print('-'*70)
-                    # Find best SER value (excluding None)
-                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
-                    if ser_vals_idx:
-                        best_fine_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
-                        best_ser_fine = float(ser_fine[best_fine_idx])
-                    else:
-                        best_fine_idx = 0
-                        best_ser_fine = 0.0
-                    for i, (angle, snr, ser) in enumerate(zip(local_fine, snr_fine, ser_fine)):
-                        if ser is not None:
-                            marker = " <-- BEST OVERALL" if ser == best_ser_fine else ""
-                            print(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
-                        else:
-                            print(f'{angle:>11.1f}  {snr:>13.2f}  {"N/A":>13s}')
-                else:
-                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
-                    print(header)
-                    print('-'*70)
-                    best_fine_idx = int(np.argmax(snr_fine))
-                    best_snr_fine = float(np.max(snr_fine))
-                    for i, (angle, snr) in enumerate(zip(local_fine, snr_fine)):
-                        marker = " <-- BEST OVERALL" if snr == best_snr_fine else ""
-                        print(f'{angle:>11.1f}  {snr:>13.2f}  {" "*15}{marker}')
-                print()
-
-                # Show summary
-                best_coarse_snr = float(np.max(snr_coarse))
-                best_snr_fine = float(np.max(snr_fine))
-                improvement = best_snr_fine - best_coarse_snr
-                print('SUMMARY:')
-                print('-'*70)
-                print(f'Best coarse SNR:        {best_coarse_snr:>8.2f} dB')
-                print(f'Best fine SNR:          {best_snr_fine:>8.2f} dB')
-                print(f'Improvement:            {improvement:>8.2f} dB')
-                print()
-
-            # Calculate final best beam angle
-            specular_angle = out.get('specular_angle', None)
-            if specular_angle is None:
-                specular_angle = out.get('base_angle', 0.0)
-
-            if has_fine_phase and local_fine and snr_fine:
-                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
-                    if ser_vals_idx:
-                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
-                        best_final_local = local_fine[best_ser_idx]
-                        best_final_snr = snr_fine[best_ser_idx]
-                    else:
-                        best_final_local = local_fine[int(np.argmax(snr_fine))]
-                        best_final_snr = float(np.max(snr_fine))
-                else:
-                    best_final_local = local_fine[int(np.argmax(snr_fine))]
-                    best_final_snr = float(np.max(snr_fine))
-            else:
-                if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                    ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
-                    if ser_vals_idx:
-                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
-                        best_final_local = local_coarse[best_ser_idx]
-                        best_final_snr = snr_coarse[best_ser_idx]
-                    else:
-                        best_final_local = local_coarse[int(np.argmax(snr_coarse))]
-                        best_final_snr = float(np.max(snr_coarse))
-                else:
-                    best_final_local = local_coarse[int(np.argmax(snr_coarse))]
-                    best_final_snr = float(np.max(snr_coarse))
-
-            best_final_abs = specular_angle + best_final_local
-
-            # Calculate deflection direction description
-            deflection = best_final_local
-            # Normalize to [-180, 180]
-            while deflection > 180:
-                deflection -= 360
-            while deflection < -180:
-                deflection += 360
-
-            if abs(deflection) < 5:
-                direction_desc = "aligned with RIS normal"
-            elif deflection > 0:
-                direction_desc = "clockwise from RIS normal"
-            else:
-                direction_desc = "counterclockwise from RIS normal"
-
-            # Show recommendation for RIS
-            print('RECOMMENDATION TO SEND TO RIS:')
-            print('-'*70)
-
-            # Note: Beam sweep uses local deflection angle (relative to RIS normal)
-            # For full metadata (incident/reflected azimuths), use 'connect' command instead
-            print(f'Steering Angle (Deflection):    {best_final_local:>8.2f}°  (azimuth deflection magnitude)')
-            print(f'Expected SNR:                    {best_final_snr:>8.2f} dB')
-            print()
-
-            # Update/create active link with best result from sweep
-            ap_node = self.net.get(ap)
-            ris_node = self.net.get(ris)
-            ue_node = self.net.get(ue)
-            ap_key = ap_node.name if ap_node else ap
-            ris_key = ris_node.name if ris_node else ris
-            ue_key = ue_node.name if ue_node else ue
-
-            # Extract algorithm name from algo object
-            algo_display_name = getattr(algo, 'name', algo_name).replace('Sweep', '').strip()
-            link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect Sweep - {algo_display_name})"
-
-            # Retrieve phase data from RIS node if available
-            phase_data = {}
-            ris_node_ref = self.net.get(ris)
-            if ris_node_ref and hasattr(ris_node_ref, 'current_phases'):
-                phase_data['current_phases'] = ris_node_ref.current_phases.tolist() if hasattr(ris_node_ref.current_phases, 'tolist') else ris_node_ref.current_phases
-                if hasattr(ris_node_ref, 'quantized_phases') and ris_node_ref.quantized_phases is not None:
-                    phase_data['quantized_phases'] = ris_node_ref.quantized_phases.tolist() if hasattr(ris_node_ref.quantized_phases, 'tolist') else ris_node_ref.quantized_phases
-                if hasattr(ris_node_ref, 'phase_states') and ris_node_ref.phase_states is not None:
-                    phase_data['phase_states'] = ris_node_ref.phase_states.tolist() if hasattr(ris_node_ref.phase_states, 'tolist') else ris_node_ref.phase_states
-
-            self.net.active_links[link_key] = {
-                'ap': ap_key,
-                'ris': ris_key,
-                'ue': ue_key,
-                'snr_dB': float(best_final_snr),
-                'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
-                'beam_angle_local': float(best_final_local),  # LOCAL deflection (what to send to RIS: -60 to +60)
-                'beam_angle_absolute': float(best_final_abs),  # ABSOLUTE angle (world/global reference)
-                'ris_normal_angle': float(specular_angle),  # RIS normal angle (for coordinate conversion)
-                'gain_dBi': 47.46,
-                'quant_loss_dB': -0.75,
-                'source': 'connect_sweep',
-                'algorithm': algo_display_name,
-                **phase_data  # Include phase data if available
-            }
-
-            # Update RIS node's beam angle attributes for phase plot display
-            if ris_node:
-                ris_node.specular_angle_deg = float(specular_angle)
-                ris_node.abs_beam_angle_deg = float(best_final_abs)
-                ris_node.local_beam_deflection_deg = float(best_final_local)
-
-            sweep_record = {
-                'type': 'connect_sweep',
-                'ap': ap_key,
-                'ris': ris_key,
-                'ue': ue_key,
-                'captured_at': datetime.utcnow().isoformat() + 'Z',
-                'parameters': {
-                    'fov_deg': float(fov),
-                    'step_deg': float(step),
-                    'algorithm': algo_name,
-                    'enable_feedback': bool(enable_feedback),
-                    'use_waveform': bool(use_waveform),
-                    'modulation': modulation if use_waveform else None
-                },
-                'best_angle_local': float(best_final_local),
-                'best_angle_absolute': float(best_final_abs),
-                'best_snr_dB': float(best_final_snr)
-            }
-            self.net.last_sweep_result = sanitize_for_json(sweep_record)
+            # Create sweep record and update network using connection handler
+            self.connection_handler.create_sweep_record_and_link(ap, ris, ue, out, best_angles_info, fov, step, algo_name, use_waveform, modulation)
 
         except ValueError as e:
             # Clean error output for FOV violations

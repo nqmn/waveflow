@@ -1,4 +1,4 @@
-"""Train a Linear Regression beam predictor from generated dataset.
+"""Train a K-Nearest Neighbors (KNN) beam predictor from generated dataset.
 
 DATASET & FORMULA (Deflection Angle):
 ====================================
@@ -35,7 +35,7 @@ from typing import List
 import numpy as np
 
 try:
-    from sklearn.linear_model import LinearRegression
+    from sklearn.neighbors import KNeighborsRegressor
     from sklearn.preprocessing import StandardScaler
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
@@ -77,12 +77,17 @@ def load_dataset(path: Path):
     return np.array(X, dtype=float), np.array(y, dtype=float)
 
 
-def train_model(X, y):
-    # Normalize features for better linear regression performance
+def train_model(X, y, n_neighbors: int = 5, weights: str = 'distance', metric: str = 'minkowski'):
+    # Normalize features - critical for KNN performance
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    model = LinearRegression()
+    model = KNeighborsRegressor(
+        n_neighbors=n_neighbors,
+        weights=weights,
+        metric=metric,
+        n_jobs=-1,
+    )
     model.fit(X_scaled, y)
 
     # Store scaler with model for inference
@@ -91,9 +96,12 @@ def train_model(X, y):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Linear Regression beam predictor")
+    parser = argparse.ArgumentParser(description="Train K-Nearest Neighbors (KNN) beam predictor")
     parser.add_argument('--data', type=Path, required=True, help='Path to dataset CSV')
-    parser.add_argument('--output', type=Path, default=Path('controller/beamsweeping/ml/models/lr_beam_predictor.pkl'))
+    parser.add_argument('--output', type=Path, default=Path('controller/beamsweeping/ml/models/knn_beam_predictor.pkl'))
+    parser.add_argument('--n-neighbors', type=int, default=5, help='Number of neighbors')
+    parser.add_argument('--weights', type=str, default='distance', choices=['uniform', 'distance'], help='Weight function')
+    parser.add_argument('--metric', type=str, default='minkowski', choices=['euclidean', 'manhattan', 'minkowski'], help='Distance metric')
     parser.add_argument('--test-size', type=float, default=0.2, help='Test set fraction (0.0-1.0)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     args = parser.parse_args()
@@ -109,8 +117,9 @@ def main():
     )
     print(f"Train: {X_train.shape[0]} samples | Test: {X_test.shape[0]} samples")
 
-    print("\nTraining Linear Regression model...")
-    model = train_model(X_train, y_train)
+    print(f"\nTraining KNN model with n_neighbors={args.n_neighbors}, weights={args.weights}, metric={args.metric}...")
+    model = train_model(X_train, y_train, n_neighbors=args.n_neighbors,
+                       weights=args.weights, metric=args.metric)
 
     print("\n" + "="*70)
     print("MODEL EVALUATION METRICS")
@@ -178,7 +187,7 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('wb') as f:
         pickle.dump(model, f)
-    print(f"Saved Linear Regression model to {args.output}")
+    print(f"Saved KNN model to {args.output}")
 
 
 if __name__ == "__main__":

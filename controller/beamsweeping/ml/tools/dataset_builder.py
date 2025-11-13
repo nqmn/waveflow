@@ -31,6 +31,8 @@ import random
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+from multiprocessing import Pool
+import time
 
 import numpy as np
 
@@ -50,6 +52,7 @@ FIELDNAMES = [
     'ue_x', 'ue_y', 'ue_z',
     'ap_power_dBm', 'ap_freq',
     'ris_N', 'ris_bits',
+    'aoa_deg', 'aod_deg', 'deflection_deg',
     'best_angle', 'best_snr'
 ]
 
@@ -215,7 +218,46 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
     return sample
 
 
+def build_sample_worker(args_tuple):
+    """
+    Worker function for multiprocessing.
+    Takes all needed arguments as a tuple since Pool.map passes single argument.
+    """
+    idx, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle, grid_spacing, seed_offset = args_tuple
+
+    # Set unique seed for each worker to ensure different random samples
+    random.seed(seed_offset + idx)
+    np.random.seed(seed_offset + idx)
+
+    net = RISNetwork()
+
+    try:
+        sample = build_sample(net, bounds, ap_cfg, ris_cfg, ue_cfg,
+                            ris_max_angle=ris_max_angle, grid_spacing=grid_spacing)
+        return idx, sample, None
+    except Exception as exc:
+        return idx, None, str(exc)
+
+
 def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
+    """Flatten sample and compute AOA/AOD angles"""
+    ap_pos = np.array(sample['ap_pos'])
+    ris_pos = np.array(sample['ris_pos'])
+    ue_pos = np.array(sample['ue_pos'])
+
+    # Compute AOA (Angle of Arrival): AP direction from RIS perspective
+    ap_vec = ap_pos - ris_pos
+    aoa_deg = float(np.degrees(np.arctan2(ap_vec[1], ap_vec[0])))
+
+    # Compute AOD (Angle of Departure): UE direction from RIS perspective
+    ue_vec = ue_pos - ris_pos
+    aod_deg = float(np.degrees(np.arctan2(ue_vec[1], ue_vec[0])))
+
+    # Compute deflection angle (magnitude of angle difference)
+    deflection = abs(aod_deg - aoa_deg)
+    # Normalize to [0, 180]
+    deflection_deg = float(min(deflection, 360 - deflection))
+
     return {
         'ap_x': sample['ap_pos'][0],
         'ap_y': sample['ap_pos'][1],
@@ -230,6 +272,9 @@ def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
         'ap_freq': sample['ap_freq'],
         'ris_N': sample['ris_N'],
         'ris_bits': sample['ris_bits'],
+        'aoa_deg': aoa_deg,
+        'aod_deg': aod_deg,
+        'deflection_deg': deflection_deg,
         'best_angle': sample['best_angle'],
         'best_snr': sample['best_snr']
     }
@@ -242,10 +287,8 @@ def main():
                         default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
                         help='Output CSV file')
     parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--cores', type=int, default=4, help='Number of CPU cores to use')
     args = parser.parse_args()
-
-    random.seed(args.seed)
-    np.random.seed(args.seed)
 
     # Improved bounds: 1m grid spacing for better coverage
     # This ensures we have samples at regular intervals
@@ -261,22 +304,37 @@ def main():
     ris_cfg = {'N': 16, 'bits': 1}
     ue_cfg = {}
 
-    net = RISNetwork()
-
-    samples: List[Dict[str, Any]] = []
     grid_spacing = 1.0  # 1 meter spacing for stratified sampling
     ris_max_angle = 60.0  # RIS FOV: ±60°
 
-    for idx in range(args.samples):
-        try:
-            sample = build_sample(net, bounds, ap_cfg, ris_cfg, ue_cfg,
-                                ris_max_angle=ris_max_angle, grid_spacing=grid_spacing)
-            samples.append(sample)
-            if (idx + 1) % 500 == 0:
-                print(f"Generated {idx + 1}/{args.samples} samples...")
-        except Exception as exc:
-            # Should rarely happen now, as generate_valid_geometry ensures valid FOV
-            print(f"Error generating sample {idx + 1}: {exc}")
+    # Prepare worker arguments
+    worker_args = [
+        (idx, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle, grid_spacing, args.seed)
+        for idx in range(args.samples)
+    ]
+
+    print(f"Generating {args.samples} samples using {args.cores} cores...")
+    start_time = time.time()
+
+    # Use multiprocessing pool
+    with Pool(processes=args.cores) as pool:
+        results = pool.map(build_sample_worker, worker_args)
+
+    elapsed_time = time.time() - start_time
+
+    # Process results and collect samples
+    samples_dict = {}
+    error_count = 0
+
+    for idx, sample, error in results:
+        if error:
+            print(f"Error generating sample {idx + 1}: {error}")
+            error_count += 1
+        else:
+            samples_dict[idx] = sample
+
+    # Sort by index to maintain order
+    samples = [samples_dict[idx] for idx in sorted(samples_dict.keys())]
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('w', newline='') as csv_file:
@@ -286,6 +344,8 @@ def main():
             writer.writerow(flatten_sample(sample))
 
     print(f"Wrote {len(samples)} samples to {args.output}")
+    print(f"Errors: {error_count}")
+    print(f"Total time: {elapsed_time:.2f}s ({args.samples/elapsed_time:.1f} samples/sec)")
 
 
 if __name__ == "__main__":

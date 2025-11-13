@@ -54,6 +54,12 @@ def load_dataset(path: Path):
             ue_pos = [float(row['ue_x']), float(row['ue_y']), float(row['ue_z'])]
             vec_ap_ris = np.array(ris_pos) - np.array(ap_pos)
             vec_ris_ue = np.array(ue_pos) - np.array(ris_pos)
+
+            # Extract or compute angle features
+            aoa_deg = float(row.get('aoa_deg', 0.0))
+            aod_deg = float(row.get('aod_deg', 0.0))
+            deflection_deg = float(row.get('deflection_deg', 0.0))
+
             features = [
                 *ap_pos, *ris_pos, *ue_pos,
                 float(np.linalg.norm(vec_ap_ris)),
@@ -62,6 +68,9 @@ def load_dataset(path: Path):
                 float(row['ap_freq']),
                 float(row['ris_N']),
                 float(row['ris_bits']),
+                aoa_deg,
+                aod_deg,
+                deflection_deg,
             ]
             X.append(features)
             y.append(float(row['best_angle']))

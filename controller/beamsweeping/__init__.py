@@ -10,7 +10,6 @@ from .algorithms import (
     DirectionalExhaustiveSweep,
     LinearBruteForceSweep,
     MLGuidedSweep,
-    MLOnlySweep,
     get_algorithm_class,
     list_registered_algorithms,
 )
@@ -24,7 +23,7 @@ class SweepAlgorithmLoader:
     Provides access to three core beam sweep algorithms:
     - linear (brute-force): Exhaustive search across FOV
     - coarse-fine (two-phase): Two-phase intelligent center-out search
-    - ml (ml-guided): ML predictor-driven search
+    - ml (ml-guided): ML-guided beam sweep with validation
 
     Backward compatibility aliases:
     - 'adaptive' and 'center-out' map to 'coarse-fine'
@@ -86,7 +85,6 @@ __all__ = [
     'SweepAlgorithmBase',
     'LinearBruteForceSweep',
     'CoarseFineSweep',
-    'MLOnlySweep',
     'MLGuidedSweep',
     'DirectionalExhaustiveSweep',
     'SweepAlgorithmLoader',

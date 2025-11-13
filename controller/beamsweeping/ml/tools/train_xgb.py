@@ -4,7 +4,7 @@ DATASET & FORMULA (Deflection Angle):
 ====================================
 The training dataset uses the NEW DEFLECTION ANGLE FORMULA from formula.md:
 
-INPUT FEATURES (extracted from 3D node positions):
+INPUT FEATURES (extracted from 3D node positions and computed angles):
   - AP position (3 coords: x, y, z)
   - RIS position (3 coords: x, y, z)
   - UE position (3 coords: x, y, z)
@@ -14,6 +14,9 @@ INPUT FEATURES (extracted from 3D node positions):
   - AP frequency (Hz)
   - RIS element count (N)
   - RIS phase quantization bits
+  - AOA (Angle of Arrival): AP direction from RIS perspective (degrees)
+  - AOD (Angle of Departure): UE direction from RIS perspective (degrees)
+  - Deflection angle: |AOD - AOA| normalized to [0°, 180°]
 
 TRAINING TARGET (best_angle):
   - LOCAL DEFLECTION ANGLE in degrees
@@ -21,7 +24,7 @@ TRAINING TARGET (best_angle):
   - Range: 0° to 180° (always positive)
   - Represents: How much to deflect from incident direction to reach target
 
-The model learns to predict the optimal deflection angle given network geometry.
+The model learns to predict the optimal deflection angle given network geometry and angle features.
 """
 
 from __future__ import annotations
@@ -52,6 +55,12 @@ def load_dataset(path: Path):
             ue_pos = [float(row['ue_x']), float(row['ue_y']), float(row['ue_z'])]
             vec_ap_ris = np.array(ris_pos) - np.array(ap_pos)
             vec_ris_ue = np.array(ue_pos) - np.array(ris_pos)
+
+            # Extract or compute angle features
+            aoa_deg = float(row.get('aoa_deg', 0.0))
+            aod_deg = float(row.get('aod_deg', 0.0))
+            deflection_deg = float(row.get('deflection_deg', 0.0))
+
             features = [
                 *ap_pos, *ris_pos, *ue_pos,
                 float(np.linalg.norm(vec_ap_ris)),
@@ -60,6 +69,9 @@ def load_dataset(path: Path):
                 float(row['ap_freq']),
                 float(row['ris_N']),
                 float(row['ris_bits']),
+                aoa_deg,
+                aod_deg,
+                deflection_deg,
             ]
             X.append(features)
             y.append(float(row['best_angle']))

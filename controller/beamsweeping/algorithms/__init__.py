@@ -9,14 +9,12 @@ from ..registry import (
 from .linear_brute_force import LinearBruteForceSweep
 from .coarse_fine_sweep import CoarseFineSweep
 from .directional_exhaustive_sweep import DirectionalExhaustiveSweep
-from .ml_sweep import MLGuidedSweep
-from .ml_only_sweep import MLOnlySweep
+from .ml_guided_sweep import MLGuidedSweep
 
 __all__ = [
     "LinearBruteForceSweep",
     "CoarseFineSweep",
     "MLGuidedSweep",
-    "MLOnlySweep",
     "DirectionalExhaustiveSweep",
     "register_algorithm",
     "get_algorithm_class",

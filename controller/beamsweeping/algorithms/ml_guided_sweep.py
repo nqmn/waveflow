@@ -1,13 +1,13 @@
-"""ML-Only Beam Sweep Algorithm (1-Phase)
+"""ML-Guided Beam Sweep Algorithm (1-Phase)
 
-Uses machine learning predictions as the ONLY sweep strategy.
-No exhaustive fallback - trusts the ML model to find the best angles.
+Uses machine learning predictions to identify candidate angles, then validates
+them through actual measurements to find the best performer.
 
-This is a true ML-guided approach:
-- ML predictor identifies promising angles
-- Test ONLY those predicted angles
-- Return the best result found
-- Fast and efficient for pre-trained models
+This is a smart ML-guided validation approach:
+- ML predictor identifies top-K promising angles
+- Test all predicted angles to validate performance
+- Return the best result found through measurement
+- Balances prediction efficiency with measurement accuracy
 """
 import numpy as np
 from typing import Dict
@@ -23,17 +23,17 @@ from ..common import (
 from ..registry import register_algorithm
 
 
-@register_algorithm("ml", aliases=("ml-only",))
-class MLOnlySweep(SweepAlgorithmBase):
-    """ML-only beam sweep algorithm (1-phase)"""
+@register_algorithm("ml", aliases=("ml-guided",))
+class MLGuidedSweep(SweepAlgorithmBase):
+    """ML-guided beam sweep algorithm with validation (1-phase)"""
 
     @property
     def name(self) -> str:
-        return "ML-Only Beam Sweep"
+        return "ML-Guided Beam Sweep"
 
     @property
     def description(self) -> str:
-        return "Pure ML-guided: tests only ML-predicted angles, no exhaustive fallback."
+        return "ML-guided beam sweep: validates top ML-predicted angles through measurement."
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
@@ -42,14 +42,14 @@ class MLOnlySweep(SweepAlgorithmBase):
               ml_predictor: str = 'xgb', top_k: int = 5,
               ml_angles=None, use_waveform: bool = False,
               modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
-        """Execute ML-only sweep (single phase)
+        """Execute ML-guided beam sweep with validation (single phase)
 
         Args:
             ap_name: Access Point name
             ris_name: RIS name
             ue_name: User Equipment name
             fov: Field of view in degrees (for ML context)
-            step: Not used in ML-only mode
+            step: Not used in ML-guided mode
             seed: Random seed for reproducibility
             enable_feedback: If True, use closed-loop feedback
             max_feedback_iterations: Max iterations for feedback loop
@@ -60,7 +60,7 @@ class MLOnlySweep(SweepAlgorithmBase):
             num_symbols: Number of symbols per measurement
 
         Returns:
-            Dictionary with ML predictions and results
+            Dictionary with ML predictions, test results, and best angle found
         """
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
@@ -108,10 +108,10 @@ class MLOnlySweep(SweepAlgorithmBase):
 
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
-        # PHASE 1: Test ONLY ML-suggested angles (clamped to RIS FOV)
-        print(f"\n[ML-ONLY SWEEP]")
+        # PHASE 1: Test ML-suggested angles (clamped to RIS FOV)
+        print(f"\n[ML-GUIDED SWEEP]")
         print(f"ML Predictor: {ml_predictor}")
-        print(f"Testing {len(clamped_ml_suggestions)} ML-predicted angles (top_k={top_k})")
+        print(f"Validating {len(clamped_ml_suggestions)} ML-predicted angles (top_k={top_k})")
 
         ml_results = []
         local_angles = []
