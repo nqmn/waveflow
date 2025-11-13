@@ -7,6 +7,7 @@ import time
 from .pathfinding import get_algorithm, list_algorithms
 from .beamforming import BeamformingEngine
 from core.physics import Physics
+from core.nodes import AccessPoint, RIS
 
 
 class RISController:
@@ -231,7 +232,7 @@ class RISController:
 
         # Try single-hop RIS paths
         for ris_name, ris_node in self.network.nodes.items():
-            if not ris_name.startswith('R'):
+            if not isinstance(ris_node, RIS):
                 continue
 
             # Check if AP->RIS and RIS->UE are both LOS
@@ -359,46 +360,42 @@ class RISController:
         if distance < 0.01:
             return 0
 
-        # Get frequency from AP or RIS
-        freq = 10e9  # Default
-        ap = self.network.get('AP') or self.network.get('ap1')
-        if ap:
-            freq = ap.freq
+        node1_obj = self.network.get(node1)
+        node2_obj = self.network.get(node2)
 
-        # Calculate path loss
+        freq = 10e9  # Default frequency
+        tx_power_dBm = 20  # Default transmit power
+
+        # Use AccessPoint metadata if available (AP might be node1 or node2)
+        for candidate in (node1_obj, node2_obj):
+            if isinstance(candidate, AccessPoint):
+                freq = candidate.freq
+                tx_power_dBm = candidate.power_dBm
+                break
+
+        # Calculate path loss & atmospheric absorption
         path_loss_dB = Physics.path_loss_dB(distance, freq)
-
-        # Calculate atmospheric loss
         atm_loss_dB = Physics.atmospheric_loss_dB(distance, freq / 1e9)
 
-        # Calculate gains
         gain_dBi = 0
         quantization_loss_dB = 0
 
-        # RIS gain calculation
-        if node1.startswith('R') or node2.startswith('R'):
-            ris_name = node1 if node1.startswith('R') else node2
-            ris = self.network.get(ris_name)
+        # Apply RIS gain/quantization losses when a RIS participates
+        ris_node = node1_obj if isinstance(node1_obj, RIS) else (
+            node2_obj if isinstance(node2_obj, RIS) else None
+        )
 
-            if ris:
-                N = ris.N * ris.N
-                gain_dBi = Physics.array_gain_dBi(N, ris.amplifier_gain)
-                quantization_loss_dB = Physics.quantization_loss_dB(ris.bits)
+        if ris_node:
+            total_elements = ris_node.N * ris_node.N
+            gain_dBi = Physics.array_gain_dBi(total_elements, ris_node.amplifier_gain)
+            quantization_loss_dB = Physics.quantization_loss_dB(ris_node.bits)
 
-                # Angle loss if beam angle specified
-                if beam_angle is not None:
-                    target_angle = np.degrees(np.arctan2(pos2[1] - pos1[1], pos2[0] - pos1[0]))
-                    angle_loss = Physics.angle_loss_dB(beam_angle, target_angle)
-                    gain_dBi -= angle_loss
+            if beam_angle is not None:
+                target_angle = np.degrees(np.arctan2(pos2[1] - pos1[1], pos2[0] - pos1[0]))
+                angle_loss = Physics.angle_loss_dB(beam_angle, target_angle)
+                gain_dBi -= angle_loss
 
-        # Total loss
         total_loss_dB = path_loss_dB + atm_loss_dB + quantization_loss_dB - gain_dBi
-
-        # Calculate SNR
-        tx_power_dBm = 20  # Default
-        if ap:
-            tx_power_dBm = ap.power_dBm
-
         snr_dB = Physics.compute_snr_dB(tx_power_dBm, total_loss_dB, 0, 20, 10)
         snr_linear = 10 ** (snr_dB / 10)
 
