@@ -15,12 +15,14 @@ from .angle_utils import (
     compute_absolute_angle_from_offset,
     compute_optimal_ris_normal
 )
+from .feedback_channel import FeedbackChannelManager, FeedbackChannel
+from .snr_messaging import SNRMessagingSystem
 
 
 class RISNetwork:
     """RIS Network manager with advanced pathfinding support"""
 
-    def __init__(self):
+    def __init__(self, enable_messaging=True, latency_ms=5.0, jitter_ms=1.0):
         self.nodes = {}
         self.environment = Environment()
         self._controller = None
@@ -28,6 +30,13 @@ class RISNetwork:
         self.active_links = {}  # Track active link connections
         self.last_connect_result = None
         self.last_sweep_result = None
+        self.feedback_channels = FeedbackChannelManager()  # Option 3: Feedback channel system
+
+        # Real-world messaging system (mimics control channel communication)
+        if enable_messaging:
+            self.snr_messaging = SNRMessagingSystem(self, latency_ms=latency_ms, jitter_ms=jitter_ms)
+        else:
+            self.snr_messaging = None
 
     def set_controller(self, controller):
         """Set network controller"""
@@ -140,6 +149,53 @@ class RISNetwork:
     def clear_links(self):
         """Clear all active link information"""
         self.active_links = {}
+
+    # Feedback Channel Management (Option 3: UE → Controller SNR feedback)
+    def create_feedback_channel(self, ue_name: str, ris_name: str,
+                               history_size: int = 100) -> FeedbackChannel:
+        """
+        Create a feedback channel from UE to RIS controller.
+
+        Args:
+            ue_name: Source UE node name
+            ris_name: Destination RIS node name
+            history_size: Maximum CSI reports to store (default 100)
+
+        Returns:
+            FeedbackChannel instance
+        """
+        return self.feedback_channels.create_channel(ue_name, ris_name, history_size)
+
+    def get_feedback_channel(self, ue_name: str, ris_name: str) -> Optional[FeedbackChannel]:
+        """
+        Get an existing feedback channel.
+
+        Args:
+            ue_name: Source UE name
+            ris_name: Destination RIS name
+
+        Returns:
+            FeedbackChannel or None if not found
+        """
+        return self.feedback_channels.get_channel(ue_name, ris_name)
+
+    def list_feedback_channels(self) -> Dict[str, Dict]:
+        """
+        Get all feedback channels with statistics.
+
+        Returns:
+            Dictionary of channel_key -> statistics
+        """
+        return self.feedback_channels.list_channels()
+
+    def get_feedback_statistics(self) -> Dict:
+        """
+        Get network-wide feedback statistics.
+
+        Returns:
+            Dictionary with aggregated feedback stats
+        """
+        return self.feedback_channels.get_network_statistics()
 
     # Basic connectivity (legacy method, kept for compatibility)
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
@@ -465,6 +521,9 @@ class RISNetwork:
         Mimics real hardware: UE measures SNR and sends feedback to AP,
         AP adapts power/modulation, then transmits again.
 
+        OPTION 3 INTEGRATION: Automatically pushes measured SNR to feedback channel
+        so RIS controller can query real measurements.
+
         Args:
             use_isolated_copy: Whether feedback loop uses isolated copies
             store_in_active_links: Whether to store feedback iteration results in active_links
@@ -479,6 +538,12 @@ class RISNetwork:
         if use_isolated_copy:
             ap = ap.clone()
             ue = ue.clone()
+
+        # Option 3: Get or create feedback channel for UE → RIS controller
+        feedback_channel = self.get_feedback_channel(ue_name, ris_name)
+        if feedback_channel is None:
+            # Auto-create channel if it doesn't exist
+            feedback_channel = self.create_feedback_channel(ue_name, ris_name, history_size=100)
 
         def _to_float(value):
             if isinstance(value, np.ndarray):
@@ -514,9 +579,10 @@ class RISNetwork:
                 snr_measured = _to_float(initial_snr_dB)
             else:
                 # Re-compute link with adapted power
+                # Note: Keep compute_phases=False to match initial call setting
                 link_result = self.connect(
                     ap_name, ris_name, ue_name,
-                    compute_phases=True,
+                    compute_phases=False,  # Use same setting as parent call
                     bandwidth_MHz=bandwidth_MHz,
                     seed=seed,
                     enable_feedback=False,
@@ -531,7 +597,11 @@ class RISNetwork:
             )
             ue.snr_measurement_dB = snr_measured
 
-            csi_feedback = ue.generate_csi_feedback(snr_dB=snr_measured)
+            # Option 3: Generate CSI and automatically push to feedback channel
+            csi_feedback = ue.generate_csi_feedback(
+                snr_dB=snr_measured,
+                feedback_channel=feedback_channel  # Push to channel for controller
+            )
 
             # AP receives feedback and adapts
             control_action = ap.process_csi_feedback(csi_feedback)

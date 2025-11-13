@@ -30,12 +30,132 @@ class RISController:
         self.enabled = True
         self.algorithm = 'dijkstra'  # Default algorithm
         self.strategy = 'max-snr'  # Default strategy
+        self.use_measured_snr = False  # Option 3: Use feedback channel SNR
         self.stats = {
             'paths_found': 0,
             'last_decision_time_ms': 0,
             'update_count': 0,
             'best_snr_dB': None
         }
+
+    # Option 3: Feedback Channel Methods (UE → Controller SNR)
+    def enable_feedback_channel(self, ue_name: str, ris_name: str,
+                               history_size: int = 100) -> 'FeedbackChannel':
+        """
+        Enable feedback channel from UE to this controller.
+
+        Args:
+            ue_name: Source UE node name
+            ris_name: RIS node name (this controller's RIS)
+            history_size: Maximum CSI reports to store
+
+        Returns:
+            FeedbackChannel instance
+        """
+        channel = self.network.create_feedback_channel(ue_name, ris_name, history_size)
+        self.use_measured_snr = True
+        return channel
+
+    def get_latest_ue_snr_dB(self, ue_name: str, ris_name: str,
+                             use_messaging: bool = True) -> Optional[float]:
+        """
+        Query latest measured SNR from UE.
+
+        Two modes:
+        1. use_messaging=True (DEFAULT): Query via control channel (real-world)
+           - Sends SNR_REQUEST to UE
+           - Receives SNR_RESPONSE back
+           - Includes latency simulation
+
+        2. use_messaging=False: Query feedback channel directly (legacy)
+           - Instant access to accumulated measurements
+           - No latency
+
+        Args:
+            ue_name: UE node name
+            ris_name: RIS node name
+            use_messaging: Use control channel (True) or feedback channel (False)
+
+        Returns:
+            Latest SNR in dB, or None if no response/no reports
+        """
+        # Real-world mode: Query via messaging system
+        if use_messaging and self.network.snr_messaging is not None:
+            response = self.network.snr_messaging.query_ue_snr(
+                self.network.get(ris_name).name,  # Controller on this RIS
+                ue_name,
+                ris_name
+            )
+            if response and response.status == 'success':
+                return response.snr_dB
+            return None
+
+        # Legacy mode: Query feedback channel directly
+        channel = self.network.get_feedback_channel(ue_name, ris_name)
+        if channel is None:
+            return None
+        return channel.get_latest_snr_dB()
+
+    def get_average_ue_snr_dB(self, ue_name: str, ris_name: str,
+                             window: Optional[int] = None) -> Optional[float]:
+        """
+        Get average SNR from UE feedback channel over a window.
+
+        Args:
+            ue_name: UE node name
+            ris_name: RIS node name
+            window: Number of recent reports to average (None = all)
+
+        Returns:
+            Average SNR in dB, or None if no reports
+        """
+        channel = self.network.get_feedback_channel(ue_name, ris_name)
+        if channel is None:
+            return None
+        return channel.get_average_snr_dB(window)
+
+    def get_ue_snr_history(self, ue_name: str, ris_name: str,
+                          last_n: Optional[int] = None) -> List[Dict]:
+        """
+        Get historical SNR measurements from UE feedback channel.
+
+        Args:
+            ue_name: UE node name
+            ris_name: RIS node name
+            last_n: Number of recent reports to return (None = all)
+
+        Returns:
+            List of CSI report dictionaries
+        """
+        channel = self.network.get_feedback_channel(ue_name, ris_name)
+        if channel is None:
+            return []
+        return channel.get_history_dicts(last_n)
+
+    def get_ue_feedback_statistics(self, ue_name: str, ris_name: str) -> Dict:
+        """
+        Get feedback channel statistics for a UE.
+
+        Args:
+            ue_name: UE node name
+            ris_name: RIS node name
+
+        Returns:
+            Dictionary with channel statistics
+        """
+        channel = self.network.get_feedback_channel(ue_name, ris_name)
+        if channel is None:
+            return {'status': 'no_channel'}
+        return channel.get_statistics()
+
+    def get_all_feedback_statistics(self) -> Dict:
+        """
+        Get network-wide feedback channel statistics.
+
+        Returns:
+            Dictionary with all channel statistics
+        """
+        return self.network.list_feedback_channels()
 
     def find_all_paths(self, ap_name: str, ue_name: str,
                        algorithm: Optional[str] = None,

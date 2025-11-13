@@ -498,12 +498,14 @@ class UE(Node):
         return self.snr_measurement_dB
 
     def generate_csi_feedback(self, channel_est: np.ndarray = None,
-                            snr_dB: float = None) -> Dict:
+                            snr_dB: float = None,
+                            feedback_channel=None) -> Dict:
         """Generate CSI feedback report for transmission to AP
 
         Args:
             channel_est: Estimated channel (optional)
             snr_dB: Measured SNR in dB (optional, uses internal measurement if not provided)
+            feedback_channel: Optional FeedbackChannel to push report to (Option 3)
 
         Returns:
             CSI feedback dictionary
@@ -521,6 +523,21 @@ class UE(Node):
 
         self.csi_report = feedback
         self.last_feedback_time = feedback['timestamp']
+
+        # Option 3: Push to feedback channel if provided
+        if feedback_channel is not None:
+            from .feedback_channel import CSIReport
+            csi_report = CSIReport(
+                timestamp=feedback['timestamp'],
+                sequence_num=0,  # Will be set by channel
+                ue_name=self.name,
+                snr_dB=feedback['snr_dB'],
+                antenna_gain_dBi=feedback['antenna_gain_dBi'],
+                noise_figure_dB=feedback['noise_figure_dB'],
+                channel_estimate=feedback['channel_estimate']
+            )
+            feedback_channel.push_report(csi_report)
+
         return feedback
 
     def to_dict(self):
