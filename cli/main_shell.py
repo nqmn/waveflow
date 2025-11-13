@@ -81,9 +81,41 @@ class RISNetCLI(cmd.Cmd):
 
         # Command-specific argument completions
         if cmd in ['connect', 'status', 'delete', 'edit']:
-            # Suggest node names for commands that work with nodes
-            node_names = list(self.net.nodes.keys()) if self.net.nodes else []
-            completions = [n for n in node_names if n.startswith(text)]
+            # For connect command, provide special handling for flags
+            if cmd == 'connect':
+                line = readline.get_line_buffer() if readline else ''
+
+                # Check if we're completing a --algo flag
+                if '--algo' in line and text and not text.startswith('-'):
+                    from controller.beamsweeping import SweepAlgorithmLoader
+                    try:
+                        algos = SweepAlgorithmLoader.list_algorithms()
+                        # Get all algo names and aliases
+                        all_names = list(algos.keys())
+                        for aliases in [algos[a]['aliases'] for a in algos if algos[a]['aliases']]:
+                            all_names.extend(aliases)
+                        completions = [a for a in all_names if a.startswith(text)]
+                    except:
+                        pass
+
+                # Check if we're completing a --ml-predictor flag
+                elif '--ml-predictor' in line and text and not text.startswith('-'):
+                    from controller.beamsweeping import MLPredictorLoader
+                    try:
+                        predictors = MLPredictorLoader.list_predictors()
+                        predictor_names = list(predictors.keys())
+                        completions = [p for p in predictor_names if p.startswith(text)]
+                    except:
+                        pass
+
+                # Otherwise, suggest node names
+                else:
+                    node_names = list(self.net.nodes.keys()) if self.net.nodes else []
+                    completions = [n for n in node_names if n.startswith(text)]
+            else:
+                # For other commands (status, delete, edit), suggest node names
+                node_names = list(self.net.nodes.keys()) if self.net.nodes else []
+                completions = [n for n in node_names if n.startswith(text)]
 
         elif cmd in ['load', 'plot']:
             # Suggest file names for load and plot commands
@@ -303,25 +335,25 @@ class RISNetCLI(cmd.Cmd):
                 # Show node-specific details with aligned labels
                 if hasattr(node, 'freq'):
                     freq_ghz = node.freq / 1e9 if node.freq else 0
-                    print(f"      Frequency:            {freq_ghz:.2f} GHz")
+                    print(f"      Frequency:                      {freq_ghz:.2f} GHz")
 
                 if hasattr(node, 'bandwidth_MHz'):
                     bw = node.bandwidth_MHz if node.bandwidth_MHz else 0
-                    print(f"      Bandwidth:            {bw:.1f} MHz")
+                    print(f"      Bandwidth:                      {bw:.1f} MHz")
 
                 if hasattr(node, 'power_dBm'):
-                    print(f"      Power:                {node.power_dBm:.1f} dBm")
+                    print(f"      Power:                          {node.power_dBm:.1f} dBm")
 
                 if hasattr(node, 'N'):  # RIS specific
-                    print(f"      RIS Elements:         {node.N}")
+                    print(f"      RIS Elements:                   {node.N}")
                     if hasattr(node, 'bits'):
-                        print(f"      Phase Bits:           {node.bits}")
+                        print(f"      Phase Bits:                     {node.bits}")
 
                 if hasattr(node, 'noise_figure_dB'):
-                    print(f"      Noise Figure:         {node.noise_figure_dB:.1f} dB")
+                    print(f"      Noise Figure:                   {node.noise_figure_dB:.1f} dB")
 
                 if hasattr(node, 'antenna_gain_dBi'):
-                    print(f"      Antenna Gain:         {node.antenna_gain_dBi:.1f} dBi")
+                    print(f"      Antenna Gain:                   {node.antenna_gain_dBi:.1f} dBi")
 
             # Show distances between all node pairs
             node_names = list(self.net.nodes.keys())
@@ -350,24 +382,23 @@ class RISNetCLI(cmd.Cmd):
                 print(f"\n  [{idx}] {link_name}")
                 origin = link_info.get('source', 'unknown')
                 origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
-                print(f"      Source:        {origin_label}")
-                print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
-                print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
-                print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
-                # Display angles with coordinate system clarity
-                if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
-                    print(f"      Beam Angle (Local):     {link_info['beam_angle_local']:>8.2f}° (to RIS)")
-                    print(f"      RIS Normal Angle:       {link_info['ris_normal_angle']:>8.2f}°")
-                    if 'beam_angle_absolute' in link_info:
-                        print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}° (world)")
-                elif 'beam_angle_absolute' in link_info:
-                    print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}°")
-                elif 'beam_angle' in link_info:
-                    # Legacy support
-                    print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                print(f"      Source:                         {origin_label}")
+                print(f"      SNR:                            {link_info['snr_dB']:>8.2f} dB")
+                print(f"      Power:                          {link_info['pwr_dBm']:>8.2f} dBm")
+                print(f"      Gain:                           {link_info['gain_dBi']:>8.2f} dBi")
+                # Display angles with new format (Steering Angle with azimuths if available)
+                if link_info.get('deflection_angle_deg') is not None:
+                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
+                    if link_info.get('incident_azimuth_deg') is not None:
+                        print(f"      Incident Azimuth (AP→RIS):     {link_info['incident_azimuth_deg']:>8.2f}°")
+                    if link_info.get('reflected_azimuth_deg') is not None:
+                        print(f"      Reflected Azimuth (RIS→UE):    {link_info['reflected_azimuth_deg']:>8.2f}°")
+                elif 'beam_angle_local' in link_info:
+                    # Use beam_angle_local as steering angle when metadata unavailable
+                    print(f"      Steering Angle (Deflection):    {link_info['beam_angle_local']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
-                print(f"      Quant Penalty: {penalty:>8.2f} dB")
+                print(f"      Quant Penalty:                  {penalty:>8.2f} dB")
 
         print("\n" + "="*70 + "\n")
 
@@ -388,24 +419,23 @@ class RISNetCLI(cmd.Cmd):
                 print(f"\n  [{idx}] {link_name}")
                 origin = link_info.get('source', 'unknown')
                 origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
-                print(f"      Source:        {origin_label}")
-                print(f"      SNR:           {link_info['snr_dB']:>8.2f} dB")
-                print(f"      Power:         {link_info['pwr_dBm']:>8.2f} dBm")
-                print(f"      Gain:          {link_info['gain_dBi']:>8.2f} dBi")
-                # Display angles with coordinate system clarity
-                if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
-                    print(f"      Beam Angle (Local):     {link_info['beam_angle_local']:>8.2f}° (to RIS)")
-                    print(f"      RIS Normal Angle:       {link_info['ris_normal_angle']:>8.2f}°")
-                    if 'beam_angle_absolute' in link_info:
-                        print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}° (world)")
-                elif 'beam_angle_absolute' in link_info:
-                    print(f"      Beam Angle (Absolute):  {link_info['beam_angle_absolute']:>8.2f}°")
-                elif 'beam_angle' in link_info:
-                    # Legacy support
-                    print(f"      Beam Angle:    {link_info['beam_angle']:>8.2f}°")
+                print(f"      Source:                         {origin_label}")
+                print(f"      SNR:                            {link_info['snr_dB']:>8.2f} dB")
+                print(f"      Power:                          {link_info['pwr_dBm']:>8.2f} dBm")
+                print(f"      Gain:                           {link_info['gain_dBi']:>8.2f} dBi")
+                # Display angles with new format (Steering Angle with azimuths if available)
+                if link_info.get('deflection_angle_deg') is not None:
+                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
+                    if link_info.get('incident_azimuth_deg') is not None:
+                        print(f"      Incident Azimuth (AP→RIS):     {link_info['incident_azimuth_deg']:>8.2f}°")
+                    if link_info.get('reflected_azimuth_deg') is not None:
+                        print(f"      Reflected Azimuth (RIS→UE):    {link_info['reflected_azimuth_deg']:>8.2f}°")
+                elif 'beam_angle_local' in link_info:
+                    # Use beam_angle_local as steering angle when metadata unavailable
+                    print(f"      Steering Angle (Deflection):    {link_info['beam_angle_local']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
-                print(f"      Quant Penalty: {penalty:>8.2f} dB")
+                print(f"      Quant Penalty:                  {penalty:>8.2f} dB")
 
         print("\n" + "="*70 + "\n")
 
@@ -453,7 +483,7 @@ class RISNetCLI(cmd.Cmd):
     # =====================================================================
 
     def do_connect(self, arg):
-        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback] [--sweep fov step] [--algo algorithm]
+        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback] [--sweep fov step] [--algo algorithm] [--ml-predictor predictor]
         Unified connect command: single-angle measurement OR multi-angle beam optimization via --sweep flag.
 
         SINGLE-ANGLE MODE (default, traditional behavior):
@@ -469,13 +499,34 @@ class RISNetCLI(cmd.Cmd):
             connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor xgb  # ML-guided sweep
             connect ap1 ris1 ue1 --sweep 90 5 --modulation 16QAM  # Sweep with signal-level sim
 
+        AVAILABLE SWEEP ALGORITHMS (use with --sweep):
+            linear (aliases: brute-force)
+                Exhaustive search: tests all beam angles across FOV at specified resolution.
+            coarse-fine (aliases: two-phase, center-out, adaptive)
+                Two-phase sweep: coarse center-out search, then fine refinement. ~30% more efficient.
+            directional-exhaustive (aliases: directional, exhaustive)
+                Exhaustive sweep of all codebook angles for all network links with directional SNR.
+            ml-guided
+                Uses ML predictor to identify promising angles, then performs intelligent sweep.
+            ml (aliases: ml-only)
+                Pure ML-guided: tests only ML-predicted angles, no exhaustive fallback.
+
+        ML PREDICTORS (use with --ml-predictor when algo is ml or ml-guided):
+            rf          Random Forest (recommended, best balance of speed/accuracy)
+            xgb         XGBoost (high accuracy, slower)
+            nn          Neural Network (experimental)
+
         Examples:
             connect                                        # Auto-detect nodes, single angle (specular)
             connect ap1                                    # Auto-detect RIS/UE, single angle
             connect ap1 ris1 ue1                           # Auto-compute angle, single measurement
             connect ap1 ris1 ue1 30                        # Single angle at 30°
-            connect ap1 ris1 ue1 --sweep 60 10             # Multi-angle sweep ±60° at 10°
+            connect ap1 ris1 ue1 --sweep 60 10             # Multi-angle sweep ±60° at 10° (linear)
             connect ap1 ris1 ue1 --sweep 60 10 --algo center-out  # Coarse-fine sweep
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml-guided --ml-predictor xgb  # ML-guided
+            connect ap1 ris1 ue1 --sweep 60 10 --algo ml  # ML-only sweep
+
+        Tip: Use TAB completion with --algo and --ml-predictor flags to see available options.
         Default: 100% real signal-level simulation (generates actual waveforms, measures SNR and SER)
         """
         parts = shlex.split(arg) if arg else []
@@ -781,55 +832,76 @@ class RISNetCLI(cmd.Cmd):
         _print_table("PHYSICS METRICS", physics_rows)
 
         # Add RIS beam angle recommendation (what to send to RIS)
-        if 'ris_normal_angle_deg' in res and 'local_deflection_deg' in res and 'beam_angle' in res:
-            ris_normal = float(res.get('ris_normal_angle_deg', 0))
-            local_deflection = float(res.get('local_deflection_deg', 0))
-            beam_angle_absolute = float(res.get('beam_angle', 0))
+        # Display new format: deflection angle with incident/reflected azimuths
+        if 'snr_dB' in res:
             snr_dB = float(res.get('snr_dB', 0))
-            direction_desc = _get_direction_desc(local_deflection)
+            deflection_angle = res.get('deflection_angle_deg')
+            incident_azimuth = res.get('incident_azimuth_deg')
+            reflected_azimuth = res.get('reflected_azimuth_deg')
 
             print("\n[RECOMMENDATION TO SEND TO RIS]")
             print("-"*70)
-            print(f"Beam Angle (Local):     {local_deflection:>8.2f}°  ({direction_desc})")
-            print(f"Beam Angle (Absolute):  {beam_angle_absolute:>8.2f}°")
-            print(f"RIS Normal Angle:       {ris_normal:>8.2f}°")
-            print(f"Expected SNR:           {snr_dB:>8.2f} dB")
 
-        if 'feedback_info' in res:
-            fb = res['feedback_info']
-            summary_rows = [
-                ("Converged", "Yes" if fb.get('converged') else "No"),
-                ("Iterations", fb.get('num_iterations')),
-                ("Final MCS", fb.get('final_mcs')),
-                ("Final Power (dBm)", fb.get('final_power_dBm')),
-                ("Final SNR (dB)", fb.get('final_snr_dB'))
-            ]
-            _print_table("CSI FEEDBACK SUMMARY", summary_rows)
+            # Display new format with deflection angle and azimuths if available
+            if deflection_angle is not None:
+                # Check if FOV clamping was applied
+                fov_clamped = res.get('fov_clamped', False)
+                max_angle = res.get('max_angle_deg', 60)
 
-            iterations = fb.get('iterations', [])
-            if iterations:
-                print("\n[CSI ITERATIONS]")
-                print("-"*70)
-                print("  Iter | SNR (dB) | Power (dBm) | MCS         | ΔSNR (dB) | Status")
-                for it in iterations:
-                    status = "✓" if it.get('converged') else "→"
-                    print(f"   {it['iteration']:>2}  | "
-                          f"{_fmt_value(it.get('measured_snr_dB')):>8} | "
-                          f"{_fmt_value(it.get('ap_power_dBm')):>11} | "
-                          f"{it.get('ap_mcs', ''):<10} | "
-                          f"{_fmt_value(it.get('snr_error_dB')):>8} | {status}")
+                if fov_clamped:
+                    print(f"RIS deflection angle above {max_angle:.0f}° hardware FOV limit")
+                else:
+                    print(f"Steering Angle (Deflection):   {float(deflection_angle):>8.2f}°")
 
-        if use_waveform and 'signal_level' in res:
-            sig = res['signal_level']
-            waveform_rows = [
-                ("Requested Modulation", res.get('requested_modulation', modulation)),
-                ("Negotiated Modulation", res.get('negotiated_modulation', 'Unknown')),
-                ("SNR (dB)", sig.get('snr_dB')),
-                ("SER (%)", sig.get('ser_percent')),
-                ("Symbol Errors", sig.get('symbol_errors')),
-                ("Total Symbols", sig.get('total_symbols'))
-            ]
-            _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
+                    if incident_azimuth is not None:
+                        print(f"Incident Azimuth (AP→RIS):     {float(incident_azimuth):>8.2f}°")
+                    if reflected_azimuth is not None:
+                        print(f"Reflected Azimuth (RIS→UE):    {float(reflected_azimuth):>8.2f}°")
+            else:
+                # Fallback: use local deflection as steering angle when metadata unavailable
+                local_deflection = float(res.get('local_deflection_deg', 0))
+                print(f"Steering Angle (Deflection):   {local_deflection:>8.2f}°")
+
+            print(f"Expected SNR:                   {snr_dB:>8.2f} dB")
+
+        # TODO: Uncomment below sections for detailed CSI feedback and signal-level diagnostics
+        # These are useful for debugging but disabled in normal operation for cleaner output
+
+        # if 'feedback_info' in res:
+        #     fb = res['feedback_info']
+        #     summary_rows = [
+        #         ("Converged", "Yes" if fb.get('converged') else "No"),
+        #         ("Iterations", fb.get('num_iterations')),
+        #         ("Final MCS", fb.get('final_mcs')),
+        #         ("Final Power (dBm)", fb.get('final_power_dBm')),
+        #         ("Final SNR (dB)", fb.get('final_snr_dB'))
+        #     ]
+        #     _print_table("CSI FEEDBACK SUMMARY", summary_rows)
+        #
+        #     iterations = fb.get('iterations', [])
+        #     if iterations:
+        #         print("\n[CSI ITERATIONS]")
+        #         print("-"*70)
+        #         print("  Iter | SNR (dB) | Power (dBm) | MCS         | ΔSNR (dB) | Status")
+        #         for it in iterations:
+        #             status = "✓" if it.get('converged') else "→"
+        #             print(f"   {it['iteration']:>2}  | "
+        #                   f"{_fmt_value(it.get('measured_snr_dB')):>8} | "
+        #                   f"{_fmt_value(it.get('ap_power_dBm')):>11} | "
+        #                   f"{it.get('ap_mcs', ''):<10} | "
+        #                   f"{_fmt_value(it.get('snr_error_dB')):>8} | {status}")
+        #
+        # if use_waveform and 'signal_level' in res:
+        #     sig = res['signal_level']
+        #     waveform_rows = [
+        #         ("Requested Modulation", res.get('requested_modulation', modulation)),
+        #         ("Negotiated Modulation", res.get('negotiated_modulation', 'Unknown')),
+        #         ("SNR (dB)", sig.get('snr_dB')),
+        #         ("SER (%)", sig.get('ser_percent')),
+        #         ("Symbol Errors", sig.get('symbol_errors')),
+        #         ("Total Symbols", sig.get('total_symbols'))
+        #     ]
+        #     _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
 
         connection_record = {
             'type': 'connect',
@@ -1135,10 +1207,11 @@ class RISNetCLI(cmd.Cmd):
             # Show recommendation for RIS
             print('RECOMMENDATION TO SEND TO RIS:')
             print('-'*70)
-            print(f'Beam Angle (Local):     {best_final_local:>8.2f}°  ({direction_desc})')
-            print(f'Beam Angle (Absolute):  {best_final_abs:>8.2f}°')
-            print(f'RIS Normal Angle:       {specular_angle:>8.2f}°')
-            print(f'Expected SNR:           {best_final_snr:>8.2f} dB')
+
+            # Note: Beam sweep uses local deflection angle (relative to RIS normal)
+            # For full metadata (incident/reflected azimuths), use 'connect' command instead
+            print(f'Steering Angle (Deflection):    {best_final_local:>8.2f}°  (azimuth deflection magnitude)')
+            print(f'Expected SNR:                    {best_final_snr:>8.2f} dB')
             print()
 
             # Update/create active link with best result from sweep
@@ -1407,6 +1480,179 @@ class RISNetCLI(cmd.Cmd):
         except Exception as e:
             print(f"Streaming failed: {e}")
 
+    def do_signal(self, arg):
+        """signal [<ap> <ris> <ue>] [--beam ANGLE] [--bandwidth MHz]
+        Measure AP→RIS→UE transmit and receive power to expose apparent loss.
+
+        Usage:
+          signal                                                      - measure all active links (default)
+          signal <ap> <ris> <ue> [--beam ANGLE] [--bandwidth MHz]  - measure specific link"""
+        parts = shlex.split(arg) if arg else []
+
+        # Default to active links mode (--active behavior) if no node arguments provided
+        # Only use specific link mode if first 3 arguments are valid node names
+        use_active_links = True
+        if len(parts) >= 1 and parts[0] not in ('--bandwidth', '-w', '--beam', '-b'):
+            # Check if first arg could be a node name (not an option)
+            if not parts[0].startswith('-'):
+                # Could be a node name; check if we have 3 node names before options
+                node_count = 0
+                for p in parts:
+                    if p.startswith('-'):
+                        break
+                    node_count += 1
+                if node_count >= 3:
+                    use_active_links = False
+
+        if use_active_links:
+            # Mode: run signal on all active links
+            parts = [p for p in parts if p not in ('--active', '-a')]
+
+            # Parse optional parameters
+            opt_iter = iter(parts)
+            bandwidth_MHz = None
+            for token in opt_iter:
+                try:
+                    if token in ('--bandwidth', '-w'):
+                        bandwidth_MHz = float(next(opt_iter))
+                    else:
+                        print(f"Unknown option: {token}")
+                        return
+                except StopIteration:
+                    print(f"Missing value after {token}")
+                    return
+                except ValueError:
+                    print(f"Invalid numeric value for {token}")
+                    return
+
+            active_links = self.net.get_active_links()
+            if not active_links:
+                print("No active links. Use 'connect' command to create active links first.")
+                return
+
+            print(f"Measuring signal on {len(active_links)} active link(s):\n")
+            for link_idx, (link_key, link_data) in enumerate(active_links.items(), 1):
+                ap_name = link_data['ap']
+                ris_name = link_data['ris']
+                ue_name = link_data['ue']
+
+                ap_node = self.net.get(ap_name)
+                ue_node = self.net.get(ue_name)
+
+                if not ap_node or not ue_node:
+                    print(f"[{link_idx}] Link '{link_key}' - Error: node not found")
+                    continue
+
+                # Use the beam angle from the active link
+                beam_angle = link_data.get('beam_angle_absolute')
+
+                try:
+                    result = self.net.connect(
+                        ap_name, ris_name, ue_name,
+                        beam_angle_deg=beam_angle,
+                        bandwidth_MHz=bandwidth_MHz,
+                        compute_phases=False,
+                        use_isolated_copy=True,
+                        store_in_active_links=False
+                    )
+                except Exception as exc:
+                    print(f"[{link_idx}] Link '{link_key}' - Measurement failed: {exc}")
+                    continue
+
+                tx_power = float(ap_node.power_dBm)
+                rx_power = float(result.get('rssi_dBm', result.get('pwr_dBm', 'nan')))
+                loss_dB = tx_power - rx_power
+
+                print(f"[{link_idx}] {link_key}")
+                print(f"    AP {ap_name}: Tx power = {tx_power:.2f} dBm")
+                print(f"    UE {ue_name}: Rx power = {rx_power:.2f} dBm")
+                print(f"    Apparent loss (Tx - Rx) = {loss_dB:.2f} dB")
+                if 'snr_dB' in result:
+                    print(f"    SNR estimate = {result['snr_dB']:.2f} dB")
+                if 'gain_dBi' in result:
+                    print(f"    RIS gain = {result['gain_dBi']:.2f} dBi")
+                print()
+        else:
+            # Mode: measure specific link
+            if len(parts) < 3:
+                print("usage: signal <ap> <ris> <ue> [--beam ANGLE] [--bandwidth MHz]")
+                return
+
+            ap_name, ris_name, ue_name = parts[:3]
+            opts = parts[3:]
+
+            def _ignore_case_lookup(name):
+                node = self.net.get(name)
+                if node:
+                    return name
+                lower = name.lower()
+                for candidate in self.net.nodes:
+                    if candidate.lower() == lower:
+                        return candidate
+                return name
+
+            ap_name = _ignore_case_lookup(ap_name)
+            ris_name = _ignore_case_lookup(ris_name)
+            ue_name = _ignore_case_lookup(ue_name)
+
+            opt_iter = iter(opts)
+            beam_angle = None
+            bandwidth_MHz = None
+            for token in opt_iter:
+                try:
+                    if token in ('--beam', '--beam-angle', '-b'):
+                        beam_angle = float(next(opt_iter))
+                    elif token in ('--bandwidth', '-w'):
+                        bandwidth_MHz = float(next(opt_iter))
+                    else:
+                        print(f"Unknown option: {token}")
+                        return
+                except StopIteration:
+                    print(f"Missing value after {token}")
+                    return
+                except ValueError:
+                    print(f"Invalid numeric value for {token}")
+                    return
+
+            ap_node = self.net.get(ap_name)
+            ris_node = self.net.get(ris_name)
+            ue_node = self.net.get(ue_name)
+
+            if not ap_node or type(ap_node).__name__ != 'AccessPoint':
+                print(f"Unknown Access Point '{ap_name}'")
+                return
+            if not ris_node or type(ris_node).__name__ != 'RIS':
+                print(f"Unknown RIS node '{ris_name}'")
+                return
+            if not ue_node or type(ue_node).__name__ != 'UE':
+                print(f"Unknown UE '{ue_name}'")
+                return
+
+            try:
+                result = self.net.connect(
+                    ap_name, ris_name, ue_name,
+                    beam_angle_deg=beam_angle,
+                    bandwidth_MHz=bandwidth_MHz,
+                    compute_phases=False,
+                    use_isolated_copy=True,
+                    store_in_active_links=False
+                )
+            except Exception as exc:
+                print(f"Signal measurement failed: {exc}")
+                return
+
+            tx_power = float(ap_node.power_dBm)
+            rx_power = float(result.get('rssi_dBm', result.get('pwr_dBm', 'nan')))
+            loss_dB = tx_power - rx_power
+
+            print("Signal measurement:")
+            print(f"  AP {ap_name}: Tx power = {tx_power:.2f} dBm")
+            print(f"  UE {ue_name}: Rx power = {rx_power:.2f} dBm")
+            print(f"  Apparent loss (Tx - Rx) = {loss_dB:.2f} dB")
+            if 'snr_dB' in result:
+                print(f"  SNR estimate = {result['snr_dB']:.2f} dB")
+            if 'gain_dBi' in result:
+                print(f"  RIS gain = {result['gain_dBi']:.2f} dBi")
     # =====================================================================
     # Network I/O Commands
     # =====================================================================

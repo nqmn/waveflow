@@ -15,7 +15,6 @@ from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
     apply_waveform_realism,
-    compute_ris_normal_for_sweep,
     setup_waveform_simulator,
     validate_and_get_nodes,
     clamp_to_ris_fov,
@@ -77,11 +76,29 @@ class MLOnlySweep(SweepAlgorithmBase):
             ap_name, ris_name, ue_name, fov, top_k=top_k
         )
 
-        # Calculate base direction (UE direction from RIS)
-        # Calculate optimal RIS normal as bisector of AP and UE directions
-        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
-        # within its FOV constraints, consistent with single connect command
-        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
+        # Calculate incident and reflected azimuths from 3D coordinates
+        ap_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
+
+        ue_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+        # Deflection angle is the magnitude of azimuth difference
+        angle_diff = ue_angle - ap_angle
+        # Wrap to [-180, 180]
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+
+        # Base deflection angle magnitude
+        base_deflection_angle = abs(angle_diff)
+
+        # Also set base_angle for compatibility (incident direction)
+        base_angle = ap_angle
+
+        # Set specular_angle for result reporting (incident direction)
+        specular_angle = ap_angle
 
         # Clamp ML-suggested angles to RIS FOV constraint (native RIS capability)
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
@@ -102,7 +119,11 @@ class MLOnlySweep(SweepAlgorithmBase):
         ser_values = [] if use_waveform else None
 
         for i, ml_angle in enumerate(clamped_ml_suggestions):
-            abs_angle = specular_angle + ml_angle
+            # Convert deflection angle to absolute beam angle
+            if angle_diff > 0:
+                abs_angle = ap_angle + ml_angle
+            else:
+                abs_angle = ap_angle - ml_angle
             local_angles.append(ml_angle)
 
             with self._ap_state_guard(ap):
@@ -138,12 +159,20 @@ class MLOnlySweep(SweepAlgorithmBase):
         # Now print with marker only for the best index
         for i, snr_val in enumerate(snr_values):
             ml_angle = local_angles[i]
-            abs_angle = specular_angle + ml_angle
+            # Convert deflection angle to absolute beam angle for display
+            if angle_diff > 0:
+                abs_angle = ap_angle + ml_angle
+            else:
+                abs_angle = ap_angle - ml_angle
             marker = " <-- BEST" if i == best_idx else ""
             print(f"  idx={i}: {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
-        best_abs = specular_angle + best_local
+        # Convert deflection angle to absolute beam angle
+        if angle_diff > 0:
+            best_abs = ap_angle + best_local
+        else:
+            best_abs = ap_angle - best_local
 
         print(f"\nFinal ML Result:")
         print(f"  Best local angle: {best_local:.2f}°")

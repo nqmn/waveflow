@@ -222,53 +222,46 @@ class RISNetwork:
         N_total = ris.N * ris.N
         target_angle = np.degrees(np.arctan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0]))
 
-        # Enforce max_angle_deg constraint - check FOV violation relative to RIS normal
+        # Determine RIS normal angle
         max_angle = getattr(ris, 'max_angle_deg', 60.0)
         ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
 
-        # Auto-compute RIS normal as bisector of AP and UE if it's at default (0°)
-        # and the default doesn't work for this geometry
-        # Note: For a phased array RIS, the normal is the direction it points toward,
-        # not the direction signals come from. AP and UE angles are both from RIS perspective.
-
+        # Compute angles from RIS perspective for FOV checking
         ap_to_ris_vec = ap.pos - ris.pos  # Vector from RIS toward AP
         ap_angle = np.degrees(np.arctan2(ap_to_ris_vec[1], ap_to_ris_vec[0]))
 
         ue_to_ris_vec = ue.pos - ris.pos  # Vector from RIS toward UE
         ue_angle = np.degrees(np.arctan2(ue_to_ris_vec[1], ue_to_ris_vec[0]))
 
-        # Check if default RIS normal (0°) works for both
-        if ris_normal == 0.0:
-            ap_offset_default = compute_offset_from_normal(ap_angle, ris_normal)
-            ue_offset_default = compute_offset_from_normal(ue_angle, ris_normal)
-
-            # If default doesn't work, compute bisector as optimal RIS normal
-            if abs(ap_offset_default) > max_angle or abs(ue_offset_default) > max_angle:
-                # Use global helper to compute bisector (optimal RIS normal)
-                # This ensures all algorithms use the same RIS normal calculation
-                ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
-
-        # Check AP direction (RIS must be able to receive from AP)
+        # Check if RIS's current normal can serve both AP and UE
         ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
+        ue_offset = compute_offset_from_normal(target_angle, ris_normal)
 
+        # If current RIS normal doesn't work for both AP and UE, calculate optimal bisector
+        if not is_within_fov(ap_offset, max_angle) or not is_within_fov(ue_offset, max_angle):
+            # RIS normal needs adjustment - calculate optimal bisector
+            ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
+
+            # Recalculate offsets with new normal
+            ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
+            ue_offset = compute_offset_from_normal(target_angle, ris_normal)
+
+        # Final validation - AP must be in FOV
         if not is_within_fov(ap_offset, max_angle):
-            # AP is outside RIS field of view (relative to RIS normal)
             raise ValueError(
                 f"AP outside RIS FOV: AP is at {ap_angle:.2f}° (absolute), "
-                f"{ap_offset:.2f}° relative to RIS normal, "
+                f"{ap_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
                 f"but RIS FOV is ±{max_angle}°. "
                 f"RIS cannot serve AP from this direction."
             )
 
-        # Calculate angle relative to RIS normal (not absolute angle)
-        ue_offset = compute_offset_from_normal(target_angle, ris_normal)
-
+        # Final validation - UE must be in FOV
         if not is_within_fov(ue_offset, max_angle):
-            # UE is outside RIS field of view (relative to RIS normal)
             raise ValueError(
                 f"UE outside RIS FOV: UE is at {target_angle:.2f}° (absolute), "
-                f"{ue_offset:.2f}° relative to RIS normal, "
-                f"but RIS FOV is ±{max_angle}°"
+                f"{ue_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
+                f"but RIS FOV is ±{max_angle}°. "
+                f"RIS cannot serve UE from this direction."
             )
 
         # Clamp local deflection to RIS FOV constraint (native RIS capability)
@@ -362,6 +355,18 @@ class RISNetwork:
                 "phase_grid": ris.get_phase_grid() if hasattr(ris, 'get_phase_grid') else None
             }
 
+            # Add phase computation metadata (deflection angle, azimuths, FOV clamping) if available
+            if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
+                phase_data.update({
+                    "deflection_angle_deg": float(ris.phase_metadata.get('deflection_angle_deg', 0)),
+                    "deflection_angle_clamped_deg": float(ris.phase_metadata.get('deflection_angle_clamped_deg', 0)),
+                    "fov_clamped": bool(ris.phase_metadata.get('fov_clamped', False)),
+                    "incident_azimuth_deg": float(ris.phase_metadata.get('incident_azimuth_deg', 0)),
+                    "reflected_azimuth_deg": float(ris.phase_metadata.get('reflected_azimuth_deg', 0)),
+                    "angle_diff_deg": float(ris.phase_metadata.get('angle_diff_deg', 0)),
+                    "source_height_m": float(ris.phase_metadata.get('source_height_m', 0)),
+                })
+
             # Persist phase configuration on canonical RIS node for downstream tools (e.g., ris_panel shell)
             if ris_node is not None:
                 ris_node.current_phases = np.array(ris.current_phases, copy=True)
@@ -373,6 +378,9 @@ class RISNetwork:
                 ris_node.specular_angle_deg = getattr(ris, 'specular_angle_deg', None)
                 ris_node.abs_beam_angle_deg = getattr(ris, 'abs_beam_angle_deg', None)
                 ris_node.local_beam_deflection_deg = getattr(ris, 'local_beam_deflection_deg', None)
+                # Also persist phase metadata
+                if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
+                    ris_node.phase_metadata = ris.phase_metadata
 
         # Calculate local deflection from RIS normal
         local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
@@ -424,7 +432,11 @@ class RISNetwork:
                 # Store phase data for retrieval by phases command
                 'current_phases': result.get('current_phases', None),
                 'quantized_phases': result.get('quantized_phases', None),
-                'phase_states': result.get('phase_states', None)
+                'phase_states': result.get('phase_states', None),
+                # Store phase metadata (deflection angle and azimuths) for new format display
+                'deflection_angle_deg': result.get('deflection_angle_deg', None),
+                'incident_azimuth_deg': result.get('incident_azimuth_deg', None),
+                'reflected_azimuth_deg': result.get('reflected_azimuth_deg', None),
             }
 
         self.last_connect_result = {

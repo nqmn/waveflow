@@ -1,14 +1,44 @@
-"""Generate training data for beam-prediction models."""
+"""Generate training data for beam-prediction models using deflection angle formula.
+
+DEFLECTION ANGLE FORMULA (from formula.md):
+============================================
+The dataset is built using the NEW deflection angle formula:
+
+1. Calculate incident azimuth (AP direction from RIS):
+   ap_angle = arctan2(AP_y - RIS_y, AP_x - RIS_x)
+
+2. Calculate reflected azimuth (UE direction from RIS):
+   ue_angle = arctan2(UE_y - RIS_y, UE_x - RIS_x)
+
+3. Compute deflection angle (magnitude of azimuth difference):
+   deflection = |ue_angle - ap_angle|
+   (normalized to [-180°, 180°] then take absolute value)
+
+4. Training labels (best_angle) represent LOCAL deflection angles:
+   - Range: 0° to 180° (always positive)
+   - What to predict: How much to deflect/steer from incident direction
+   - NOT: Absolute RIS beam angles
+
+This ensures ML models learn the physics-based deflection steering paradigm.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
+import os
 import random
+import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
 import numpy as np
+
+# Add project root to path to allow imports from any working directory
+# __file__ is relative on Windows, so use os.path.abspath first
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
+sys.path.insert(0, project_root)
 
 from core import RISNetwork
 from core.angle_utils import compute_optimal_ris_normal
@@ -121,6 +151,14 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
     - AP within RIS FOV (±ris_max_angle from RIS normal)
     - UE within RIS FOV (±ris_max_angle from RIS normal)
     - No FOV violation errors
+
+    The best_angle returned is a DEFLECTION ANGLE (relative steering from incident direction):
+    - Deflection angle = magnitude of azimuth difference between UE and AP directions
+    - Computed as: |arctan2(UE_y - RIS_y, UE_x - RIS_x) - arctan2(AP_y - RIS_y, AP_x - RIS_x)|
+    - Range: 0° to 180° (always positive magnitude)
+    - This represents how much the RIS must deflect/steer from the incident direction to reach the target
+
+    Training targets (best_angle) are in LOCAL deflection angle space, not absolute beam angles.
     """
     net.nodes.clear()
 
@@ -137,10 +175,13 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
     )
     net.add_ue('UE', *ue_pos)
 
-    # Sweep will compute RIS normal internally as bisector of AP and UE
-    # Do NOT force it before sweep - let sweep calculate it naturally
+    # Sweep will compute optimal RIS normal internally as bisector of AP and UE
+    # Then test DEFLECTION ANGLES from -FOV to +FOV relative to the incident direction
+    # Do NOT force RIS normal before sweep - let sweep calculate it naturally
     result = net.sweep('AP', 'RIS', 'UE', fov=bounds['fov'], step=bounds['step'])
 
+    # Extract optimal LOCAL deflection angle (relative to incident direction)
+    # This is what we train the ML model to predict
     best_angle = result['best_local_fine']
     snr = result['best_snr_fine']
 

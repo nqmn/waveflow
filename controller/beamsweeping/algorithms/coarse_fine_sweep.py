@@ -13,7 +13,6 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
     apply_waveform_realism,
-    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -70,10 +69,26 @@ class CoarseFineSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # Calculate optimal RIS normal as bisector of AP and UE directions
-        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
-        # within its FOV constraints, consistent with single connect command
-        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
+        # Calculate incident and reflected azimuths from 3D coordinates
+        ap_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
+
+        ue_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+        # Deflection angle is the magnitude of azimuth difference
+        angle_diff = ue_angle - ap_angle
+        # Wrap to [-180, 180]
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+
+        # Base deflection angle magnitude
+        base_deflection_angle = abs(angle_diff)
+
+        # Also set base_angle for compatibility (incident direction)
+        base_angle = ap_angle
 
         # Generate codebook centered on optimal RIS normal
         local_coarse, num_coarse = generate_codebook(fov, step)
@@ -82,7 +97,16 @@ class CoarseFineSweep(SweepAlgorithmBase):
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
         clamped_local_coarse = clamp_local_deflection_to_ris_fov(local_coarse, ris_max_angle)
 
-        abs_angles = specular_angle + clamped_local_coarse
+        # Convert deflection angles to absolute beam angles
+        if angle_diff > 0:
+            # UE is counterclockwise from AP, so add deflection to AP angle
+            abs_angles = ap_angle + clamped_local_coarse
+        else:
+            # UE is clockwise from AP, so subtract deflection from AP angle
+            abs_angles = ap_angle - clamped_local_coarse
+
+        # Set specular_angle for result reporting (incident direction)
+        specular_angle = ap_angle
 
         snr_coarse = []
         pwr_coarse = []
@@ -155,7 +179,11 @@ class CoarseFineSweep(SweepAlgorithmBase):
         # Clamp fine phase angles to RIS FOV constraint
         clamped_local_fine = clamp_local_deflection_to_ris_fov(local_fine, ris_max_angle)
 
-        abs_angles_fine = specular_angle + clamped_local_fine
+        # Convert fine phase deflection angles to absolute beam angles
+        if angle_diff > 0:
+            abs_angles_fine = ap_angle + clamped_local_fine
+        else:
+            abs_angles_fine = ap_angle - clamped_local_fine
         snr_fine = []
         ser_fine = [None] * len(local_fine) if use_waveform else None
 

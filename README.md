@@ -147,6 +147,7 @@ risnet> add ris ris1 5 0 0 16 2                    # Add RIS surface
 risnet> add ue ue1 10 3                            # Add user equipment
 risnet> list                                       # List all nodes
 risnet> connect ap1 ris1 ue1                       # Connect with beam sweep
+risnet> signal ap1 ris1 ue1                        # Report Tx/Rx powers and apparent link loss
 risnet> sweep ap1 ris1 ue1 60 10                   # Perform beam sweeping
 risnet> waveform_snr ap1 ris1 ue1 10               # Waveform-level SNR
 risnet> waveform_compare ap1 ris1 ue1              # System vs Waveform comparison

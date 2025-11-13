@@ -16,7 +16,6 @@ from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
     apply_waveform_realism,
-    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -84,11 +83,29 @@ class MLGuidedSweep(SweepAlgorithmBase):
             ap_name, ris_name, ue_name, fov, top_k=top_k
         )
 
-        # Calculate base direction (UE direction from RIS)
-        # Calculate optimal RIS normal as bisector of AP and UE directions
-        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
-        # within its FOV constraints, consistent with single connect command
-        specular_angle = compute_ris_normal_for_sweep(ap, ris, ue)
+        # Calculate incident and reflected azimuths from 3D coordinates
+        ap_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
+
+        ue_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+        # Deflection angle is the magnitude of azimuth difference
+        angle_diff = ue_angle - ap_angle
+        # Wrap to [-180, 180]
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+
+        # Base deflection angle magnitude
+        base_deflection_angle = abs(angle_diff)
+
+        # Also set base_angle for compatibility (incident direction)
+        base_angle = ap_angle
+
+        # Set specular_angle for result reporting (incident direction)
+        specular_angle = ap_angle
 
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
@@ -99,7 +116,11 @@ class MLGuidedSweep(SweepAlgorithmBase):
         tested_angles = set()
 
         for i, ml_angle in enumerate(ml_suggestions):
-            abs_angle = specular_angle + ml_angle
+            # Convert deflection angle to absolute beam angle
+            if angle_diff > 0:
+                abs_angle = ap_angle + ml_angle
+            else:
+                abs_angle = ap_angle - ml_angle
             with self._ap_state_guard(ap):
                 res = self.network.connect(
                     ap_name, ris_name, ue_name,
@@ -133,7 +154,13 @@ class MLGuidedSweep(SweepAlgorithmBase):
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
         clamped_local_coarse = clamp_local_deflection_to_ris_fov(local_coarse, ris_max_angle)
 
-        abs_angles = specular_angle + clamped_local_coarse
+        # Convert deflection angles to absolute beam angles
+        if angle_diff > 0:
+            # UE is counterclockwise from AP, so add deflection to AP angle
+            abs_angles = ap_angle + clamped_local_coarse
+        else:
+            # UE is clockwise from AP, so subtract deflection from AP angle
+            abs_angles = ap_angle - clamped_local_coarse
 
         snr_array = np.full(num_coarse, np.nan)
         pwr_array = np.full(num_coarse, np.nan)
@@ -193,7 +220,12 @@ class MLGuidedSweep(SweepAlgorithmBase):
         fine_start = max(best_local - fine_span, -fov)
         fine_end = min(best_local + fine_span, fov)
         local_fine = np.arange(fine_start, fine_end + fine_res, fine_res)
-        abs_angles_fine = specular_angle + local_fine
+
+        # Convert fine phase deflection angles to absolute beam angles
+        if angle_diff > 0:
+            abs_angles_fine = ap_angle + local_fine
+        else:
+            abs_angles_fine = ap_angle - local_fine
 
         snr_fine = []
         num_fine = len(local_fine)

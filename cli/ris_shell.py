@@ -175,17 +175,16 @@ Phase Formats (use: phases <format>):
                 self.ris_node.specular_angle_deg = float(link_info['ris_normal_angle'])
 
             print(f"Displaying phases from: [{link_index}] {link_name}")
-            if 'beam_angle_local' in link_info and 'ris_normal_angle' in link_info:
-                print(f"Beam Angle (Local):     {link_info['beam_angle_local']:.2f}° (relative to RIS normal)")
-                print(f"RIS Normal Angle:       {link_info['ris_normal_angle']:.2f}°")
-                if 'beam_angle_absolute' in link_info:
-                    print(f"Beam Angle (Absolute):  {link_info['beam_angle_absolute']:.2f}° (world reference)")
-            elif 'beam_angle_absolute' in link_info:
-                # Fallback for older format
-                print(f"Beam Angle (Absolute):  {link_info['beam_angle_absolute']:.2f}°")
-            elif 'beam_angle' in link_info:
-                # Legacy support
-                print(f"Beam Angle: {link_info['beam_angle']:.2f}°")
+            # Display angles with new format (Steering Angle with azimuths if available)
+            if link_info.get('deflection_angle_deg') is not None:
+                print(f"Steering Angle (Deflection): {link_info['deflection_angle_deg']:.2f}° (azimuth deflection magnitude)")
+                if link_info.get('incident_azimuth_deg') is not None:
+                    print(f"  Incident Azimuth (AP→RIS): {link_info['incident_azimuth_deg']:.2f}°")
+                if link_info.get('reflected_azimuth_deg') is not None:
+                    print(f"  Reflected Azimuth (RIS→UE): {link_info['reflected_azimuth_deg']:.2f}°")
+            elif 'beam_angle_local' in link_info:
+                # Fallback: use beam_angle_local as steering angle when metadata unavailable
+                print(f"Steering Angle (Deflection): {link_info['beam_angle_local']:.2f}° (azimuth deflection magnitude)")
             print()
         else:
             # Try to use phase data from recent connect() result
@@ -547,11 +546,11 @@ PERFORMANCE METRICS:
         print(f"\n  Beam Orientation:")
         if meta['local'] is not None:
             direction_desc = "right" if meta['local'] > 0 else "left" if meta['local'] < 0 else "center"
-            print(f"    Beam Angle (Local):     {meta['local']:7.2f}°  ({direction_desc})")
+            print(f"    Steering Angle (Deflection): {meta['local']:7.2f}°  ({direction_desc})")
         if meta['abs'] is not None:
-            print(f"    Beam Angle (Absolute):  {meta['abs']:7.2f}°")
+            print(f"    (Global frame):             {meta['abs']:7.2f}°")
         if meta['spec'] is not None:
-            print(f"    RIS Target (Specular):  {meta['spec']:7.2f}°")
+            print(f"    RIS Target (Specular):      {meta['spec']:7.2f}°")
 
     def _angle_metadata_text(self, indent='  '):
         meta = self._get_angle_metadata()
@@ -561,11 +560,11 @@ PERFORMANCE METRICS:
         lines = [f"{indent}Beam Orientation:"]
         if meta['local'] is not None:
             direction_desc = "right" if meta['local'] > 0 else "left" if meta['local'] < 0 else "center"
-            lines.append(f"{indent}  Beam Angle (Local):     {meta['local']:7.2f}°  ({direction_desc})")
+            lines.append(f"{indent}  Steering Angle (Deflection): {meta['local']:7.2f}°  ({direction_desc})")
         if meta['abs'] is not None:
-            lines.append(f"{indent}  Beam Angle (Absolute):  {meta['abs']:7.2f}°")
+            lines.append(f"{indent}  (Global frame):             {meta['abs']:7.2f}°")
         if meta['spec'] is not None:
-            lines.append(f"{indent}  RIS Target (Specular):  {meta['spec']:7.2f}°")
+            lines.append(f"{indent}  RIS Target (Specular):      {meta['spec']:7.2f}°")
         return "\n" + "\n".join(lines)
 
     def _describe_phase_pattern(self, phases_grid, states, wave_mode):

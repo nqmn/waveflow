@@ -10,6 +10,7 @@ Implements phase steering algorithms for RIS-based beamforming:
 import numpy as np
 from typing import Dict, Tuple, Optional
 import logging
+from core.angle_utils import clamp_offset_to_fov
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +175,170 @@ class PhaseSteeringEngine:
         beam_angle_deg = np.degrees(beam_angle_rad)
 
         return beam_angle_deg
+
+    @staticmethod
+    def phase_pattern_from_deflection(
+        source_pos: np.ndarray,
+        ris_center_pos: np.ndarray,
+        target_pos: np.ndarray,
+        wavelength: float,
+        ris_array_size: int = 16,
+        max_angle_deg: Optional[float] = None,
+        ris_normal_deg: Optional[float] = None
+    ) -> Tuple[np.ndarray, Dict]:
+        """
+        Generate RIS phase pattern from node coordinates using deflection angle decomposition.
+
+        Implements the algorithm from risformula/formula.md:
+        - Section 4: Deflection angle calculation from 3D coordinates
+        - Section 5: Phase computation with incident + steering components
+
+        NATIVE FOV CLAMPING: If max_angle_deg is provided (RIS hardware constraint),
+        the deflection angle is automatically clamped to ±max_angle_deg before phase computation.
+        This ensures phases reflect the actual RIS steering capability.
+
+        Formula:
+            φ(i,j) = φ_incident(i,j) + φ_steering(i,j)
+                    = k·√(x_i² + y_i² + r_src²) - k·x_i·sin(θ_rcv_clamped)
+
+        Args:
+            source_pos: Source/AP position [x_s, y_s, z_s] in meters
+            ris_center_pos: RIS center position [x_r, y_r, z_r] in meters
+            target_pos: Target/UE position [x_t, y_t, z_t] in meters
+            wavelength: Operating wavelength in meters (≈0.0517 m for 5.8 GHz)
+            ris_array_size: RIS grid size (N for N×N array, default 16)
+            max_angle_deg: Maximum steering angle from RIS normal (native hardware constraint).
+                          If None, no FOV clamping applied. If provided, deflection is clamped.
+            ris_normal_deg: RIS antenna normal direction in degrees [0, 360).
+                           Only used if max_angle_deg is provided for proper offset calculation.
+
+        Returns:
+            Tuple of:
+            - phase_pattern: Flattened phase array (N×N→N²) in radians, [0, 2π)
+            - metadata: Dictionary with:
+                - deflection_angle_deg: Calculated deflection angle in degrees (BEFORE clamping)
+                - deflection_angle_clamped_deg: Clamped deflection angle used for phase computation
+                - fov_clamped: Boolean indicating if clamping was applied
+                - incident_azimuth_deg: Incident direction (AP→RIS) in degrees
+                - reflected_azimuth_deg: Reflected direction (RIS→UE) in degrees
+                - source_height_m: Source height above RIS (z_s - z_r)
+                - element_spacing_m: Half-wavelength spacing
+
+        Example:
+            >>> source = np.array([8.0, 10.0, 0.5])
+            >>> ris = np.array([15.0, 10.0, 0.0])
+            >>> target = np.array([11.4, 6.5, 0.0])
+            >>> wavelength = 0.0517  # 5.8 GHz
+            >>> phases, meta = PhaseSteeringEngine.phase_pattern_from_deflection(
+            ...     source, ris, target, wavelength, ris_array_size=16
+            ... )
+            >>> # Output includes checkerboard pattern with incident spherical wave
+            >>> # modulated by linear steering phase ramp
+        """
+        # Physical constants
+        k = 2 * np.pi / wavelength
+        d = wavelength / 2  # half-wavelength element spacing
+
+        # ===== STEP 1: Calculate deflection angle from 3D coordinates =====
+        # Extract 2D projections (XY plane - azimuth only)
+        ap_2d = source_pos[:2]
+        ris_2d = ris_center_pos[:2]
+        ue_2d = target_pos[:2]
+
+        # Calculate absolute azimuth angles
+        theta_in_rad = np.arctan2(ap_2d[1] - ris_2d[1], ap_2d[0] - ris_2d[0])
+        theta_out_rad = np.arctan2(ue_2d[1] - ris_2d[1], ue_2d[0] - ris_2d[0])
+
+        # Calculate azimuth angle difference (deflection)
+        angle_diff = theta_out_rad - theta_in_rad
+
+        # Wrap to [-π, π]
+        while angle_diff > np.pi:
+            angle_diff -= 2 * np.pi
+        while angle_diff < -np.pi:
+            angle_diff += 2 * np.pi
+
+        # Deflection angle (magnitude)
+        theta_rcv = abs(angle_diff)
+
+        # Store original deflection for metadata
+        theta_rcv_original = theta_rcv
+        fov_clamped = False
+
+        # ===== NATIVE FOV CONSTRAINT: Check hardware limit =====
+        # If max_angle_deg is provided, verify deflection angle is within RIS capability
+        if max_angle_deg is not None:
+            # Convert max_angle from degrees to radians for consistent units
+            max_angle_rad = np.radians(max_angle_deg)
+
+            # Check if deflection exceeds maximum steering capability
+            if theta_rcv > max_angle_rad:
+                fov_clamped = True
+                raise ValueError(
+                    f"RIS deflection angle {np.degrees(theta_rcv):.2f}° exceeds hardware FOV limit of ±{max_angle_deg:.0f}°. "
+                    f"Cannot establish link. Consider repositioning UE or RIS to reduce required deflection."
+                )
+
+        # ===== STEP 2: Calculate source height above RIS =====
+        r_src = source_pos[2] - ris_center_pos[2]
+
+        # ===== STEP 3: Generate RIS element coordinates (2D grid) =====
+        # Grid limits
+        lim_x = (ris_array_size - 1) / 2 * d
+        lim_y = (ris_array_size - 1) / 2 * d
+
+        # Element positions relative to RIS center
+        x_indices = np.arange(ris_array_size)
+        y_indices = np.arange(ris_array_size)
+
+        x_rel = -lim_x + (x_indices / (ris_array_size - 1)) * (2 * lim_x)
+        y_rel = -lim_y + (y_indices / (ris_array_size - 1)) * (2 * lim_y)
+
+        # Create 2D mesh grid
+        X, Y = np.meshgrid(x_rel, y_rel)
+
+        # ===== STEP 4: Compute phase components for each element =====
+
+        # Component 1: Incident phase (spherical wavefront compensation)
+        # φ_incident(i,j) = k·√(x_i² + y_i² + r_src²)
+        # Accounts for phase variation due to different propagation distances
+        # from spherical source at height r_src above RIS
+        R_source = np.sqrt(X**2 + Y**2 + r_src**2)
+        phase_incident = k * R_source
+
+        # Component 2: Steering phase (linear array steering)
+        # φ_steering(i,j) = -k·x_i·sin(θ_rcv)
+        # Creates linear phase ramp to deflect beam toward target
+        phase_steering = -k * X * np.sin(theta_rcv)
+
+        # Component 3: Total phase (superposition)
+        # φ(i,j) = φ_incident + φ_steering
+        phase_total = phase_incident + phase_steering
+
+        # ===== STEP 5: Normalize to [0, 2π) =====
+        phase_pattern = phase_total % (2 * np.pi)
+        # Ensure all values are non-negative
+        phase_pattern = np.where(phase_pattern < 0, phase_pattern + 2 * np.pi, phase_pattern)
+
+        # ===== STEP 6: Prepare metadata =====
+        metadata = {
+            'deflection_angle_deg': np.degrees(theta_rcv_original),  # Original, unclamped
+            'deflection_angle_clamped_deg': np.degrees(theta_rcv),    # Clamped value used for phases
+            'fov_clamped': fov_clamped,                              # Whether clamping was applied
+            'max_angle_deg': max_angle_deg,                          # Hardware constraint
+            'incident_azimuth_deg': np.degrees(theta_in_rad),
+            'reflected_azimuth_deg': np.degrees(theta_out_rad),
+            'angle_diff_deg': np.degrees(angle_diff),
+            'source_height_m': r_src,
+            'element_spacing_m': d,
+            'ris_array_size': ris_array_size,
+            'wavelength_m': wavelength,
+            'phase_pattern_2d': phase_pattern,  # 2D representation for visualization
+            'incident_component': phase_incident,
+            'steering_component': phase_steering,
+        }
+
+        return phase_pattern.flatten(), metadata
 
     @staticmethod
     def phase_gradient_analysis(

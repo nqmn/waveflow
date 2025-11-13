@@ -1,24 +1,25 @@
 """ML predictor registry for beam sweeping."""
 
+from __future__ import annotations
+
+import importlib
+from typing import Dict, Tuple
+
 from .base import SweepMLPredictor
-from .trivial import ZeroOffsetPredictor
-from .xgb import XGBPredictor
-from .rf import RFPredictor
-from .svr import SVRPredictor
-from .mlp import MLPPredictor
 
 
 class MLPredictorLoader:
     """Factory for ML-based beam sweep predictors."""
 
-    PREDICTORS = {
-        'default': RFPredictor,
-        'xgb': XGBPredictor,
-        'rf': RFPredictor,
-        'svr': SVRPredictor,
-        'mlp': MLPPredictor,
-        'zero': ZeroOffsetPredictor,
+    PREDICTORS: Dict[str, Tuple[str, str]] = {
+        'default': ('controller.beamsweeping.ml.rf', 'RFPredictor'),
+        'xgb': ('controller.beamsweeping.ml.xgb', 'XGBPredictor'),
+        'rf': ('controller.beamsweeping.ml.rf', 'RFPredictor'),
+        'svr': ('controller.beamsweeping.ml.svr', 'SVRPredictor'),
+        'mlp': ('controller.beamsweeping.ml.mlp', 'MLPPredictor'),
+        'zero': ('controller.beamsweeping.ml.trivial', 'ZeroOffsetPredictor'),
     }
+    _CLASS_CACHE = {}
 
     @classmethod
     def get_predictor(cls, name: str, network):
@@ -26,18 +27,29 @@ class MLPredictorLoader:
         if key not in cls.PREDICTORS:
             available = ', '.join(cls.PREDICTORS.keys())
             raise ValueError(f"Unknown ML predictor '{name}'. Available: {available}")
-        return cls.PREDICTORS[key](network)
+        predictor_cls = cls._get_predictor_class(key)
+        return predictor_cls(network)
 
     @classmethod
     def list_predictors(cls):
         info = {}
         for name, predictor_cls in cls.PREDICTORS.items():
-            instance = predictor_cls(None)
+            instance = cls._get_predictor_class(name)(None)
             info[name] = {
                 'class_name': instance.name,
                 'description': instance.description
             }
         return info
+
+    @classmethod
+    def _get_predictor_class(cls, key: str):
+        if key in cls._CLASS_CACHE:
+            return cls._CLASS_CACHE[key]
+        module_name, class_name = cls.PREDICTORS[key]
+        module = importlib.import_module(module_name)
+        predictor_cls = getattr(module, class_name)
+        cls._CLASS_CACHE[key] = predictor_cls
+        return predictor_cls
 
 
 __all__ = [
@@ -47,4 +59,26 @@ __all__ = [
     'RFPredictor',
     'SVRPredictor',
     'MLPPredictor',
+    'ZeroOffsetPredictor',
 ]
+
+
+def __getattr__(name: str):
+    """Lazily load predictor classes so heavy dependencies run only on demand."""
+    key = _find_predictor_key_for_class(name)
+    if key is None:
+        raise AttributeError(f"module {__name__} has no attribute {name}")
+    predictor_cls = MLPredictorLoader._get_predictor_class(key)
+    globals()[name] = predictor_cls
+    return predictor_cls
+
+
+def __dir__():
+    return sorted(set(__all__) | set(globals().keys()))
+
+
+def _find_predictor_key_for_class(name: str):
+    for key, (_, class_name) in MLPredictorLoader.PREDICTORS.items():
+        if class_name == name:
+            return key
+    return None

@@ -13,7 +13,6 @@ from typing import Dict
 from ..base import SweepAlgorithmBase
 from ..common import (
     apply_waveform_realism,
-    compute_ris_normal_for_sweep,
     generate_codebook,
     local_angle_to_index,
     setup_waveform_simulator,
@@ -71,19 +70,44 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # Calculate optimal RIS normal as bisector of AP and UE directions
-        # This ensures the RIS can simultaneously serve both AP (receive) and UE (transmit)
-        # within its FOV constraints, consistent with single connect command
-        base_angle = compute_ris_normal_for_sweep(ap, ris, ue)
+        # Calculate incident and reflected azimuths from 3D coordinates
+        ap_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
 
-        # Single phase: test all angles from -FOV to +FOV at specified resolution
+        ue_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
+
+        # Deflection angle is the magnitude of azimuth difference
+        angle_diff = ue_angle - ap_angle
+        # Wrap to [-180, 180]
+        while angle_diff > 180:
+            angle_diff -= 360
+        while angle_diff < -180:
+            angle_diff += 360
+
+        # Base deflection angle magnitude
+        base_deflection_angle = abs(angle_diff)
+
+        # Also set base_angle for compatibility (incident direction)
+        base_angle = ap_angle
+
+        # Generate deflection angles to test (centered around base deflection)
+        # Test from 0 to fov degrees with specified step
         angles, num_angles = generate_codebook(fov, step)
 
-        # Clamp local deflection angles to RIS FOV constraint (native RIS capability)
+        # Clamp deflection angles to RIS FOV constraint
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
         clamped_angles = clamp_local_deflection_to_ris_fov(angles, ris_max_angle)
 
-        abs_angles = base_angle + clamped_angles
+        # Convert deflection angles to absolute beam angles
+        # Deflection angle means steering from incident direction toward target
+        # So absolute angle = incident angle + deflection (accounting for direction)
+        if angle_diff > 0:
+            # UE is counterclockwise from AP, so add deflection to AP angle
+            abs_angles = ap_angle + clamped_angles
+        else:
+            # UE is clockwise from AP, so subtract deflection from AP angle
+            abs_angles = ap_angle - clamped_angles
 
         snr_values = [None] * num_angles
         power_values = [None] * num_angles

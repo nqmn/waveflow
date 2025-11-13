@@ -293,6 +293,7 @@ class RIS(Node):
         self.specular_angle_deg = None
         self.abs_beam_angle_deg = None
         self.local_beam_deflection_deg = None
+        self.phase_metadata = None  # Metadata from phase computation (deflection angles, etc.)
 
         # Phase manager (lazy-loaded on demand)
         self._phase_manager = None
@@ -336,22 +337,41 @@ class RIS(Node):
     def compute_phases(self, ap_pos, ue_pos):
         """Compute ideal RIS phases for AP->RIS->UE beamforming
 
+        Implements the algorithm from risformula/formula.md:
+        - Calculates deflection angle from 3D node coordinates
+        - Computes incident phase (spherical wavefront compensation)
+        - Computes steering phase (linear array steering)
+        - Combines both components for the final phase pattern
+
         Args:
-            ap_pos: Access Point position (3D array)
-            ue_pos: User Equipment position (3D array)
+            ap_pos: Access Point position [x_s, y_s, z_s] (3D array)
+            ue_pos: User Equipment position [x_t, y_t, z_t] (3D array)
 
         Returns:
             phase_array: Ideal phases in radians (N×N grid, flattened)
         """
-        from .physics import Physics
+        from controller.ris_phase.phase_steering import PhaseSteeringEngine
 
         wavelength = C / self.freq
 
-        # Compute ideal phases using wavefront matching
-        phases = Physics.compute_ris_phases(ue_pos, self.element_positions, ap_pos, wavelength)
+        # Use new deflection-based phase calculation (formula.md algorithm)
+        # This includes both incident spherical wave and steering components
+        # IMPORTANT: Pass max_angle_deg to enforce hardware FOV constraint
+        phases, metadata = PhaseSteeringEngine.phase_pattern_from_deflection(
+            source_pos=ap_pos,
+            ris_center_pos=self.pos,
+            target_pos=ue_pos,
+            wavelength=wavelength,
+            ris_array_size=self.N,
+            max_angle_deg=self.max_angle_deg,  # Native hardware constraint
+            ris_normal_deg=self.normal_angle_deg
+        )
 
         # Store ideal phases
         self.current_phases = phases
+
+        # Store metadata for visualization/analysis
+        self.phase_metadata = metadata
 
         return phases
 

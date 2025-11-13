@@ -1,4 +1,28 @@
-"""Train a Random Forest beam predictor from generated dataset."""
+"""Train a Random Forest beam predictor from generated dataset.
+
+DATASET & FORMULA (Deflection Angle):
+====================================
+The training dataset uses the NEW DEFLECTION ANGLE FORMULA from formula.md:
+
+INPUT FEATURES (extracted from 3D node positions):
+  - AP position (3 coords: x, y, z)
+  - RIS position (3 coords: x, y, z)
+  - UE position (3 coords: x, y, z)
+  - Distance AP→RIS
+  - Distance RIS→UE
+  - AP transmit power (dBm)
+  - AP frequency (Hz)
+  - RIS element count (N)
+  - RIS phase quantization bits
+
+TRAINING TARGET (best_angle):
+  - LOCAL DEFLECTION ANGLE in degrees
+  - Magnitude of azimuth difference: |arctan2(UE_y - RIS_y, UE_x - RIS_x) - arctan2(AP_y - RIS_y, AP_x - RIS_x)|
+  - Range: 0° to 180° (always positive)
+  - Represents: How much to deflect from incident direction to reach target
+
+The model learns to predict the optimal deflection angle given network geometry.
+"""
 
 from __future__ import annotations
 
