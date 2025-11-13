@@ -98,7 +98,9 @@ class BeamformingEngine:
 
         # Step 2: Calculate specular reflection angle for RIS links
         specular_angle_deg = 0
-        is_ris_link = node1.startswith('R') or (node1 == 'AP' and node2.startswith('R'))
+        node1_label = node1.lower() if node1 else ''
+        node2_label = node2.lower() if node2 else ''
+        is_ris_link = node1_label.startswith('r') or (node1_label.startswith('ap') and node2_label.startswith('r'))
 
         if is_ris_link and ap_pos is not None:
             incident_vec = pos1 - ap_pos

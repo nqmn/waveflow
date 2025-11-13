@@ -1,4 +1,4 @@
-"""Support Vector Regression-based beam prior."""
+"""Linear Regression-based beam prior."""
 
 from __future__ import annotations
 
@@ -12,38 +12,37 @@ import numpy as np
 from .base import SweepMLPredictor
 
 try:
-    from sklearn.svm import SVR  # type: ignore
+    from sklearn.linear_model import LinearRegression  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
-    SVR = None
+    LinearRegression = None
 
 
-class SVRPredictor(SweepMLPredictor):
-    """Predict local beam angles with a pretrained Support Vector Regression model."""
+class LRPredictor(SweepMLPredictor):
+    """Predict local beam angles with a pretrained Linear Regression model."""
 
-    MODEL_ENV = "RISNET_SVR_MODEL"
-    DEFAULT_MODEL = Path("controller/beamsweeping/ml/models/svr_beam_predictor.pkl")
+    MODEL_ENV = "RISNET_LR_MODEL"
+    DEFAULT_MODEL = Path("controller/beamsweeping/ml/models/lr_beam_predictor.pkl")
 
     def __init__(self, network):
         super().__init__(network)
-        self._model: Optional[SVR] = None
-        self._scaler = None
+        self._model: Optional[LinearRegression] = None
         self._model_path = None
         self._model_error = None
         self._load_model()
 
     @property
     def name(self) -> str:
-        return "SVR Beam Prior"
+        return "Linear Regression Beam Prior"
 
     @property
     def description(self) -> str:
         if self._model is None:
-            return f"SVR predictor (Error: {self._model_error})"
-        return "Predicts promising local beams using Support Vector Regression."
+            return f"Linear Regression predictor (Error: {self._model_error})"
+        return "Predicts promising local beams using a Linear Regression model."
 
     def _load_model(self):
-        """Attempt to load the SVR model; fallback if missing."""
-        if SVR is None:
+        """Attempt to load the Linear Regression model; fallback if missing."""
+        if LinearRegression is None:
             self._model_error = "scikit-learn package not installed"
             return
 
@@ -59,13 +58,9 @@ class SVRPredictor(SweepMLPredictor):
 
         try:
             with candidate.open('rb') as f:
-                checkpoint = pickle.load(f)
-                self._model = checkpoint
-                # Extract scaler if stored in checkpoint
-                if hasattr(checkpoint, 'scaler'):
-                    self._scaler = checkpoint.scaler
+                self._model = pickle.load(f)
         except Exception as exc:  # pragma: no cover - load failure
-            self._model_error = f"failed to load SVR model: {exc}"
+            self._model_error = f"failed to load LR model: {exc}"
             return
 
         self._model_path = candidate
@@ -80,8 +75,8 @@ class SVRPredictor(SweepMLPredictor):
         top_k: int = 3
     ) -> List[float]:
         """Return ML-prioritized local beam angles."""
-        if self._model is None or SVR is None:
-            raise RuntimeError(f"SVR model not available: {self._model_error}")
+        if self._model is None or LinearRegression is None:
+            raise RuntimeError(f"Linear Regression model not available: {self._model_error}")
 
         ap = self.network.get(ap_name)
         ris = self.network.get(ris_name)
@@ -92,31 +87,30 @@ class SVRPredictor(SweepMLPredictor):
 
         features = self._build_feature_vector(ap, ris, ue)
         try:
-            # Scale features if scaler is available
-            if self._scaler is not None:
-                features_scaled = self._scaler.transform(np.array([features], dtype=float))
+            # Scale features using the scaler stored with the model
+            if hasattr(self._model, 'scaler'):
+                features_scaled = self._model.scaler.transform(np.array([features], dtype=float))
+                pred = float(self._model.predict(features_scaled)[0])
             else:
-                features_scaled = np.array([features], dtype=float)
-
-            pred = float(self._model.predict(features_scaled)[0])
+                pred = float(self._model.predict(np.array([features], dtype=float))[0])
         except Exception as e:  # pragma: no cover - prediction failure
-            raise RuntimeError(f"SVR prediction failed: {e}")
+            raise RuntimeError(f"Linear Regression prediction failed: {e}")
 
         pred_local = float(np.clip(pred, -fov, fov))
         return [pred_local]
 
     def _is_model_available(self) -> bool:
-        """Check if SVR model is loaded."""
-        return self._model is not None and SVR is not None
+        """Check if Linear Regression model is loaded."""
+        return self._model is not None and LinearRegression is not None
 
     def _compute_uncertainty(self, model_available: bool) -> float:
-        """SVR-specific uncertainty (based on model performance).
+        """Linear Regression-specific uncertainty (based on model performance).
 
-        SVR has good performance (R²=0.8830) with moderate uncertainty.
+        Linear Regression has moderate performance, so moderate uncertainty.
         """
         if not model_available:
             return 10.0
-        return 3.5  # SVR uncertainty
+        return 3.5  # Linear Regression uncertainty
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
         """Construct simple geometry-based features."""

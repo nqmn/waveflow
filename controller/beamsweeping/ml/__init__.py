@@ -16,7 +16,7 @@ class MLPredictorLoader:
         'xgb': ('controller.beamsweeping.ml.xgb', 'XGBPredictor'),
         'rf': ('controller.beamsweeping.ml.rf', 'RFPredictor'),
         'svr': ('controller.beamsweeping.ml.svr', 'SVRPredictor'),
-        'mlp': ('controller.beamsweeping.ml.mlp', 'MLPPredictor'),
+        'lr': ('controller.beamsweeping.ml.lr', 'LRPredictor'),
         'zero': ('controller.beamsweeping.ml.trivial', 'ZeroOffsetPredictor'),
     }
     _CLASS_CACHE = {}
@@ -58,7 +58,7 @@ __all__ = [
     'XGBPredictor',
     'RFPredictor',
     'SVRPredictor',
-    'MLPPredictor',
+    'LRPredictor',
     'ZeroOffsetPredictor',
 ]
 

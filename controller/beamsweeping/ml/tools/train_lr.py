@@ -37,6 +37,8 @@ import numpy as np
 try:
     from sklearn.linear_model import LinearRegression
     from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("scikit-learn is required. Install via `pip install scikit-learn`") from exc
 
@@ -83,21 +85,87 @@ def main():
     parser = argparse.ArgumentParser(description="Train Linear Regression beam predictor")
     parser.add_argument('--data', type=Path, required=True, help='Path to dataset CSV')
     parser.add_argument('--output', type=Path, default=Path('controller/beamsweeping/ml/models/lr_beam_predictor.pkl'))
+    parser.add_argument('--test-size', type=float, default=0.2, help='Test set fraction (0.0-1.0)')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
     args = parser.parse_args()
 
     print("Loading dataset...")
     X, y = load_dataset(args.data)
     print(f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features")
 
-    print("Training Linear Regression model...")
-    model = train_model(X, y)
+    # Split into train/test sets
+    print(f"\nSplitting data: {int((1-args.test_size)*100)}% train, {int(args.test_size*100)}% test")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=args.test_size, random_state=args.seed
+    )
+    print(f"Train: {X_train.shape[0]} samples | Test: {X_test.shape[0]} samples")
 
-    print("Evaluating model...")
-    X_scaled = model.scaler.transform(X)
-    train_score = model.score(X_scaled, y)
-    print(f"Training R² score: {train_score:.4f}")
+    print("\nTraining Linear Regression model...")
+    model = train_model(X_train, y_train)
 
-    print("Saving model...")
+    print("\n" + "="*70)
+    print("MODEL EVALUATION METRICS")
+    print("="*70)
+
+    # Training metrics
+    X_train_scaled = model.scaler.transform(X_train)
+    y_train_pred = model.predict(X_train_scaled)
+    train_mae = mean_absolute_error(y_train, y_train_pred)
+    train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
+    train_r2 = r2_score(y_train, y_train_pred)
+
+    print("\nTRAINING SET METRICS:")
+    print(f"  MAE (Mean Absolute Error):  {train_mae:>10.6f}°")
+    print(f"  RMSE (Root Mean Sq. Error): {train_rmse:>10.6f}°")
+    print(f"  R² Score:                   {train_r2:>10.6f}")
+
+    # Test metrics
+    X_test_scaled = model.scaler.transform(X_test)
+    y_test_pred = model.predict(X_test_scaled)
+    test_mae = mean_absolute_error(y_test, y_test_pred)
+    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
+    test_r2 = r2_score(y_test, y_test_pred)
+
+    print("\nTEST SET METRICS:")
+    print(f"  MAE (Mean Absolute Error):  {test_mae:>10.6f}°")
+    print(f"  RMSE (Root Mean Sq. Error): {test_rmse:>10.6f}°")
+    print(f"  R² Score:                   {test_r2:>10.6f}")
+
+    # Error statistics
+    errors = np.abs(y_test - y_test_pred)
+    print("\nERROR STATISTICS (Test Set):")
+    print(f"  Mean Error:                 {np.mean(errors):>10.6f}°")
+    print(f"  Median Error:               {np.median(errors):>10.6f}°")
+    print(f"  Std Dev:                    {np.std(errors):>10.6f}°")
+    print(f"  Min Error:                  {np.min(errors):>10.6f}°")
+    print(f"  Max Error:                  {np.max(errors):>10.6f}°")
+    print(f"  95th Percentile Error:      {np.percentile(errors, 95):>10.6f}°")
+
+    # Assessment
+    print("\nMODEL ASSESSMENT:")
+    if test_mae < 2.0:
+        assessment = "✓ EXCELLENT - MAE < 2° (very accurate predictions)"
+    elif test_mae < 3.0:
+        assessment = "✓ GOOD - MAE < 3° (accurate predictions)"
+    elif test_mae < 5.0:
+        assessment = "⚠ FAIR - MAE < 5° (acceptable for coarse guidance)"
+    else:
+        assessment = "✗ POOR - MAE ≥ 5° (insufficient accuracy, need more data)"
+    print(f"  {assessment}")
+
+    if test_r2 > 0.9:
+        fit_quality = "✓ Excellent fit (explains > 90% of variance)"
+    elif test_r2 > 0.7:
+        fit_quality = "✓ Good fit (explains > 70% of variance)"
+    elif test_r2 > 0.5:
+        fit_quality = "⚠ Fair fit (explains > 50% of variance)"
+    else:
+        fit_quality = "✗ Poor fit (explains < 50% of variance)"
+    print(f"  {fit_quality}")
+
+    print("="*70)
+
+    print("\nSaving model...")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open('wb') as f:
         pickle.dump(model, f)

@@ -770,7 +770,7 @@ class RISNetwork:
         }
 
     def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, fine_span=5, fine_res=1, seed=0,
-              use_isolated_copy=True):
+              use_isolated_copy=True, use_get_snr=False):
         """Coarse and fine beam sweep with deterministic SNR measurement
 
         Args:
@@ -783,6 +783,7 @@ class RISNetwork:
             fine_res: Fine resolution (degrees)
             seed: Random seed for reproducible fading (0 = reproducible, None = random)
             use_isolated_copy: If True (default), use cloned nodes to prevent state pollution.
+            use_get_snr: If False (default for training), compute SNR physically. If True, use messaging system.
 
         Returns:
             Dict with sweep results
@@ -818,7 +819,7 @@ class RISNetwork:
 
         # Use deterministic seed for consistent SNR measurements across sweep
         for abs_a in abs_angles:
-            res = self.connect(ap_name, ris_name, ue_name, beam_angle_deg=abs_a, seed=seed)
+            res = self.connect(ap_name, ris_name, ue_name, beam_angle_deg=abs_a, seed=seed, use_get_snr=use_get_snr)
             snr_coarse.append(res['snr_dB'])
             pwr_coarse.append(res['pwr_dBm'])
 
@@ -837,7 +838,7 @@ class RISNetwork:
 
         for abs_a in abs_angles_fine:
             # Use same seed for consistent comparison
-            r = self.connect(ap_name, ris_name, ue_name, beam_angle_deg=abs_a, seed=seed)
+            r = self.connect(ap_name, ris_name, ue_name, beam_angle_deg=abs_a, seed=seed, use_get_snr=use_get_snr)
             snr_fine.append(r['snr_dB'])
 
         best_fine_idx = int(np.argmax(snr_fine))

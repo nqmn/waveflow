@@ -206,13 +206,16 @@ def _compute_snr_from_positions(
     aligned_gain_dbi = array_gain_dbi - insertion_loss - reflection_loss
     misalignment_penalty_db = 10.0  # ≈ -10 dB when off target
 
-    if node1 == 'AP' and node2.startswith('R'):
+    node1_label = node1.lower() if node1 else ''
+    node2_label = node2.lower() if node2 else ''
+
+    if node1_label.startswith('ap') and node2_label.startswith('r'):
         # AP→RIS: treat as omnidirectional AP illuminating RIS
         gain_dbi = 3.0
         if active_ris_mode:
             gain_dbi += amplifier_gain
 
-    elif node1.startswith('R') and (node2 == 'H' or node2.startswith('R') or node2 == 'target'):
+    elif node1_label.startswith('r') and (node2_label == 'h' or node2_label.startswith('r') or node2_label == 'target'):
         # RIS→target/RIS: Blind beam steering - angle matters
         target_angle = np.arctan2(pos2[1] - pos1[1], pos2[0] - pos1[0]) * 180 / np.pi
         target_deflection = target_angle - specular_angle
@@ -247,7 +250,7 @@ def _compute_snr_from_positions(
                 gain_dbi += max(amplifier_gain - misalignment_penalty_db, amplifier_gain * 0.1)
 
         # RIS→RIS: Apply relay efficiency penalty (~70% efficiency -> -1.55 dB)
-        if node2.startswith('R'):
+        if node2_label.startswith('r'):
             gain_dbi -= 10 * np.log10(1 / 0.70)
 
     else:

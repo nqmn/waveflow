@@ -776,7 +776,8 @@ class RISNetCLI(cmd.Cmd):
         ML PREDICTORS (use with --ml-predictor when algo is ml or ml-guided):
             rf          Random Forest (recommended, best balance of speed/accuracy)
             xgb         XGBoost (high accuracy, slower)
-            nn          Neural Network (experimental)
+            svr         Support Vector Regression (moderate accuracy)
+            lr          Linear Regression (fast, simple baseline)
 
         Examples:
             connect                                        # Auto-detect nodes, single angle (specular)

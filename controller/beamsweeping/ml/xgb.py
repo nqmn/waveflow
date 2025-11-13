@@ -125,6 +125,6 @@ class XGBPredictor(SweepMLPredictor):
             float(getattr(ap, "power_dBm", 20.0)),
             float(getattr(ap, "freq", 5.8e9)),
             float(getattr(ris, "N", 16)),
-            float(getattr(ris, "bits", 2)),
+            float(getattr(ris, "bits", 1)),  # Default: 1 bit (matches trained dataset)
         ]
         return features
