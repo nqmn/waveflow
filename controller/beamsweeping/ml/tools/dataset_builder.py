@@ -100,13 +100,13 @@ def generate_valid_geometry(bounds: Dict[str, float], ris_max_angle: float = 60.
     This ensures:
     1. AP is within RIS FOV (±ris_max_angle from RIS normal)
     2. UE is within RIS FOV (±ris_max_angle from RIS normal)
-    3. Deflection angle (angle between AP and UE from RIS) is within 2*ris_max_angle
+    3. Deflection angle (angle between AP and UE from RIS) can be up to 2*ris_max_angle
     4. No skipping needed, every sample is valid
 
     Returns: (ap_pos, ris_pos, ue_pos)
     """
     max_attempts = 100
-    max_deflection = 2 * ris_max_angle  # Maximum deflection angle (e.g., 120° for ±60° FOV)
+    max_deflection = 120.0  # Allow up to 120° deflection for full ±60° local angle coverage
 
     for attempt in range(max_attempts):
         # Generate RIS position
@@ -146,10 +146,10 @@ def generate_valid_geometry(bounds: Dict[str, float], ris_max_angle: float = 60.
         # For safe sweep operation:
         # - RIS normal sits at bisector of AP and UE
         # - Sweep tests local angles from -FOV to +FOV relative to normal
-        # - Conservative threshold: require deflection < ris_max_angle (< 60°)
-        # - This ensures that when sweep is performed, no angle exceeds the hardware limit
-        if deflection >= ris_max_angle:
-            continue  # Deflection at or exceeding FOV limit, try again
+        # - Allow deflection up to 2*ris_max_angle (120°) to get full ±60° local angle coverage
+        # - With 120° deflection, both nodes are ±60° from bisector, enabling ±60° sweep results
+        if deflection > max_deflection:
+            continue  # Deflection exceeds maximum, try again
 
         # All constraints satisfied
         return ap_pos, ris_pos, ue_pos
@@ -187,7 +187,7 @@ def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle
     net.add_ris(
         'RIS', *ris_pos,
         N=ris_cfg['N'], bits=ris_cfg['bits'],
-        max_angle_deg=ris_max_angle  # Explicitly set RIS max angle
+        max_angle_deg=120.0  # Allow 120° steering to capture full ±60° local angles
     )
     net.add_ue('UE', *ue_pos)
 
