@@ -302,7 +302,7 @@ class RISNetwork:
             ris.local_beam_deflection_deg = float(beam_angle_deg - target_angle)
         except Exception:
             pass
-        gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=angle_loss)
+        gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=angle_loss, frequency=ris.freq)
 
         # Quantization loss (negative dB = loss)
         quant_loss_dB = Physics.quantization_loss_dB(

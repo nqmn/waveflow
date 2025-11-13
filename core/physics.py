@@ -308,21 +308,43 @@ class Physics:
 
     @staticmethod
     def array_gain_dBi(N, amplifier_gain=1.0, insertion_loss_dB=0.5,
-                       reflection_loss_dB=0.2, angle_loss_dB=0):
-        """Calculate RIS array gain
+                       reflection_loss_dB=0.2, angle_loss_dB=0, frequency=5.8e9):
+        """Calculate RIS array gain based on aperture directivity
+
+        Uses aperture-based directivity formula: D = 4π·A_ris / λ²
+        This is more realistic than the element-count formula 20*log10(N).
 
         Args:
-            N: Number of elements
+            N: Total number of elements (for square array: N_side = sqrt(N))
             amplifier_gain: Amplifier gain (linear, 1.0 for passive)
             insertion_loss_dB: Insertion loss per element
             reflection_loss_dB: Reflection loss
             angle_loss_dB: Beam steering angle loss
+            frequency: Operating frequency in Hz (default 5.8 GHz)
 
         Returns:
             Array gain in dBi
         """
-        theoretical_gain_dBi = 20 * np.log10(amplifier_gain * N)
-        total_gain = theoretical_gain_dBi - insertion_loss_dB - reflection_loss_dB - angle_loss_dB
+        # Calculate aperture directivity for square RIS panel
+        # Assume element spacing λ/2, so for N elements: side_length = sqrt(N) * λ/2
+        c = 3e8
+        wavelength = c / frequency
+
+        # For N_side × N_side array with λ/2 spacing:
+        N_side = np.sqrt(N)
+        side_length = N_side * (wavelength / 2.0)
+        aperture_area = side_length ** 2
+
+        # Aperture directivity: D = 4π·A / λ²
+        directivity_linear = (4 * np.pi * aperture_area) / (wavelength ** 2)
+        directivity_dBi = 10 * np.log10(directivity_linear)
+
+        # Apply realistic losses
+        # Amplifier gain (only matters for active RIS; passive has gain=1.0)
+        amp_gain_dB = 10 * np.log10(amplifier_gain)
+
+        # Total realized gain
+        total_gain = directivity_dBi + amp_gain_dB - insertion_loss_dB - reflection_loss_dB - angle_loss_dB
         return total_gain
 
     @staticmethod

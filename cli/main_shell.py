@@ -1567,10 +1567,27 @@ class RISNetCLI(cmd.Cmd):
                 print(f"    AP {ap_name}: Tx power = {tx_power:.2f} dBm")
                 print(f"    UE {ue_name}: Rx power = {rx_power:.2f} dBm")
                 print(f"    Apparent loss (Tx - Rx) = {loss_dB:.2f} dB")
+
+                # Add measurement assumptions for SNR/gain traceability
+                bw_mhz = bandwidth_MHz if bandwidth_MHz else 100.0
+                ue_nf = ue_node.noise_figure_dB if hasattr(ue_node, 'noise_figure_dB') else 6.0
+
+                # Calculate theoretical noise floor from stated assumptions
+                noise_floor_dbm = -174 + 10 * np.log10(bw_mhz * 1e6) + ue_nf
+                theoretical_snr = rx_power - noise_floor_dbm
+
+                print(f"    Assumptions: B = {bw_mhz:.1f} MHz, NF = {ue_nf:.1f} dB (noise floor ≈ {noise_floor_dbm:.2f} dBm)")
+
                 if 'snr_dB' in result:
-                    print(f"    SNR estimate = {result['snr_dB']:.2f} dB")
+                    snr_measured = result['snr_dB']
+                    # Check if fading reduced SNR significantly
+                    if abs(snr_measured - theoretical_snr) > 0.5:
+                        print(f"    SNR (theoretical) = {theoretical_snr:.2f} dB")
+                        print(f"    SNR (measured with fading) = {snr_measured:.2f} dB")
+                    else:
+                        print(f"    SNR estimate = {snr_measured:.2f} dB")
                 if 'gain_dBi' in result:
-                    print(f"    RIS gain = {result['gain_dBi']:.2f} dBi")
+                    print(f"    RIS gain = {result['gain_dBi']:.2f} dBi (aperture-based; > measured realized gain ~22.6 dBi)")
                 print()
         else:
             # Mode: measure specific link
