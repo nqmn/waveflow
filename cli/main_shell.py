@@ -183,7 +183,7 @@ class RISNetCLI(cmd.Cmd):
     # =====================================================================
 
     def do_add(self, arg):
-        """add <ap|ris|ue> [name] [--ris-aware [distance]]
+        """add <ap|ris|ue|random> [name] [--ris-aware [distance]]
         Auto-generates random positions and parameters.
         For UE: can optionally position within RIS deflection FOV to avoid clamping.
 
@@ -194,14 +194,22 @@ class RISNetCLI(cmd.Cmd):
           add ue                    -> Creates UE1 (random position)
           add ue UE2 --ris-aware    -> Creates UE2 within RIS FOV (auto distance)
           add ue UE3 --ris-aware 8  -> Creates UE3 within RIS FOV at distance 8m
+          add random                -> Adds 1 AP, 1 RIS, 1 UE (all random)
+          add random 2 1 5          -> Adds 2 APs, 1 RIS, 5 UEs
+          add random 1 2 4 --distance 8-12  -> Custom distance range
         """
         try:
             parts = shlex.split(arg)
             if len(parts) < 1:
-                print("usage: add <ap|ris|ue> [name] [--ris-aware [distance]]")
+                print("usage: add <ap|ris|ue|random> [name] [--ris-aware [distance]]")
                 return
 
             typ = parts[0].lower()
+
+            # Handle 'add random' subcommand
+            if typ == 'random':
+                self._handle_add_random(arg.replace('random', '', 1).strip())
+                return
             name = None
             ris_aware = False
             distance = None
@@ -264,8 +272,35 @@ class RISNetCLI(cmd.Cmd):
         except Exception as e:
             print('error:', e)
 
+    def _calculate_angle_from_ris(self, ris_pos, target_pos):
+        """Calculate angle from RIS to target in world coordinates (degrees)"""
+        dx = target_pos[0] - ris_pos[0]
+        dy = target_pos[1] - ris_pos[1]
+        angle_rad = np.arctan2(dy, dx)
+        angle_deg = np.degrees(angle_rad)
+
+        # Normalize to [-180, 180]
+        if angle_deg < -180:
+            angle_deg += 360
+        elif angle_deg > 180:
+            angle_deg -= 360
+
+        return angle_deg
+
+    def _is_within_ris_fov(self, angle_deg, ris_normal, ris_max_angle):
+        """Check if angle is within RIS FOV"""
+        min_angle = ris_normal - ris_max_angle
+        max_angle = ris_normal + ris_max_angle
+        return (angle_deg >= min_angle) and (angle_deg <= max_angle)
+
     def _add_ue_within_ris_fov(self, ue_name, distance=None):
-        """Position UE within RIS deflection FOV to avoid clamping.
+        """Position UE within RIS deflection FOV, respecting AP position.
+
+        The UE must be positioned such that:
+        1. Both AP and UE are within RIS hardware FOV (±max_angle_deg from RIS normal)
+        2. The angular separation between AP and UE (as seen from RIS) respects the
+           deflection constraint: |AP_angle - UE_angle| <= 2 * max_angle_deg
+        3. This ensures the AP->RIS->UE deflection stays within hardware capability
 
         Args:
             ue_name: Name of UE being added
@@ -290,11 +325,104 @@ class RISNetCLI(cmd.Cmd):
         if distance is None:
             distance = np.random.uniform(5.0, 15.0)
 
-        # Random angle within RIS deflection range
-        # Valid range is: ris_normal ± ris_max_angle
+        # Check AP position if it exists
+        ap_list = [n for n in self.net.nodes.values() if type(n).__name__ == 'AccessPoint']
+        ap_angle = None
+        ap_within_fov = False
+        ap_reachable = True
+        if ap_list:
+            ap = ap_list[0]  # Use first AP
+            ap_angle = self._calculate_angle_from_ris(ris.pos, ap.pos)
+            ap_within_fov = self._is_within_ris_fov(ap_angle, ris_normal, ris_max_angle)
+
+            # Check if AP is reachable by RIS at all (within deflection capability)
+            ris_fov_min = ris_normal - ris_max_angle
+            ris_fov_max = ris_normal + ris_max_angle
+
+            # Check distance to closest RIS FOV boundary
+            dist_to_min = abs(ap_angle - ris_fov_min)
+            dist_to_max = abs(ap_angle - ris_fov_max)
+            # Normalize to [0, 180]
+            while dist_to_min > 180:
+                dist_to_min = 360 - dist_to_min
+            while dist_to_max > 180:
+                dist_to_max = 360 - dist_to_max
+            min_dist_to_fov = min(dist_to_min, dist_to_max)
+
+            if min_dist_to_fov > ris_max_angle:
+                ap_reachable = False
+                print(f"  ✗ CRITICAL: AP at angle {ap_angle:.2f}° is {min_dist_to_fov:.1f}° away from nearest RIS FOV point")
+                print(f"  RIS can only deflect ±{ris_max_angle}°. AP is unreachable by this RIS!")
+                print(f"  UE placement will be unconstrained. Connection will likely fail.")
+            elif not ap_within_fov:
+                print(f"  Warning: AP at angle {ap_angle:.2f}° is outside RIS FOV")
+                print(f"  RIS FOV: [{ris_normal - ris_max_angle:.2f}°, {ris_normal + ris_max_angle:.2f}°]")
+
+        # Determine valid angular range for UE placement
+        # UE angle must satisfy:
+        # 1. Be within RIS FOV: |UE_angle - RIS_normal| <= max_angle_deg
+        # 2. If AP exists, deflection constraint: |AP_angle - UE_angle| <= 2 * max_angle_deg
+
         min_angle = ris_normal - ris_max_angle
         max_angle = ris_normal + ris_max_angle
 
+        # Apply deflection constraint if AP exists
+        if ap_angle is not None:
+            # Deflection constraint: |UE_angle - AP_angle| <= max_angle_deg
+            # The RIS can only deflect the beam by at most ±max_angle_deg
+            # This ensures the RIS can physically reach both AP and UE
+
+            # Valid UE angles are those where |UE_angle - AP_angle| <= max_angle_deg
+            min_ue_from_ap = ap_angle - ris_max_angle
+            max_ue_from_ap = ap_angle + ris_max_angle
+
+            # Intersect with RIS FOV range
+            ris_fov_min = ris_normal - ris_max_angle
+            ris_fov_max = ris_normal + ris_max_angle
+
+            intersect_min = max(ris_fov_min, min_ue_from_ap)
+            intersect_max = min(ris_fov_max, max_ue_from_ap)
+
+            if intersect_min <= intersect_max:
+                # Valid intersection exists
+                min_angle = intersect_min
+                max_angle = intersect_max
+                if not ap_within_fov:
+                    print(f"  Warning: AP is outside RIS FOV but within deflection range")
+            else:
+                # No valid intersection - AP and UE cannot be simultaneously served
+                if ap_within_fov:
+                    print(f"  Warning: AP deflection constraint too strict, using RIS FOV only")
+                    min_angle = ris_fov_min
+                    max_angle = ris_fov_max
+                else:
+                    # AP is too far outside RIS FOV - try to place UE closer to AP
+                    # Find the part of RIS FOV that's closest to AP
+                    ap_to_fov_min = abs(ap_angle - ris_fov_min)
+                    ap_to_fov_max = abs(ap_angle - ris_fov_max)
+
+                    # Normalize angle differences to [0, 180]
+                    while ap_to_fov_min > 180:
+                        ap_to_fov_min = 360 - ap_to_fov_min
+                    while ap_to_fov_max > 180:
+                        ap_to_fov_max = 360 - ap_to_fov_max
+
+                    if ap_to_fov_min <= ap_to_fov_max:
+                        # FOV min is closer to AP
+                        min_angle = max(ris_fov_min, ap_angle - ris_max_angle)
+                        max_angle = ris_fov_max
+                    else:
+                        # FOV max is closer to AP
+                        min_angle = ris_fov_min
+                        max_angle = min(ris_fov_max, ap_angle + ris_max_angle)
+
+                    print(f"  Warning: AP too far from RIS FOV, placing UE in closest reachable range")
+                    if min_angle > max_angle:
+                        # Even closer approach failed, use full FOV
+                        min_angle = ris_fov_min
+                        max_angle = ris_fov_max
+
+        # Sample random angle within constrained range
         random_angle_deg = np.random.uniform(min_angle, max_angle)
         random_angle_rad = np.radians(random_angle_deg)
 
@@ -302,10 +430,144 @@ class RISNetCLI(cmd.Cmd):
         x = ris.pos[0] + distance * np.cos(random_angle_rad)
         y = ris.pos[1] + distance * np.sin(random_angle_rad)
 
-        print(f"  RIS normal: {ris_normal:.2f}°, valid range: [{min_angle:.2f}°, {max_angle:.2f}°]")
-        print(f"  Placed at angle: {random_angle_deg:.2f}°, distance: {distance:.2f}m")
+        # Debug output
+        print(f"  RIS normal: {ris_normal:.2f}°, valid FOV: [{ris_normal - ris_max_angle:.2f}°, {ris_normal + ris_max_angle:.2f}°]")
+        if ap_angle is not None:
+            deflection = abs(random_angle_deg - ap_angle)
+            # Normalize deflection to [0, 180]
+            while deflection > 180:
+                deflection = 360 - deflection
+            print(f"  AP angle: {ap_angle:.2f}° {'✓' if ap_within_fov else '✗ outside FOV'}, deflection: {deflection:.2f}°")
+        print(f"  UE angle: {random_angle_deg:.2f}°, distance: {distance:.2f}m")
 
         return x, y
+
+    def _handle_add_random(self, arg):
+        """Internal handler for 'add random' subcommand.
+
+        Parameters:
+          num_ap: Number of Access Points to add (default: 1)
+          num_ris: Number of RIS nodes to add (default: 1)
+          num_ue: Number of User Equipment to add (default: 1)
+          --distance min-max: Distance range for UE from RIS (e.g., 5-15, default: 5-7)
+
+        Examples:
+          add random                    -> Adds 1 AP, 1 RIS, 1 UE
+          add random 2 1 5              -> Adds 2 APs, 1 RIS, 5 UEs
+          add random 1 2 4 --distance 8-12  -> Custom distance range
+        """
+        try:
+            parts = shlex.split(arg) if arg else []
+
+            # Parse arguments with defaults
+            num_ap = 1
+            num_ris = 1
+            num_ue = 1
+            distance_range = (5.0, 7.0)
+
+            # Parse positional arguments
+            idx = 0
+            if idx < len(parts) and not parts[idx].startswith('--'):
+                num_ap = int(parts[idx])
+                idx += 1
+            if idx < len(parts) and not parts[idx].startswith('--'):
+                num_ris = int(parts[idx])
+                idx += 1
+            if idx < len(parts) and not parts[idx].startswith('--'):
+                num_ue = int(parts[idx])
+                idx += 1
+
+            # Parse optional flags
+            while idx < len(parts):
+                if parts[idx] == '--distance' and idx + 1 < len(parts):
+                    distance_str = parts[idx + 1]
+                    try:
+                        min_dist, max_dist = map(float, distance_str.split('-'))
+                        distance_range = (min_dist, max_dist)
+                        idx += 2
+                    except (ValueError, IndexError):
+                        print(f"Invalid distance format: {distance_str}. Expected: min-max (e.g., 5-15)")
+                        return
+                else:
+                    idx += 1
+
+            # Validate arguments
+            if num_ap < 0 or num_ris < 0 or num_ue < 0:
+                print("Error: Node counts must be non-negative")
+                return
+
+            if distance_range[0] < 0 or distance_range[1] < 0 or distance_range[0] > distance_range[1]:
+                print("Error: Distance range must be positive and min <= max")
+                return
+
+            print("\n" + "=" * 70)
+            print("ADDING RANDOM NODES TO NETWORK")
+            print("=" * 70)
+            print(f"Target: {num_ap} AP(s), {num_ris} RIS(s), {num_ue} UE(s)")
+            print(f"UE distance range: {distance_range[0]:.1f}m - {distance_range[1]:.1f}m")
+            print("-" * 70)
+
+            # Add RIS nodes first (AP and UE placement depend on RIS position)
+            ris_positions = []
+            for i in range(num_ris):
+                x, y = self.topology_helper.generate_position('ris')
+                name = self.topology_helper.generate_auto_name('ris')
+                self.net.add_ris(name, x, y, 0.0, N=16, bits=1)
+                ris_positions.append((name, x, y))
+                print(f"✓ Added RIS {name} at ({x:.2f}, {y:.2f}) (N=16, bits=1)")
+
+            # Add APs - position them relative to RIS if RIS exists
+            if num_ris > 0 and num_ap > 0:
+                ris_name, ris_x, ris_y = ris_positions[0]
+                for i in range(num_ap):
+                    # Place AP within reachable range of RIS (±60° FOV, distance 5-15m)
+                    ris_max_angle = 60.0
+                    ap_distance = np.random.uniform(5.0, 15.0)
+                    ap_angle_deg = np.random.uniform(-ris_max_angle, ris_max_angle)
+                    ap_angle_rad = np.radians(ap_angle_deg)
+                    x = ris_x + ap_distance * np.cos(ap_angle_rad)
+                    y = ris_y + ap_distance * np.sin(ap_angle_rad)
+                    name = self.topology_helper.generate_auto_name('ap')
+                    self.net.add_ap(name, x, y, 0.0)
+                    print(f"✓ Added AP {name} at ({x:.2f}, {y:.2f}) (RIS-aware, angle: {ap_angle_deg:.2f}°)")
+            else:
+                # Fallback to random AP placement if no RIS
+                for i in range(num_ap):
+                    x, y = self.topology_helper.generate_position('ap')
+                    name = self.topology_helper.generate_auto_name('ap')
+                    self.net.add_ap(name, x, y, 0.0)
+                    print(f"✓ Added AP {name} at ({x:.2f}, {y:.2f})")
+
+            # Add UE nodes with RIS-aware positioning
+            ris_list = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+            has_ris = len(ris_list) > 0
+
+            for i in range(num_ue):
+                name = self.topology_helper.generate_auto_name('ue')
+
+                if has_ris:
+                    # Use RIS-aware placement with custom distance range
+                    distance = np.random.uniform(distance_range[0], distance_range[1])
+                    x, y = self._add_ue_within_ris_fov(name, distance)
+                    self.net.add_ue(name, x, y, 0.0)
+                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (RIS-aware placement)")
+                else:
+                    # Use random positioning
+                    x, y = self.topology_helper.generate_position('ue')
+                    self.net.add_ue(name, x, y, 0.0)
+                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f})")
+
+            print("-" * 70)
+            print(f"✓ Successfully added {num_ap + num_ris + num_ue} nodes to network")
+            print(f"  Total nodes in network: {len(self.net.nodes)}")
+            print("=" * 70 + "\n")
+
+            self._save_network()
+
+        except ValueError as e:
+            print(f"Error: Invalid argument - {e}")
+        except Exception as e:
+            print(f"Error: {e}")
 
     def do_list(self, arg):
         """list nodes - Show network topology"""
