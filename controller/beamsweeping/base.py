@@ -8,6 +8,11 @@ from typing import Dict
 class SweepAlgorithmBase(ABC):
     """Base class for all sweep algorithms"""
 
+    # Class variable to control SNR retrieval mode across all algorithms
+    # When True (DEFAULT), algorithms query SNR via messaging system instead of computing
+    # This is the new standard behavior - all sweep operations use get_snr()
+    use_get_snr = True
+
     def __init__(self, network):
         """Initialize sweep algorithm
 
@@ -15,6 +20,15 @@ class SweepAlgorithmBase(ABC):
             network: RISNet network object
         """
         self.network = network
+
+    def _should_use_get_snr(self) -> bool:
+        """Check if get_snr should be used (class var or network global setting)"""
+        if self.use_get_snr:
+            return True
+        # Also check network's global setting
+        if hasattr(self.network, 'use_get_snr_global'):
+            return self.network.use_get_snr_global
+        return False
 
     @property
     @abstractmethod

@@ -170,7 +170,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                         seed=seed,
                         enable_feedback=enable_feedback,
                         max_feedback_iterations=max_feedback_iterations,
-                        store_in_active_links=False  # Don't store intermediate measurements
+                        store_in_active_links=False,  # Don't store intermediate measurements
+                        use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
                     )
 
                 current_snr, ser_val = apply_waveform_realism(

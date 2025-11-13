@@ -22,7 +22,7 @@ from .snr_messaging import SNRMessagingSystem
 class RISNetwork:
     """RIS Network manager with advanced pathfinding support"""
 
-    def __init__(self, enable_messaging=True, latency_ms=5.0, jitter_ms=1.0):
+    def __init__(self, enable_messaging=True, latency_ms=5.0, jitter_ms=1.0, use_get_snr=True):
         self.nodes = {}
         self.environment = Environment()
         self._controller = None
@@ -37,6 +37,10 @@ class RISNetwork:
             self.snr_messaging = SNRMessagingSystem(self, latency_ms=latency_ms, jitter_ms=jitter_ms)
         else:
             self.snr_messaging = None
+
+        # Global flag: when True, all operations use get_snr() instead of computing SNR
+        # This is now the DEFAULT behavior - all commands query SNR from UE via messaging
+        self.use_get_snr_global = use_get_snr
 
     def set_controller(self, controller):
         """Set network controller"""
@@ -197,10 +201,10 @@ class RISNetwork:
         """
         return self.feedback_channels.get_network_statistics()
 
-    # Basic connectivity (legacy method, kept for compatibility)
+    # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
-                use_isolated_copy=True, store_in_active_links=True):
+                use_isolated_copy=True, store_in_active_links=True, use_get_snr=True):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -217,6 +221,9 @@ class RISNetwork:
                               If False, modify original nodes (for persistent adaptation).
             store_in_active_links: If False, skip storing result in active_links (for intermediate sweep measurements).
                                   Default: True
+            use_get_snr: If True (DEFAULT), retrieve SNR via messaging system instead of computing.
+                        This queries UE for measured SNR through control channel (realistic behavior).
+                        If False, compute SNR using physics models.
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -384,20 +391,37 @@ class RISNetwork:
         total_gain_dBi = (gain_dBi + quant_loss_dB +
                           ap_antenna_gain_dBi + ue_antenna_gain_dBi)
 
-        snr_dB = Physics.compute_snr_dB(
-            tx_power_dBm=ap.power_dBm,
-            total_loss_dB=total_loss_dB,
-            gain_dBi=total_gain_dBi,
-            bandwidth_MHz=bandwidth_MHz,
-            noise_figure_dB=noise_figure_dB
-        )
 
-        # Apply fading only if not in deterministic mode (seed not set)
-        # Fading reduces SNR when coefficient < 1.0
-        if seed is None:
-            fading_coeff = Physics.rician_fading(ris.K_db)
-            if fading_coeff < 1.0:
-                snr_dB += 20 * np.log10(fading_coeff)  # Reduces SNR (negative dB)
+        # Use get_snr() via messaging system if requested (real-world behavior)
+        # Check both the parameter and the global network setting
+        should_use_get_snr = use_get_snr or self.use_get_snr_global
+        if should_use_get_snr and self.snr_messaging is not None:
+            snr_dB = self.snr_messaging.get_snr(ue_name, ris_name)
+            if snr_dB is None:
+                # Fallback to computed SNR if messaging fails
+                snr_dB = Physics.compute_snr_dB(
+                    tx_power_dBm=ap.power_dBm,
+                    total_loss_dB=total_loss_dB,
+                    gain_dBi=total_gain_dBi,
+                    bandwidth_MHz=bandwidth_MHz,
+                    noise_figure_dB=noise_figure_dB
+                )
+        else:
+            # Standard computation mode
+            snr_dB = Physics.compute_snr_dB(
+                tx_power_dBm=ap.power_dBm,
+                total_loss_dB=total_loss_dB,
+                gain_dBi=total_gain_dBi,
+                bandwidth_MHz=bandwidth_MHz,
+                noise_figure_dB=noise_figure_dB
+            )
+
+            # Apply fading only if not in deterministic mode (seed not set)
+            # Fading reduces SNR when coefficient < 1.0
+            if seed is None:
+                fading_coeff = Physics.rician_fading(ris.K_db)
+                if fading_coeff < 1.0:
+                    snr_dB += 20 * np.log10(fading_coeff)  # Reduces SNR (negative dB)
 
         gain_linear = 10 ** (gain_dBi / 10)
 
@@ -464,6 +488,16 @@ class RISNetwork:
                 bandwidth_MHz, seed, use_isolated_copy=use_isolated_copy,
                 store_in_active_links=store_in_active_links
             )
+
+            # OPTION A: Persist UE measurement back to network node for future queries
+            # This allows the messaging system to return measured SNR on subsequent connect() calls
+            if result["feedback_info"] and "final_snr_dB" in result["feedback_info"]:
+                final_measured_snr = result["feedback_info"]["final_snr_dB"]
+                if final_measured_snr is not None:
+                    # Update the actual network UE node with the measured SNR
+                    ue_node = self.get(ue_name)
+                    if ue_node is not None:
+                        ue_node.snr_measurement_dB = float(final_measured_snr)
 
         # Get node names for tracking
         ap_key = ap.name if ap else ap_name

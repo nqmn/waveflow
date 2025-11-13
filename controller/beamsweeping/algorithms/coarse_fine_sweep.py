@@ -140,7 +140,8 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     beam_angle_deg=abs_angles[idx], seed=seed,
                     enable_feedback=enable_feedback,
                     max_feedback_iterations=max_feedback_iterations,
-                    store_in_active_links=False  # Don't store intermediate measurements
+                    store_in_active_links=False,  # Don't store intermediate measurements
+                    use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
                 )
             snr_val, ser_val = apply_waveform_realism(
                 res,
@@ -194,7 +195,8 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     beam_angle_deg=abs_a, seed=seed,
                     enable_feedback=enable_feedback,
                     max_feedback_iterations=max_feedback_iterations,
-                    store_in_active_links=False  # Don't store intermediate measurements
+                    store_in_active_links=False,  # Don't store intermediate measurements
+                    use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
                 )
             snr_val, ser_val = apply_waveform_realism(
                 r,

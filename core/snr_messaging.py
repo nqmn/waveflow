@@ -357,7 +357,11 @@ class SNRMessagingSystem:
             snr_db = ue.snr_measurement_dB
 
             if snr_db is None:
-                snr_db = -100.0  # No measurement yet
+                # No measurement yet - return error, will trigger fallback to physics
+                return SNRResponseMessage(
+                    status='error',
+                    error_message=f'No SNR measurement available for {ue_name}'
+                )
 
             # Convert to linear if needed
             snr_linear = 10 ** (snr_db / 10) if snr_db > -100 else 1e-10
@@ -414,6 +418,41 @@ class SNRMessagingSystem:
         response = self.control_channel.receive_snr_response(request_id)
 
         return response
+
+    def get_snr(self, ue_name: str, ris_name: str = None) -> Optional[float]:
+        """
+        Get SNR for a UE via messaging system (instead of computing).
+
+        This function queries the UE for its measured SNR value through the
+        control channel, simulating real-world scenario where RIS controller
+        doesn't compute SNR but receives it from the UE via feedback.
+
+        Args:
+            ue_name: Target UE node name
+            ris_name: RIS context name (optional, defaults to first RIS in network)
+
+        Returns:
+            SNR in dB (float), or None if query fails
+        """
+        # Default ris_name to first available RIS if not specified
+        if ris_name is None:
+            for node_name, node in self.network.nodes.items():
+                if hasattr(node, 'num_elements'):  # RIS nodes have num_elements
+                    ris_name = node_name
+                    break
+            if ris_name is None:
+                ris_name = 'RIS1'  # Fallback
+
+        # Use first RIS as controller
+        controller_name = ris_name
+
+        # Query UE for SNR via messaging system
+        response = self.query_ue_snr(controller_name, ue_name, ris_name)
+
+        if response is None or response.status != 'success':
+            return None
+
+        return response.snr_dB
 
     def get_statistics(self) -> Dict:
         """Get network-wide messaging statistics"""
