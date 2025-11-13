@@ -504,6 +504,27 @@ class RISNetwork:
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
 
+        metadata = {
+            'ap_name': ap_key,
+            'ris_name': ris_key,
+            'ue_name': ue_key,
+            'tx_power_dBm': float(ap.power_dBm),
+            'total_loss_dB': float(total_loss_dB),
+            'total_gain_dBi': float(total_gain_dBi),
+            'bandwidth_MHz': float(bandwidth_MHz),
+            'noise_figure_dB': float(noise_figure_dB),
+            'beam_angle_deg': float(beam_angle_deg),
+            'target_angle_deg': float(target_angle),
+            'quant_loss_dB': float(quant_loss_dB),
+            'gain_dBi': float(gain_dBi),
+            'ap_antenna_gain_dBi': float(ap_antenna_gain_dBi),
+            'ue_antenna_gain_dBi': float(ue_antenna_gain_dBi),
+            'pwr_dBm': float(pwr_dBm)
+        }
+        if ue_node is not None:
+            ue_node.snr_measurement_dB = float(snr_dB)
+            ue_node.store_link_metadata(ap_key, ris_key, metadata)
+
         # Track active link (only if not an intermediate sweep measurement)
         if store_in_active_links:
             link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"

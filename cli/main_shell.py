@@ -988,8 +988,48 @@ class RISNetCLI(cmd.Cmd):
     def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed):
         """Execute single-angle connect measurement"""
         try:
+            # Display connection process steps
+            print(f"\n{'='*70}")
+            print(f"CONNECTION PROCESS: {ap} → {ris} → {ue}")
+            print(f"{'='*70}")
+
+            print(f"\n[STEP 1] Retrieve Node References")
+            print(f"  ✓ AP (Access Point):  {ap}")
+            print(f"  ✓ RIS (Reflector):    {ris}")
+            print(f"  ✓ UE (Device):        {ue}")
+
+            print(f"\n[STEP 2] Compute Geometry & FOV Validation")
+            print(f"  Computing: distances, beam angles, field-of-view...")
+
+            print(f"\n[STEP 3] Calculate RIS Phase Configuration")
+            print(f"  Computing: optimal phase steering, quantization...")
+            if angle is not None:
+                print(f"  Using specified beam angle: {angle:.1f}°")
+            else:
+                print(f"  Auto-computing beam angle (specular reflection)...")
+
+            print(f"\n[STEP 4] Calculate Path Loss & Array Gain")
+            print(f"  Computing: AP→RIS path loss")
+            print(f"  Computing: RIS→UE path loss")
+            print(f"  Computing: RIS array gain + antenna gains")
+
+            print(f"\n[STEP 5] Query SNR from UE (via Control Channel)")
+            print(f"  Action: Controller queries UE for measured SNR...")
+
             res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
                                   enable_feedback=enable_feedback, max_feedback_iterations=3)
+
+            print(f"  ✓ SNR Result: {res['snr_dB']:.2f} dB")
+
+            print(f"\n[STEP 6] Store Link Metadata on UE")
+            print(f"  Storing: (AP, RIS) → SNR, power, gain, phases...")
+            print(f"  Key: ('{ap}', '{ris}')")
+
+            print(f"\n[STEP 7] Create & Activate Link")
+            link_key = f"{ap}→{ris}→{ue}"
+            print(f"  Link: {link_key}")
+            print(f"  Status: ✓ ESTABLISHED - Ready for data transmission")
+
         except ValueError as e:
             # Clean error output without traceback
             print(f"\n✗ {e}\n")
@@ -1069,8 +1109,11 @@ class RISNetCLI(cmd.Cmd):
             for label, value in printable:
                 print(f"  {label:<{width}} : {value}")
 
-        print(f"\nConnection Result (Feedback: {'Enabled' if enable_feedback else 'Disabled'}, "
-              f"Waveform: {'Enabled (' + modulation + ')' if use_waveform else 'Disabled'})")
+        print(f"\n{'='*70}")
+        print(f"LINK ESTABLISHED - DETAILED METRICS")
+        print(f"{'='*70}")
+        print(f"Feedback:  {'Enabled (Adaptive)' if enable_feedback else 'Disabled (Single-shot)'}")
+        print(f"Waveform:  {'Enabled (' + modulation + ')' if use_waveform else 'Disabled (Physics-only)'}")
         print("="*70)
 
         physics_rows = []
@@ -1164,6 +1207,18 @@ class RISNetCLI(cmd.Cmd):
         #         ("Total Symbols", sig.get('total_symbols'))
         #     ]
         #     _print_table("SIGNAL-LEVEL RESULTS", waveform_rows)
+
+        # Print final connection summary
+        print(f"\n{'='*70}")
+        print(f"FINAL STATUS: LINK ACTIVE & ESTABLISHED")
+        print(f"{'='*70}")
+        print(f"Path:       {ap} → {ris} → {ue}")
+        print(f"SNR:        {res['snr_dB']:.2f} dB")
+        print(f"Power:      {res['pwr_dBm']:.2f} dBm")
+        print(f"Gain:       {res['gain_dBi']:.2f} dBi")
+        print(f"Beam Angle: {res.get('beam_angle', 0):.1f}°")
+        print(f"Status:     ✓ READY FOR DATA TRANSMISSION")
+        print(f"{'='*70}\n")
 
         connection_record = {
             'type': 'connect',

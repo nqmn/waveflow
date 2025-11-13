@@ -4,7 +4,7 @@ Node classes for RIS network simulation
 import numpy as np
 from typing import Dict, Optional
 import copy
-from .physics import C
+from .physics import C, Physics
 
 class Node:
     """Base class for all network nodes"""
@@ -472,6 +472,37 @@ class UE(Node):
         self.channel_estimate = None
         self.last_feedback_time = None
         self.feedback_enabled = True
+        self.latest_link_metadata: Dict[tuple, Dict] = {}
+
+    def store_link_metadata(self, ap_name: str, ris_name: str, metadata: Dict) -> None:
+        """Store metadata for the AP→RIS→UE link. Uses composite key (ap_name, ris_name) to avoid collisions."""
+        if not ap_name or not ris_name or not metadata:
+            return
+        self.latest_link_metadata[(ap_name, ris_name)] = metadata
+
+    def get_link_metadata(self, ap_name: str, ris_name: str) -> Optional[Dict]:
+        """Retrieve metadata associated with the specific AP→RIS→UE link."""
+        return self.latest_link_metadata.get((ap_name, ris_name))
+
+    def compute_snr_from_metadata(self, metadata: Dict) -> Optional[float]:
+        """Recompute SNR using stored metadata (simulates UE measurement)."""
+        if metadata is None:
+            return None
+
+        required = ['tx_power_dBm', 'total_loss_dB', 'total_gain_dBi',
+                    'bandwidth_MHz', 'noise_figure_dB']
+        if not all(key in metadata for key in required):
+            return None
+
+        snr_dB = Physics.compute_snr_dB(
+            tx_power_dBm=metadata['tx_power_dBm'],
+            total_loss_dB=metadata['total_loss_dB'],
+            gain_dBi=metadata['total_gain_dBi'],
+            bandwidth_MHz=metadata['bandwidth_MHz'],
+            noise_figure_dB=metadata['noise_figure_dB']
+        )
+        self.snr_measurement_dB = float(snr_dB)
+        return self.snr_measurement_dB
 
     def estimate_snr_from_waveform(self, rx_signal: np.ndarray,
                                    noise_power: float = 0.01) -> float:

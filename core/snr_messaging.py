@@ -353,8 +353,11 @@ class SNRMessagingSystem:
                     error_message=f'UE not found: {ue_name}'
                 )
 
-            # Get measured SNR (from last measurement or from feedback channel)
-            snr_db = ue.snr_measurement_dB
+            metadata = ue.get_link_metadata(query.controller_name, query.target_ris_name)
+            if metadata is not None:
+                snr_db = ue.compute_snr_from_metadata(metadata)
+            else:
+                snr_db = ue.snr_measurement_dB
 
             if snr_db is None:
                 # No measurement yet - return error, will trigger fallback to physics
