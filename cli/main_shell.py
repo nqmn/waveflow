@@ -1657,6 +1657,8 @@ class RISNetCLI(cmd.Cmd):
           --sweep-fov deg     Beam sweep FOV (default 80)
           --sweep-step deg    Beam sweep step (default 5)
           --ml-top-k N        ML sweep suggestions (default 2)
+          --quality-metrics   Show per-chunk quality metrics (SNR, SER, BER)
+          --beam-adaptive     Enable adaptive beam steering during streaming
         """
         parts = shlex.split(arg) if arg else []
         node_tokens = []
@@ -1733,6 +1735,8 @@ class RISNetCLI(cmd.Cmd):
         num_symbols = 2000000  # 2M symbols × 6 chunks = ~6s total (more realistic for video)
         symbol_rate = 2e6
         sample_rate = 20e6
+        quality_metrics = False
+        beam_adaptive = False
 
         opt_iter = iter(opts)
         for token in opt_iter:
@@ -1749,6 +1753,10 @@ class RISNetCLI(cmd.Cmd):
                     symbol_rate = float(next(opt_iter))
                 elif token == "--sample-rate":
                     sample_rate = float(next(opt_iter))
+                elif token == "--quality-metrics":
+                    quality_metrics = True
+                elif token == "--beam-adaptive":
+                    beam_adaptive = True
                 else:
                     print(f"Unknown option: {token}")
                     return
@@ -1788,6 +1796,8 @@ class RISNetCLI(cmd.Cmd):
             symbol_rate=symbol_rate,
             sample_rate=sample_rate,
             chunk_limit=chunk_limit,
+            quality_metrics=quality_metrics,
+            beam_adaptive=beam_adaptive,
         )
 
         try:
@@ -1798,12 +1808,21 @@ class RISNetCLI(cmd.Cmd):
             print(f"Streaming failed: {e}")
 
     def do_signal(self, arg):
-        """signal [<ap> <ris> <ue>] [--beam ANGLE] [--bandwidth MHz]
+        """signal [<ap> <ris> <ue>] [--beam ANGLE] [--bandwidth MHz] [--breakdown] [--sweep-beam FOV STEP]
         Measure AP→RIS→UE transmit and receive power to expose apparent loss.
 
         Usage:
-          signal                                                      - measure all active links (default)
-          signal <ap> <ris> <ue> [--beam ANGLE] [--bandwidth MHz]  - measure specific link"""
+          signal                                                       - measure all active links (default)
+          signal <ap> <ris> <ue>                                     - measure specific link
+          signal <ap> <ris> <ue> [--beam ANGLE] [--bandwidth MHz]   - with specific parameters
+          signal <ap> <ris> <ue> --breakdown                         - show AP→RIS and RIS→UE loss separately
+          signal <ap> <ris> <ue> --sweep-beam 60 10                 - sweep beam angles ±60° at 10° steps
+
+        Options:
+          --beam ANGLE           Fixed beam angle in degrees
+          --bandwidth MHz        Signal bandwidth (default: 100 MHz)
+          --breakdown            Show per-hop loss breakdown (AP→RIS, RIS→UE)
+          --sweep-beam FOV STEP  Sweep beam angles within ±FOV at STEP intervals"""
         parts = shlex.split(arg) if arg else []
 
         # Default to active links mode (--active behavior) if no node arguments provided
@@ -1828,10 +1847,18 @@ class RISNetCLI(cmd.Cmd):
             # Parse optional parameters
             opt_iter = iter(parts)
             bandwidth_MHz = None
+            breakdown = False
+            sweep_beam_fov = None
+            sweep_beam_step = None
             for token in opt_iter:
                 try:
                     if token in ('--bandwidth', '-w'):
                         bandwidth_MHz = float(next(opt_iter))
+                    elif token == '--breakdown':
+                        breakdown = True
+                    elif token == '--sweep-beam':
+                        sweep_beam_fov = float(next(opt_iter))
+                        sweep_beam_step = float(next(opt_iter))
                     else:
                         print(f"Unknown option: {token}")
                         return
@@ -1905,6 +1932,70 @@ class RISNetCLI(cmd.Cmd):
                         print(f"    SNR estimate = {snr_measured:.2f} dB")
                 if 'gain_dBi' in result:
                     print(f"    RIS gain = {result['gain_dBi']:.2f} dBi (aperture-based; > measured realized gain ~22.6 dBi)")
+
+                # Per-hop loss breakdown if requested
+                if breakdown:
+                    print(f"    [PER-HOP BREAKDOWN]")
+                    ap_ris_loss = result.get('total_loss_dB', 0)  # Includes path loss AP→RIS
+                    ris_ue_loss = 0  # Will be calculated
+
+                    # Get RIS node for detailed path loss
+                    ris_node = self.net.get(ris_name)
+                    if ris_node and hasattr(ris_node, 'pos'):
+                        dist_ap_ris = float(np.linalg.norm(ap_node.pos - ris_node.pos))
+                        dist_ris_ue = float(np.linalg.norm(ris_node.pos - ue_node.pos))
+                        freq = ap_node.freq if hasattr(ap_node, 'freq') and ap_node.freq else 5.8e9
+
+                        # Path loss formula: PL = 20*log10(4*pi*d*f/c)
+                        c = 3e8
+                        pl_ap_ris = 20 * np.log10(4 * np.pi * dist_ap_ris * freq / c)
+                        pl_ris_ue = 20 * np.log10(4 * np.pi * dist_ris_ue * freq / c)
+
+                        print(f"      AP→RIS distance: {dist_ap_ris:.2f} m, path loss: {pl_ap_ris:.2f} dB")
+                        print(f"      RIS→UE distance: {dist_ris_ue:.2f} m, path loss: {pl_ris_ue:.2f} dB")
+                        print(f"      Total path loss: {pl_ap_ris + pl_ris_ue:.2f} dB")
+
+                        # Show quantization loss if available
+                        if 'quant_loss_dB' in result:
+                            quant_loss = abs(result['quant_loss_dB'])
+                            print(f"      Phase quantization loss: {quant_loss:.2f} dB")
+
+                # Beam sweep if requested
+                if sweep_beam_fov is not None and sweep_beam_step is not None:
+                    print(f"    [BEAM SWEEP: ±{sweep_beam_fov:.1f}° at {sweep_beam_step:.1f}° steps]")
+                    sweep_results = []
+
+                    # Generate beam angles to sweep
+                    angles = np.arange(-sweep_beam_fov, sweep_beam_fov + sweep_beam_step, sweep_beam_step)
+
+                    for angle in angles:
+                        try:
+                            sweep_result = self.net.connect(
+                                ap_name, ris_name, ue_name,
+                                beam_angle_deg=angle,
+                                bandwidth_MHz=bandwidth_MHz,
+                                compute_phases=False,
+                                use_isolated_copy=True,
+                                store_in_active_links=False
+                            )
+                            snr = sweep_result.get('snr_dB', 0)
+                            sweep_results.append({'angle': angle, 'snr': snr})
+                        except Exception as e:
+                            sweep_results.append({'angle': angle, 'snr': None})
+
+                    # Find peak SNR
+                    valid_results = [r for r in sweep_results if r['snr'] is not None]
+                    if valid_results:
+                        peak = max(valid_results, key=lambda x: x['snr'])
+                        print(f"      Peak SNR: {peak['snr']:.2f} dB at {peak['angle']:.1f}°")
+                        print(f"      Sweep results:")
+                        for r in sweep_results:
+                            if r['snr'] is not None:
+                                marker = " ← PEAK" if r == peak else ""
+                                print(f"        {r['angle']:7.1f}°: {r['snr']:7.2f} dB{marker}")
+                            else:
+                                print(f"        {r['angle']:7.1f}°: FAILED")
+
                 print()
         else:
             # Mode: measure specific link
@@ -1932,12 +2023,20 @@ class RISNetCLI(cmd.Cmd):
             opt_iter = iter(opts)
             beam_angle = None
             bandwidth_MHz = None
+            breakdown = False
+            sweep_beam_fov = None
+            sweep_beam_step = None
             for token in opt_iter:
                 try:
                     if token in ('--beam', '--beam-angle', '-b'):
                         beam_angle = float(next(opt_iter))
                     elif token in ('--bandwidth', '-w'):
                         bandwidth_MHz = float(next(opt_iter))
+                    elif token == '--breakdown':
+                        breakdown = True
+                    elif token == '--sweep-beam':
+                        sweep_beam_fov = float(next(opt_iter))
+                        sweep_beam_step = float(next(opt_iter))
                     else:
                         print(f"Unknown option: {token}")
                         return
@@ -1987,6 +2086,66 @@ class RISNetCLI(cmd.Cmd):
                 print(f"  SNR estimate = {result['snr_dB']:.2f} dB")
             if 'gain_dBi' in result:
                 print(f"  RIS gain = {result['gain_dBi']:.2f} dBi")
+
+            # Per-hop loss breakdown if requested
+            if breakdown:
+                print(f"  [PER-HOP BREAKDOWN]")
+                ris_node = self.net.get(ris_name)
+                if ris_node and hasattr(ris_node, 'pos'):
+                    import numpy as np
+                    dist_ap_ris = float(np.linalg.norm(ap_node.pos - ris_node.pos))
+                    dist_ris_ue = float(np.linalg.norm(ris_node.pos - ue_node.pos))
+                    freq = ap_node.freq if hasattr(ap_node, 'freq') and ap_node.freq else 5.8e9
+
+                    # Path loss formula: PL = 20*log10(4*pi*d*f/c)
+                    c = 3e8
+                    pl_ap_ris = 20 * np.log10(4 * np.pi * dist_ap_ris * freq / c)
+                    pl_ris_ue = 20 * np.log10(4 * np.pi * dist_ris_ue * freq / c)
+
+                    print(f"    AP→RIS distance: {dist_ap_ris:.2f} m, path loss: {pl_ap_ris:.2f} dB")
+                    print(f"    RIS→UE distance: {dist_ris_ue:.2f} m, path loss: {pl_ris_ue:.2f} dB")
+                    print(f"    Total path loss: {pl_ap_ris + pl_ris_ue:.2f} dB")
+
+                    if 'quant_loss_dB' in result:
+                        quant_loss = abs(result['quant_loss_dB'])
+                        print(f"    Phase quantization loss: {quant_loss:.2f} dB")
+
+            # Beam sweep if requested
+            if sweep_beam_fov is not None and sweep_beam_step is not None:
+                print(f"  [BEAM SWEEP: ±{sweep_beam_fov:.1f}° at {sweep_beam_step:.1f}° steps]")
+                import numpy as np
+                sweep_results = []
+
+                # Generate beam angles to sweep
+                angles = np.arange(-sweep_beam_fov, sweep_beam_fov + sweep_beam_step, sweep_beam_step)
+
+                for angle in angles:
+                    try:
+                        sweep_result = self.net.connect(
+                            ap_name, ris_name, ue_name,
+                            beam_angle_deg=angle,
+                            bandwidth_MHz=bandwidth_MHz,
+                            compute_phases=False,
+                            use_isolated_copy=True,
+                            store_in_active_links=False
+                        )
+                        snr = sweep_result.get('snr_dB', 0)
+                        sweep_results.append({'angle': angle, 'snr': snr})
+                    except Exception as e:
+                        sweep_results.append({'angle': angle, 'snr': None})
+
+                # Find peak SNR
+                valid_results = [r for r in sweep_results if r['snr'] is not None]
+                if valid_results:
+                    peak = max(valid_results, key=lambda x: x['snr'])
+                    print(f"    Peak SNR: {peak['snr']:.2f} dB at {peak['angle']:.1f}°")
+                    print(f"    Sweep results:")
+                    for r in sweep_results:
+                        if r['snr'] is not None:
+                            marker = " ← PEAK" if r == peak else ""
+                            print(f"      {r['angle']:7.1f}°: {r['snr']:7.2f} dB{marker}")
+                        else:
+                            print(f"      {r['angle']:7.1f}°: FAILED")
     # =====================================================================
     # Network I/O Commands
     # =====================================================================

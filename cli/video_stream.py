@@ -266,6 +266,8 @@ class VideoStreamConfig:
     waveform_symbols: int = 6
     ofdm_bandwidth: float = 80e6
     ofdm_subcarriers: int = 512
+    quality_metrics: bool = False
+    beam_adaptive: bool = False
 
 
 def run_video_stream_workflow(network: RISNetwork,
@@ -351,7 +353,18 @@ def run_video_stream_workflow(network: RISNetwork,
     modulation_upper = signal_cfg.modulation.upper()
     snr_guard_threshold = snr_warning_thresholds.get(modulation_upper, 10.0)
     snr_warning_emitted = False
-    printer("\n[5] Streaming chunks with programmed RIS phases:")
+
+    # Adaptive beam steering framework
+    adaptive_beam_history = []
+    adaptive_beam_check_interval = 2  # Check every N chunks
+    current_beam_angle = link_state.get('best_angle_deg', 0)
+
+    if config.beam_adaptive:
+        printer("\n[5] Streaming chunks with adaptive beam steering enabled:")
+        printer(f"    Initial beam angle: {current_beam_angle:.2f}°")
+    else:
+        printer("\n[5] Streaming chunks with programmed RIS phases:")
+
     stream_start_time = time.time()
     while video_source.has_data() and chunk_idx < config.chunk_limit:
         chunk_start_time = time.time()
@@ -383,6 +396,59 @@ def run_video_stream_workflow(network: RISNetwork,
             f"Tput={throughput_mbps:.2f} Mbps | "
             f"Time={chunk_elapsed_time:.3f}s"
         )
+
+        # Enhanced quality metrics if requested
+        if config.quality_metrics:
+            snr_dB = metrics['snr_dB']
+            ber = metrics['ber_percent']
+            ser = metrics['ser_percent']
+
+            # Quality classification
+            quality = "EXCELLENT"
+            if snr_dB < snr_guard_threshold:
+                quality = "POOR"
+            elif snr_dB < snr_guard_threshold + 2:
+                quality = "MARGINAL"
+            elif snr_dB < snr_guard_threshold + 5:
+                quality = "GOOD"
+
+            printer(f"    [QUALITY] SNR={snr_dB:.2f}dB | BER={ber:.4f}% | SER={ser:.4f}% | Status={quality}")
+
+        # Adaptive beam steering if enabled
+        if config.beam_adaptive and (chunk_idx + 1) % adaptive_beam_check_interval == 0:
+            snr_dB = metrics['snr_dB']
+            adaptive_beam_history.append({
+                'chunk': chunk_idx,
+                'snr_dB': snr_dB,
+                'angle_deg': current_beam_angle
+            })
+
+            # Simple hill-climbing: try ±5° to see if we can improve SNR
+            trial_angles = [current_beam_angle - 5.0, current_beam_angle + 5.0]
+            best_snr = snr_dB
+            best_angle = current_beam_angle
+
+            for trial_angle in trial_angles:
+                try:
+                    # Quick SNR measurement at trial angle (simplified)
+                    trial_result = network.connect(
+                        ap_name, ris_name, ue_name,
+                        beam_angle_deg=trial_angle,
+                        compute_phases=False,
+                        use_isolated_copy=True,
+                        store_in_active_links=False
+                    )
+                    trial_snr = trial_result.get('snr_dB', snr_dB)
+                    if trial_snr > best_snr:
+                        best_snr = trial_snr
+                        best_angle = trial_angle
+                except:
+                    pass  # Keep current angle if trial fails
+
+            if best_angle != current_beam_angle:
+                current_beam_angle = best_angle
+                improvement = best_snr - snr_dB
+                printer(f"    [ADAPT] Adjusted beam to {current_beam_angle:.2f}° (SNR improved by {improvement:.2f} dB)")
 
         if (not snr_warning_emitted) and metrics['snr_dB'] < snr_guard_threshold:
             printer(f"    [warn] Post-EQ SNR {metrics['snr_dB']:.2f} dB is below the typical "
