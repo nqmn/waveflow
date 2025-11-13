@@ -9,9 +9,11 @@ class SweepAlgorithmBase(ABC):
     """Base class for all sweep algorithms"""
 
     # Class variable to control SNR retrieval mode across all algorithms
-    # When True (DEFAULT), algorithms query SNR via messaging system instead of computing
-    # This is the new standard behavior - all sweep operations use get_snr()
-    use_get_snr = True
+    # When False (DEFAULT for sweeps), algorithms compute SNR directly instead of using messaging
+    # This is critical for sweep operations because the messaging system returns cached SNR values
+    # that don't vary with beam angle, making all swept angles appear to have identical SNR.
+    # Setting to False ensures SNR properly varies with the beam_angle_deg parameter.
+    use_get_snr = False
 
     def __init__(self, network):
         """Initialize sweep algorithm

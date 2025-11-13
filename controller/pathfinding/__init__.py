@@ -15,11 +15,8 @@ Usage:
 
 from .base import PathfindingAlgorithm
 from .registry import get_registry, get_algorithm, list_algorithms
-from .engine import PathfindingEngine
-
 __all__ = [
     'PathfindingAlgorithm',
-    'PathfindingEngine',
     'get_registry',
     'get_algorithm',
     'list_algorithms',

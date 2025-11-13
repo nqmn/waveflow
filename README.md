@@ -328,37 +328,19 @@ print(f"Best SNR: {result['best_snr_dB']:.1f} dB")
 
 ### Pathfinding Algorithms
 
-#### Dijkstra (Optimal)
-```python
-result = PathfindingEngine.dijkstra(graph, source, target, node_positions)
-```
-- **Best for**: Optimal SNR paths
-- **Complexity**: O(E log V)
-- **Guarantees**: Optimal path
+Load algorithms dynamically through the registry so each class is defined once:
 
-#### A* (Heuristic)
 ```python
-result = PathfindingEngine.astar(graph, source, target, node_positions)
-```
-- **Best for**: Fast optimal search
-- **Complexity**: O(E log V) with good heuristic
-- **Guarantees**: Optimal with admissible heuristic
+from controller.pathfinding import get_algorithm
 
-#### Greedy (Fast)
-```python
-result = PathfindingEngine.greedy(graph, source, target, node_positions)
+algo = get_algorithm('dijkstra')
+result = algo.find_path(graph, source, target, node_positions)
 ```
-- **Best for**: Quick approximations
-- **Complexity**: O(V)
-- **Guarantees**: None (may be suboptimal)
 
-#### Exhaustive (All Paths)
-```python
-result = PathfindingEngine.exhaustive(graph, source, target, node_positions, max_hops=4)
-```
-- **Best for**: Small networks, comparison
-- **Complexity**: O(V!)
-- **Guarantees**: Finds all paths
+- `dijkstra`: optimal SNR paths (O(E log V))
+- `astar`: heuristic-driven search that remains optimal with admissible heuristics
+- `greedy`: fast approximations, no optimality guarantees
+- `exhaustive`: brute-force paths for small networks (configurable max hops)
 
 ### Configuration
 
@@ -409,11 +391,10 @@ Physical propagation models:
 
 ### Algorithm Modules
 
-#### `controller.pathfinding.PathfindingEngine`
-- `dijkstra(graph, source, target, positions)` - Dijkstra's algorithm
-- `astar(graph, source, target, positions)` - A* search
-- `greedy(graph, source, target, positions)` - Greedy search
-- `exhaustive(graph, source, target, positions)` - Exhaustive search
+#### `controller.pathfinding`
+- `get_algorithm(name)` - Load `Dijkstra`, `AStar`, `Greedy`, or `Exhaustive`
+- `list_algorithms()` - Enumerate registered names
+- `Dijkstra`, `AStar`, `Greedy`, `Exhaustive` - `PathfindingAlgorithm` implementations
 
 #### `controller.beamforming.BeamformingEngine`
 - `greedy_beam_sweep(...)` - Adaptive beam search

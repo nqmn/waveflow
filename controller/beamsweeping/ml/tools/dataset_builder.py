@@ -100,11 +100,13 @@ def generate_valid_geometry(bounds: Dict[str, float], ris_max_angle: float = 60.
     This ensures:
     1. AP is within RIS FOV (±ris_max_angle from RIS normal)
     2. UE is within RIS FOV (±ris_max_angle from RIS normal)
-    3. No skipping needed, every sample is valid
+    3. Deflection angle (angle between AP and UE from RIS) is within 2*ris_max_angle
+    4. No skipping needed, every sample is valid
 
     Returns: (ap_pos, ris_pos, ue_pos)
     """
     max_attempts = 100
+    max_deflection = 2 * ris_max_angle  # Maximum deflection angle (e.g., 120° for ±60° FOV)
 
     for attempt in range(max_attempts):
         # Generate RIS position
@@ -135,7 +137,21 @@ def generate_valid_geometry(bounds: Dict[str, float], ris_max_angle: float = 60.
         if not is_within_fov(ue_offset, ris_max_angle):
             continue  # UE outside FOV, try again
 
-        # Both AP and UE are within FOV
+        # Check if deflection angle between AP and UE is within reasonable limits
+        # Deflection angle = magnitude of angle difference
+        deflection = abs(ue_angle - ap_angle)
+        # Normalize to [0, 180]
+        deflection = min(deflection, 360 - deflection)
+
+        # For safe sweep operation:
+        # - RIS normal sits at bisector of AP and UE
+        # - Sweep tests local angles from -FOV to +FOV relative to normal
+        # - Conservative threshold: require deflection < ris_max_angle (< 60°)
+        # - This ensures that when sweep is performed, no angle exceeds the hardware limit
+        if deflection >= ris_max_angle:
+            continue  # Deflection at or exceeding FOV limit, try again
+
+        # All constraints satisfied
         return ap_pos, ris_pos, ue_pos
 
     # If we can't generate valid geometry after max_attempts, raise error

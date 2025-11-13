@@ -8,14 +8,13 @@ Modules:
 """
 
 from .ris_controller import RISController
-from .pathfinding import get_algorithm, list_algorithms, PathfindingEngine, PathfindingAlgorithm
+from .pathfinding import get_algorithm, list_algorithms, PathfindingAlgorithm
 from .beamforming import BeamformingEngine
 
 __all__ = [
     'RISController',
     'get_algorithm',
     'list_algorithms',
-    'PathfindingEngine',
     'PathfindingAlgorithm',
     'BeamformingEngine',
 ]

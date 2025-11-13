@@ -2092,7 +2092,6 @@ class RISNetCLI(cmd.Cmd):
                 print(f"  [PER-HOP BREAKDOWN]")
                 ris_node = self.net.get(ris_name)
                 if ris_node and hasattr(ris_node, 'pos'):
-                    import numpy as np
                     dist_ap_ris = float(np.linalg.norm(ap_node.pos - ris_node.pos))
                     dist_ris_ue = float(np.linalg.norm(ris_node.pos - ue_node.pos))
                     freq = ap_node.freq if hasattr(ap_node, 'freq') and ap_node.freq else 5.8e9
@@ -2113,7 +2112,6 @@ class RISNetCLI(cmd.Cmd):
             # Beam sweep if requested
             if sweep_beam_fov is not None and sweep_beam_step is not None:
                 print(f"  [BEAM SWEEP: ±{sweep_beam_fov:.1f}° at {sweep_beam_step:.1f}° steps]")
-                import numpy as np
                 sweep_results = []
 
                 # Generate beam angles to sweep

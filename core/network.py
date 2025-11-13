@@ -22,7 +22,7 @@ from .snr_messaging import SNRMessagingSystem
 class RISNetwork:
     """RIS Network manager with advanced pathfinding support"""
 
-    def __init__(self, enable_messaging=True, latency_ms=5.0, jitter_ms=1.0, use_get_snr=True):
+    def __init__(self, enable_messaging=True, latency_ms=5.0, jitter_ms=1.0, use_get_snr=False):
         self.nodes = {}
         self.environment = Environment()
         self._controller = None
