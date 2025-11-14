@@ -777,6 +777,7 @@ class RISNetCLI(cmd.Cmd):
             rf          Random Forest (recommended, best balance of speed/accuracy)
             xgb         XGBoost (high accuracy, slower)
             svr         Support Vector Regression (very high accuracy)
+            dt          Decision Tree (interpretable, moderate accuracy)
             knn         K-Nearest Neighbors (local pattern recognition)
             lr          Linear Regression (fast, simple baseline)
 
