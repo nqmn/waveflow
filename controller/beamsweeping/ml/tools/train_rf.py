@@ -4,27 +4,20 @@ DATASET & FORMULA (Deflection Angle):
 ====================================
 The training dataset uses the NEW DEFLECTION ANGLE FORMULA from formula.md:
 
-INPUT FEATURES (extracted from 3D node positions and computed angles):
+INPUT FEATURES (13 features: 9 position coordinates + 4 derived features):
   - AP position (3 coords: x, y, z)
   - RIS position (3 coords: x, y, z)
   - UE position (3 coords: x, y, z)
-  - Distance AP→RIS
-  - Distance RIS→UE
-  - AP transmit power (dBm)
-  - AP frequency (Hz)
-  - RIS element count (N)
-  - RIS phase quantization bits
-  - AOA (Angle of Arrival): AP direction from RIS perspective (degrees)
-  - AOD (Angle of Departure): UE direction from RIS perspective (degrees)
-  - Deflection angle: |AOD - AOA| normalized to [0°, 180°]
+  - Distance features: d_ap_ris, d_ris_ue
+  - Angle features: aoa (Angle of Arrival), aod (Angle of Departure)
 
 TRAINING TARGET (best_angle):
-  - LOCAL DEFLECTION ANGLE in degrees
+  - LOCAL DEFLECTION ANGLE in degrees (REGRESSION: continuous values)
   - Magnitude of azimuth difference: |arctan2(UE_y - RIS_y, UE_x - RIS_x) - arctan2(AP_y - RIS_y, AP_x - RIS_x)|
   - Range: 0° to 180° (always positive)
   - Represents: How much to deflect from incident direction to reach target
 
-The model learns to predict the optimal deflection angle given network geometry and angle features.
+The model learns to predict the optimal deflection angle given network geometry.
 """
 
 from __future__ import annotations
@@ -32,6 +25,7 @@ from __future__ import annotations
 import argparse
 import csv
 import pickle
+import time
 from pathlib import Path
 from typing import List
 
@@ -40,41 +34,31 @@ import numpy as np
 try:
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import train_test_split
-    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("scikit-learn is required. Install via `pip install scikit-learn`") from exc
 
 
-def load_dataset(path: Path):
+def load_dataset(path: Path) -> tuple:
+    """Load dataset from CSV file (REGRESSION: continuous angle values)."""
     X: List[List[float]] = []
     y: List[float] = []
     with path.open(newline='') as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            ap_pos = [float(row['ap_x']), float(row['ap_y']), float(row['ap_z'])]
-            ris_pos = [float(row['ris_x']), float(row['ris_y']), float(row['ris_z'])]
-            ue_pos = [float(row['ue_x']), float(row['ue_y']), float(row['ue_z'])]
-            vec_ap_ris = np.array(ris_pos) - np.array(ap_pos)
-            vec_ris_ue = np.array(ue_pos) - np.array(ris_pos)
-
-            # Extract or compute angle features
-            aoa_deg = float(row.get('aoa_deg', 0.0))
-            aod_deg = float(row.get('aod_deg', 0.0))
-            deflection_deg = float(row.get('deflection_deg', 0.0))
-
+            # Use 13 features: 9 position + 4 derived (distances + angles)
             features = [
-                *ap_pos, *ris_pos, *ue_pos,
-                float(np.linalg.norm(vec_ap_ris)),
-                float(np.linalg.norm(vec_ris_ue)),
-                float(row['ap_power_dBm']),
-                float(row['ap_freq']),
-                float(row['ris_N']),
-                float(row['ris_bits']),
-                aoa_deg,
-                aod_deg,
-                deflection_deg,
+                # Position features (3D coordinates)
+                float(row['ap_x']), float(row['ap_y']), float(row['ap_z']),
+                float(row['ris_x']), float(row['ris_y']), float(row['ris_z']),
+                float(row['ue_x']), float(row['ue_y']), float(row['ue_z']),
+                # Distance features
+                float(row['d_ap_ris']), float(row['d_ris_ue']),
+                # Angle features (Angle of Arrival, Angle of Departure)
+                float(row['aoa']), float(row['aod']),
             ]
             X.append(features)
+            # Use continuous angle directly (no binning for regression)
             y.append(float(row['best_angle']))
     return np.array(X, dtype=float), np.array(y, dtype=float)
 
@@ -93,6 +77,7 @@ def train_model(X, y, n_estimators: int = 100, max_depth: int = 20, random_state
 
 
 def main():
+    overall_start = time.time()
     parser = argparse.ArgumentParser(description="Train Random Forest beam predictor")
     parser.add_argument('--data', type=Path, required=True, help='Path to dataset CSV')
     parser.add_argument('--output', type=Path, default=Path('controller/beamsweeping/ml/models/rf_beam_predictor.pkl'))
@@ -103,7 +88,9 @@ def main():
     args = parser.parse_args()
 
     print("Loading dataset...")
+    load_start = time.time()
     X, y = load_dataset(args.data)
+    load_time = time.time() - load_start
     print(f"Dataset loaded: {X.shape[0]} samples, {X.shape[1]} features")
 
     # Split into train/test sets
@@ -113,67 +100,55 @@ def main():
     )
     print(f"Train: {X_train.shape[0]} samples | Test: {X_test.shape[0]} samples")
 
-    print("\nTraining Random Forest model...")
+    print("\nTraining Random Forest regression model...")
+    train_start = time.time()
     model = train_model(X_train, y_train, n_estimators=args.n_estimators,
                        max_depth=args.max_depth, random_state=args.seed)
+    train_time = time.time() - train_start
 
     print("\n" + "="*70)
     print("MODEL EVALUATION METRICS")
     print("="*70)
 
     # Training metrics
+    eval_start = time.time()
     y_train_pred = model.predict(X_train)
+    train_mse = mean_squared_error(y_train, y_train_pred)
+    train_rmse = np.sqrt(train_mse)
     train_mae = mean_absolute_error(y_train, y_train_pred)
-    train_rmse = np.sqrt(mean_squared_error(y_train, y_train_pred))
     train_r2 = r2_score(y_train, y_train_pred)
 
     print("\nTRAINING SET METRICS:")
-    print(f"  MAE (Mean Absolute Error):  {train_mae:>10.6f}°")
-    print(f"  RMSE (Root Mean Sq. Error): {train_rmse:>10.6f}°")
-    print(f"  R² Score:                   {train_r2:>10.6f}")
+    print(f"  MSE: {train_mse:>10.6f}")
+    print(f"  RMSE: {train_rmse:>10.6f}°")
+    print(f"  MAE: {train_mae:>10.6f}°")
+    print(f"  R² Score: {train_r2:>10.6f}")
 
     # Test metrics
     y_test_pred = model.predict(X_test)
+    test_mse = mean_squared_error(y_test, y_test_pred)
+    test_rmse = np.sqrt(test_mse)
     test_mae = mean_absolute_error(y_test, y_test_pred)
-    test_rmse = np.sqrt(mean_squared_error(y_test, y_test_pred))
     test_r2 = r2_score(y_test, y_test_pred)
+    eval_time = time.time() - eval_start
 
     print("\nTEST SET METRICS:")
-    print(f"  MAE (Mean Absolute Error):  {test_mae:>10.6f}°")
-    print(f"  RMSE (Root Mean Sq. Error): {test_rmse:>10.6f}°")
-    print(f"  R² Score:                   {test_r2:>10.6f}")
-
-    # Compute error statistics
-    errors = np.abs(y_test - y_test_pred)
-    print("\nERROR STATISTICS (Test Set):")
-    print(f"  Mean Error:                 {np.mean(errors):>10.6f}°")
-    print(f"  Median Error:               {np.median(errors):>10.6f}°")
-    print(f"  Std Dev:                    {np.std(errors):>10.6f}°")
-    print(f"  Min Error:                  {np.min(errors):>10.6f}°")
-    print(f"  Max Error:                  {np.max(errors):>10.6f}°")
-    print(f"  95th Percentile Error:      {np.percentile(errors, 95):>10.6f}°")
+    print(f"  MSE: {test_mse:>10.6f}")
+    print(f"  RMSE: {test_rmse:>10.6f}°")
+    print(f"  MAE: {test_mae:>10.6f}°")
+    print(f"  R² Score: {test_r2:>10.6f}")
 
     # Assessment
     print("\nMODEL ASSESSMENT:")
-    if test_mae < 2.0:
-        assessment = "✓ EXCELLENT - MAE < 2° (very accurate predictions)"
-    elif test_mae < 3.0:
-        assessment = "✓ GOOD - MAE < 3° (accurate predictions)"
-    elif test_mae < 5.0:
-        assessment = "⚠ FAIR - MAE < 5° (acceptable for coarse guidance)"
+    if test_r2 >= 0.90:
+        assessment = "✓ EXCELLENT - R² ≥ 0.90"
+    elif test_r2 >= 0.75:
+        assessment = "✓ GOOD - R² ≥ 0.75"
+    elif test_r2 >= 0.60:
+        assessment = "⚠ FAIR - R² ≥ 0.60"
     else:
-        assessment = "✗ POOR - MAE ≥ 5° (insufficient accuracy, need more data)"
+        assessment = "✗ POOR - R² < 0.60"
     print(f"  {assessment}")
-
-    if test_r2 > 0.9:
-        fit_quality = "✓ Excellent fit (explains > 90% of variance)"
-    elif test_r2 > 0.7:
-        fit_quality = "✓ Good fit (explains > 70% of variance)"
-    elif test_r2 > 0.5:
-        fit_quality = "⚠ Fair fit (explains > 50% of variance)"
-    else:
-        fit_quality = "✗ Poor fit (explains < 50% of variance)"
-    print(f"  {fit_quality}")
 
     print("="*70)
 
@@ -182,6 +157,13 @@ def main():
     with args.output.open('wb') as f:
         pickle.dump(model, f)
     print(f"Saved Random Forest model to {args.output}")
+
+    overall_time = time.time() - overall_start
+    print(f"\n⏱ Timing:")
+    print(f"  Data loading: {load_time:.3f}s")
+    print(f"  Model training: {train_time:.3f}s")
+    print(f"  Model evaluation: {eval_time:.3f}s")
+    print(f"  Total: {overall_time:.3f}s")
 
 
 if __name__ == "__main__":

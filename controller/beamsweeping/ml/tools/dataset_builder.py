@@ -1,28 +1,20 @@
-"""Generate training data for beam-prediction models using deflection angle formula.
-
-DEFLECTION ANGLE FORMULA (from formula.md):
-============================================
-The dataset is built using the NEW deflection angle formula:
-
-1. Calculate incident azimuth (AP direction from RIS):
-   ap_angle = arctan2(AP_y - RIS_y, AP_x - RIS_x)
-
-2. Calculate reflected azimuth (UE direction from RIS):
-   ue_angle = arctan2(UE_y - RIS_y, UE_x - RIS_x)
-
-3. Compute deflection angle (magnitude of azimuth difference):
-   deflection = |ue_angle - ap_angle|
-   (normalized to [-180°, 180°] then take absolute value)
-
-4. Training labels (best_angle) represent LOCAL deflection angles:
-   - Range: 0° to 180° (always positive)
-   - What to predict: How much to deflect/steer from incident direction
-   - NOT: Absolute RIS beam angles
-
-This ensures ML models learn the physics-based deflection steering paradigm.
 """
+Generate training data for beam-prediction models using pure geometric deflection angle.
 
-from __future__ import annotations
+FORMULA (from risformula/formula.md):
+======================================
+Deflection angle (pure geometric):
+  θ_rcv = |atan2(UE_y - RIS_y, UE_x - RIS_x) - atan2(AP_y - RIS_y, AP_x - RIS_x)|
+
+This is the steering angle the RIS must apply to redirect from AP incident
+direction to UE target direction (2D azimuth only).
+
+DATASET CONSTRAINT:
+- Only include geometries where: θ_rcv ≤ 60° (RIS FOV capability)
+- Training labels (best_angle) = θ_rcv (the actual deflection angle)
+- NO sweep(), NO physics engine
+- Pure geometric sampling with strict feasibility
+"""
 
 import argparse
 import csv
@@ -30,234 +22,224 @@ import os
 import random
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Dict, Tuple
 from multiprocessing import Pool
 import time
 
 import numpy as np
 
-# Add project root to path to allow imports from any working directory
-# __file__ is relative on Windows, so use os.path.abspath first
+# Add project root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
-
-from core import RISNetwork
-from core.angle_utils import compute_optimal_ris_normal
 
 
 FIELDNAMES = [
     'ap_x', 'ap_y', 'ap_z',
     'ris_x', 'ris_y', 'ris_z',
     'ue_x', 'ue_y', 'ue_z',
-    'ap_power_dBm', 'ap_freq',
-    'ris_N', 'ris_bits',
-    'aoa_deg', 'aod_deg', 'deflection_deg',
-    'best_angle', 'best_snr'
+    'd_ap_ris', 'd_ris_ue',
+    'aoa', 'aod',
+    'best_angle'
 ]
 
 
-def random_position(bounds: Dict[str, float], grid_spacing: float = 1.0) -> np.ndarray:
+def compute_distances(ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarray) -> Tuple[float, float]:
     """
-    Generate random position with stratified sampling using grid spacing.
-    This ensures even coverage across the spatial domain instead of pure random.
-    Grid spacing of 1m means we divide each dimension into 1m bins and sample within bins.
+    Compute distances AP-to-RIS and RIS-to-UE.
+
+    Args:
+        ap_pos: AP position [x, y, z] in meters
+        ris_pos: RIS position [x, y, z] in meters
+        ue_pos: UE position [x, y, z] in meters
+
+    Returns:
+        Tuple: (d_ap_ris, d_ris_ue) in meters
     """
-    # Create grid bins of size grid_spacing
-    x_bins = np.arange(bounds['x_min'], bounds['x_max'] + grid_spacing, grid_spacing)
-    y_bins = np.arange(bounds['y_min'], bounds['y_max'] + grid_spacing, grid_spacing)
-    z_bins = np.arange(bounds['z_min'], bounds['z_max'] + grid_spacing, grid_spacing)
-
-    # Randomly select a bin for each dimension
-    x_bin_idx = random.randint(0, len(x_bins) - 2)
-    y_bin_idx = random.randint(0, len(y_bins) - 2)
-    z_bin_idx = random.randint(0, len(z_bins) - 2)
-
-    # Sample uniformly within the selected bin
-    x = random.uniform(x_bins[x_bin_idx], x_bins[x_bin_idx + 1])
-    y = random.uniform(y_bins[y_bin_idx], y_bins[y_bin_idx + 1])
-    z = random.uniform(z_bins[z_bin_idx], z_bins[z_bin_idx + 1])
-
-    return np.array([x, y, z])
+    d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
+    d_ris_ue = float(np.linalg.norm(ue_pos - ris_pos))
+    return d_ap_ris, d_ris_ue
 
 
-def is_within_fov(offset_angle: float, max_angle: float) -> bool:
-    """Check if an offset angle is within FOV constraint."""
-    # Normalize offset to [-180, 180]
-    offset = ((offset_angle + 180) % 360) - 180
-    return abs(offset) <= max_angle
-
-
-def compute_offset_from_normal(abs_angle: float, normal_angle: float) -> float:
-    """Compute offset angle relative to RIS normal."""
-    offset = abs_angle - normal_angle
-    # Normalize to [-180, 180]
-    return ((offset + 180) % 360) - 180
-
-
-def generate_valid_geometry(bounds: Dict[str, float], ris_max_angle: float = 60.0,
-                           grid_spacing: float = 1.0) -> tuple:
+def compute_angles(ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarray) -> Tuple[float, float]:
     """
-    Generate AP, RIS, UE positions that satisfy FOV constraints.
+    Compute AoA (Angle of Arrival) and AoD (Angle of Departure) from formula.md:
 
-    This ensures:
-    1. AP is within RIS FOV (±ris_max_angle from RIS normal)
-    2. UE is within RIS FOV (±ris_max_angle from RIS normal)
-    3. Deflection angle (angle between AP and UE from RIS) can be up to 2*ris_max_angle
-    4. No skipping needed, every sample is valid
+    AoA = Incident azimuth angle: atan2(AP_y - RIS_y, AP_x - RIS_x)
+    AoD = Reflected azimuth angle: atan2(UE_y - RIS_y, UE_x - RIS_x)
 
-    Returns: (ap_pos, ris_pos, ue_pos)
+    Both normalized to [0°, 360°) for consistency.
+
+    Args:
+        ap_pos: AP position [x, y, z] in meters
+        ris_pos: RIS position [x, y, z] in meters
+        ue_pos: UE position [x, y, z] in meters
+
+    Returns:
+        Tuple: (aoa, aod) in degrees, both in [0°, 360°)
     """
-    max_attempts = 100
-    max_deflection = 120.0  # Allow up to 120° deflection for full ±60° local angle coverage
+    # Extract 2D positions (XY plane only, consistent with deflection angle formula)
+    ap_2d = ap_pos[:2]
+    ris_2d = ris_pos[:2]
+    ue_2d = ue_pos[:2]
+
+    # Calculate azimuth angles in degrees
+    aoa = np.degrees(np.arctan2(ap_2d[1] - ris_2d[1], ap_2d[0] - ris_2d[0]))
+    aod = np.degrees(np.arctan2(ue_2d[1] - ris_2d[1], ue_2d[0] - ris_2d[0]))
+
+    # Normalize to [0°, 360°)
+    aoa = aoa % 360
+    aod = aod % 360
+
+    return aoa, aod
+
+
+def compute_theta_rcv(ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarray) -> float:
+    """
+    Compute deflection angle from formula.md:
+
+    θ_rcv = |atan2(UE-RIS) - atan2(AP-RIS)|
+
+    This is the steering angle needed to redirect beam from AP incident
+    direction to UE target direction.
+
+    Args:
+        ap_pos: AP position [x, y, z] in meters
+        ris_pos: RIS position [x, y, z] in meters
+        ue_pos: UE position [x, y, z] in meters
+
+    Returns:
+        Deflection angle in degrees [0°, 180°]
+    """
+    # Extract 2D positions (XY plane only)
+    ap_2d = ap_pos[:2]
+    ris_2d = ris_pos[:2]
+    ue_2d = ue_pos[:2]
+
+    # Calculate azimuth angles
+    ap_angle = np.degrees(np.arctan2(ap_2d[1] - ris_2d[1], ap_2d[0] - ris_2d[0]))
+    ue_angle = np.degrees(np.arctan2(ue_2d[1] - ris_2d[1], ue_2d[0] - ris_2d[0]))
+
+    # Compute angle difference
+    dtheta = ue_angle - ap_angle
+
+    # Normalize to [-180°, 180°]
+    dtheta = ((dtheta + 180) % 360) - 180
+
+    # Return magnitude (always positive, 0° to 180°)
+    return abs(dtheta)
+
+
+def random_position(bounds: Dict[str, float]) -> np.ndarray:
+    """
+    Generate random position within bounds.
+
+    Args:
+        bounds: Dictionary with 'x_min', 'x_max', 'y_min', 'y_max', 'z_min', 'z_max'
+
+    Returns:
+        Position array [x, y, z]
+    """
+    return np.array([
+        random.uniform(bounds['x_min'], bounds['x_max']),
+        random.uniform(bounds['y_min'], bounds['y_max']),
+        random.uniform(bounds['z_min'], bounds['z_max'])
+    ])
+
+
+def generate_valid_geometry(bounds: Dict, ris_max_angle: float = 60.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """
+    Generate random AP, RIS, UE positions with θ_rcv ≤ ris_max_angle.
+
+    This ensures the RIS can physically achieve the required steering angle
+    within its ±60° (or other max_angle) FOV capability.
+
+    Args:
+        bounds: Dict with 'ap', 'ris', 'ue' sub-dicts containing bounds
+        ris_max_angle: Maximum steering angle capability (±max_angle)
+
+    Returns:
+        Tuple: (ap_pos, ris_pos, ue_pos, theta_rcv)
+    """
+    max_attempts = 500  # Increased attempts to ensure boundary values are sampled
 
     for attempt in range(max_attempts):
-        # Generate RIS position
-        ris_pos = random_position(bounds['ris'], grid_spacing=grid_spacing)
+        # Generate random positions
+        ap_pos = random_position(bounds['ap'])
+        ris_pos = random_position(bounds['ris'])
+        ue_pos = random_position(bounds['ue'])
 
-        # Generate AP position
-        ap_pos = random_position(bounds['ap'], grid_spacing=grid_spacing)
+        # Calculate deflection angle
+        theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
 
-        # Generate UE position
-        ue_pos = random_position(bounds['ue'], grid_spacing=grid_spacing)
+        # Accept if within RIS capability (inclusive of boundary)
+        if theta_rcv <= ris_max_angle:
+            return ap_pos, ris_pos, ue_pos, theta_rcv
 
-        # Compute angles from RIS perspective
-        ap_vec = ap_pos - ris_pos
-        ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
-        ue_vec = ue_pos - ris_pos
-        ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
-
-        # Compute optimal RIS normal as bisector
-        ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
-
-        # Check if AP is within FOV relative to RIS normal
-        ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
-        if not is_within_fov(ap_offset, ris_max_angle):
-            continue  # AP outside FOV, try again
-
-        # Check if UE is within FOV relative to RIS normal
-        ue_offset = compute_offset_from_normal(ue_angle, ris_normal)
-        if not is_within_fov(ue_offset, ris_max_angle):
-            continue  # UE outside FOV, try again
-
-        # Check if deflection angle between AP and UE is within reasonable limits
-        # Deflection angle = magnitude of angle difference
-        deflection = abs(ue_angle - ap_angle)
-        # Normalize to [0, 180]
-        deflection = min(deflection, 360 - deflection)
-
-        # For safe sweep operation:
-        # - RIS normal sits at bisector of AP and UE
-        # - Sweep tests local angles from -FOV to +FOV relative to normal
-        # - Allow deflection up to 2*ris_max_angle (120°) to get full ±60° local angle coverage
-        # - With 120° deflection, both nodes are ±60° from bisector, enabling ±60° sweep results
-        if deflection > max_deflection:
-            continue  # Deflection exceeds maximum, try again
-
-        # All constraints satisfied
-        return ap_pos, ris_pos, ue_pos
-
-    # If we can't generate valid geometry after max_attempts, raise error
-    raise RuntimeError(f"Failed to generate valid geometry after {max_attempts} attempts")
-
-
-def build_sample(net: RISNetwork, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle: float = 60.0,
-                 grid_spacing: float = 1.0):
-    """
-    Build a training sample with guaranteed valid FOV geometry.
-
-    All generated samples are guaranteed to satisfy:
-    - AP within RIS FOV (±ris_max_angle from RIS normal)
-    - UE within RIS FOV (±ris_max_angle from RIS normal)
-    - No FOV violation errors
-
-    The best_angle returned is a DEFLECTION ANGLE (relative steering from incident direction):
-    - Deflection angle = magnitude of azimuth difference between UE and AP directions
-    - Computed as: |arctan2(UE_y - RIS_y, UE_x - RIS_x) - arctan2(AP_y - RIS_y, AP_x - RIS_x)|
-    - Range: 0° to 180° (always positive magnitude)
-    - This represents how much the RIS must deflect/steer from the incident direction to reach the target
-
-    Training targets (best_angle) are in LOCAL deflection angle space, not absolute beam angles.
-    """
-    net.nodes.clear()
-
-    # Generate positions that satisfy FOV constraints
-    ap_pos, ris_pos, ue_pos = generate_valid_geometry(
-        bounds, ris_max_angle=ris_max_angle, grid_spacing=grid_spacing
+    raise RuntimeError(
+        f"Failed to generate valid geometry after {max_attempts} attempts. "
+        f"Try expanding position bounds or reducing max_angle."
     )
 
-    net.add_ap('AP', *ap_pos, power_dBm=ap_cfg['power_dBm'], freq=ap_cfg['freq'])
-    net.add_ris(
-        'RIS', *ris_pos,
-        N=ris_cfg['N'], bits=ris_cfg['bits'],
-        max_angle_deg=120.0  # Allow 120° steering to capture full ±60° local angles
-    )
-    net.add_ue('UE', *ue_pos)
 
-    # Sweep will compute optimal RIS normal internally as bisector of AP and UE
-    # Then test DEFLECTION ANGLES from -FOV to +FOV relative to the incident direction
-    # Do NOT force RIS normal before sweep - let sweep calculate it naturally
-    result = net.sweep('AP', 'RIS', 'UE', fov=bounds['fov'], step=bounds['step'])
+def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
+    """
+    Build a single training sample.
 
-    # Extract optimal LOCAL deflection angle (relative to incident direction)
-    # This is what we train the ML model to predict
-    best_angle = result['best_local_fine']
-    snr = result['best_snr_fine']
+    Args:
+        bounds: Position bounds dict
+        ris_max_angle: Maximum steering angle (°)
+
+    Returns:
+        Sample dict with positions, distances, angles, and best_angle
+    """
+    ap_pos, ris_pos, ue_pos, theta_rcv = generate_valid_geometry(bounds, ris_max_angle)
+
+    # Compute derived features
+    d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
+    aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
+
+    # Round best_angle to nearest integer degree
+    best_angle_rounded = float(round(theta_rcv))
 
     sample = {
         'ap_pos': ap_pos.tolist(),
         'ris_pos': ris_pos.tolist(),
         'ue_pos': ue_pos.tolist(),
-        'ap_power_dBm': ap_cfg['power_dBm'],
-        'ap_freq': ap_cfg['freq'],
-        'ris_N': ris_cfg['N'],
-        'ris_bits': ris_cfg['bits'],
-        'best_angle': best_angle,
-        'best_snr': snr
+        'd_ap_ris': d_ap_ris,
+        'd_ris_ue': d_ris_ue,
+        'aoa': aoa,
+        'aod': aod,
+        'best_angle': best_angle_rounded
     }
     return sample
 
 
-def build_sample_worker(args_tuple):
+def build_sample_worker(args_tuple: Tuple) -> Tuple:
     """
-    Worker function for multiprocessing.
-    Takes all needed arguments as a tuple since Pool.map passes single argument.
-    """
-    idx, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle, grid_spacing, seed_offset = args_tuple
+    Worker function for multiprocessing pool.
 
-    # Set unique seed for each worker to ensure different random samples
+    Args:
+        args_tuple: (idx, bounds, ris_max_angle, seed_offset)
+
+    Returns:
+        Tuple: (idx, sample, error)
+    """
+    idx, bounds, ris_max_angle, seed_offset = args_tuple
+
+    # Set unique seed for each worker
     random.seed(seed_offset + idx)
     np.random.seed(seed_offset + idx)
 
-    net = RISNetwork()
-
     try:
-        sample = build_sample(net, bounds, ap_cfg, ris_cfg, ue_cfg,
-                            ris_max_angle=ris_max_angle, grid_spacing=grid_spacing)
+        sample = build_sample(bounds, ris_max_angle)
         return idx, sample, None
     except Exception as exc:
         return idx, None, str(exc)
 
 
-def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
-    """Flatten sample and compute AOA/AOD angles"""
-    ap_pos = np.array(sample['ap_pos'])
-    ris_pos = np.array(sample['ris_pos'])
-    ue_pos = np.array(sample['ue_pos'])
-
-    # Compute AOA (Angle of Arrival): AP direction from RIS perspective
-    ap_vec = ap_pos - ris_pos
-    aoa_deg = float(np.degrees(np.arctan2(ap_vec[1], ap_vec[0])))
-
-    # Compute AOD (Angle of Departure): UE direction from RIS perspective
-    ue_vec = ue_pos - ris_pos
-    aod_deg = float(np.degrees(np.arctan2(ue_vec[1], ue_vec[0])))
-
-    # Compute deflection angle (magnitude of angle difference)
-    deflection = abs(aod_deg - aoa_deg)
-    # Normalize to [0, 180]
-    deflection_deg = float(min(deflection, 360 - deflection))
-
+def flatten_sample(sample: Dict) -> Dict:
+    """Flatten sample to CSV format."""
     return {
         'ap_x': sample['ap_pos'][0],
         'ap_y': sample['ap_pos'][1],
@@ -268,84 +250,88 @@ def flatten_sample(sample: Dict[str, Any]) -> Dict[str, float]:
         'ue_x': sample['ue_pos'][0],
         'ue_y': sample['ue_pos'][1],
         'ue_z': sample['ue_pos'][2],
-        'ap_power_dBm': sample['ap_power_dBm'],
-        'ap_freq': sample['ap_freq'],
-        'ris_N': sample['ris_N'],
-        'ris_bits': sample['ris_bits'],
-        'aoa_deg': aoa_deg,
-        'aod_deg': aod_deg,
-        'deflection_deg': deflection_deg,
-        'best_angle': sample['best_angle'],
-        'best_snr': sample['best_snr']
+        'd_ap_ris': sample['d_ap_ris'],
+        'd_ris_ue': sample['d_ris_ue'],
+        'aoa': sample['aoa'],
+        'aod': sample['aod'],
+        'best_angle': sample['best_angle']
     }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate training data for beam ML models")
-    parser.add_argument('--samples', type=int, default=5000, help='Number of random topologies')
+    parser = argparse.ArgumentParser(description="Generate pure geometric beam dataset")
+    parser.add_argument('--samples', type=int, default=5000, help='Number of samples to generate')
     parser.add_argument('--output', type=Path,
-                        default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
-                        help='Output CSV file')
-    parser.add_argument('--seed', type=int, default=42)
-    parser.add_argument('--cores', type=int, default=4, help='Number of CPU cores to use')
+                       default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
+                       help='Output CSV file')
+    parser.add_argument('--seed', type=int, default=42, help='Random seed')
+    parser.add_argument('--cores', type=int, default=4, help='Number of CPU cores')
     args = parser.parse_args()
 
-    # Improved bounds: 1m grid spacing for better coverage
-    # This ensures we have samples at regular intervals
+    # Position bounds (20m × 20m × 5m space)
     bounds = {
-        'fov': 60.0,
-        'step': 10.0,
-        'ap': {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
+        'ap':  {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
         'ris': {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
-        'ue': {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
+        'ue':  {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
     }
 
-    ap_cfg = {'power_dBm': 20.0, 'freq': 5.8e9}
-    ris_cfg = {'N': 16, 'bits': 1}
-    ue_cfg = {}
-
-    grid_spacing = 1.0  # 1 meter spacing for stratified sampling
-    ris_max_angle = 60.0  # RIS FOV: ±60°
-
-    # Prepare worker arguments
-    worker_args = [
-        (idx, bounds, ap_cfg, ris_cfg, ue_cfg, ris_max_angle, grid_spacing, args.seed)
-        for idx in range(args.samples)
-    ]
+    # RIS FOV constraint
+    ris_max_angle = 60.0
 
     print(f"Generating {args.samples} samples using {args.cores} cores...")
     start_time = time.time()
 
-    # Use multiprocessing pool
+    # Prepare worker arguments
+    worker_args = [
+        (idx, bounds, ris_max_angle, args.seed)
+        for idx in range(args.samples)
+    ]
+
+    samples_dict = {}
+    error_count = 0
+    completed = 0
+
     with Pool(processes=args.cores) as pool:
-        results = pool.map(build_sample_worker, worker_args)
+        for idx, sample, error in pool.imap_unordered(build_sample_worker, worker_args):
+            completed += 1
+
+            if error:
+                print(f"[{completed:5d}/{args.samples}] Error in sample {idx}: {error}")
+                error_count += 1
+            elif completed % 100 == 0 or completed == args.samples:
+                elapsed = time.time() - start_time
+                rate = completed / elapsed
+                remaining = (args.samples - completed) / rate if rate > 0 else 0
+                print(f"[{completed:5d}/{args.samples}] {rate:.1f} samples/sec | ETA: {remaining:.0f}s")
+
+            if sample is not None:
+                samples_dict[idx] = sample
 
     elapsed_time = time.time() - start_time
 
-    # Process results and collect samples
-    samples_dict = {}
-    error_count = 0
-
-    for idx, sample, error in results:
-        if error:
-            print(f"Error generating sample {idx + 1}: {error}")
-            error_count += 1
-        else:
-            samples_dict[idx] = sample
-
-    # Sort by index to maintain order
-    samples = [samples_dict[idx] for idx in sorted(samples_dict.keys())]
-
+    # Write to CSV
     args.output.parent.mkdir(parents=True, exist_ok=True)
+    print(f"\nWriting {len(samples_dict)} samples to {args.output}...")
+
     with args.output.open('w', newline='') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=FIELDNAMES)
         writer.writeheader()
-        for sample in samples:
-            writer.writerow(flatten_sample(sample))
+        for idx in sorted(samples_dict.keys()):
+            writer.writerow(flatten_sample(samples_dict[idx]))
 
-    print(f"Wrote {len(samples)} samples to {args.output}")
-    print(f"Errors: {error_count}")
-    print(f"Total time: {elapsed_time:.2f}s ({args.samples/elapsed_time:.1f} samples/sec)")
+    print(f"✓ Wrote {len(samples_dict)} samples to {args.output}")
+    print(f"✗ Errors: {error_count}")
+    print(f"⏱ Total time: {elapsed_time:.2f}s ({args.samples/elapsed_time:.1f} samples/sec)")
+
+    # Statistics
+    if samples_dict:
+        angles = [s['best_angle'] for s in samples_dict.values()]
+        print(f"\nDataset statistics:")
+        print(f"  Min angle: {min(angles):.2f}°")
+        print(f"  Max angle: {max(angles):.2f}°")
+        print(f"  Mean angle: {np.mean(angles):.2f}°")
+        print(f"  Median angle: {np.median(angles):.2f}°")
+        print(f"  All angles ≤ 60°: {all(a <= 60.0 for a in angles)}")
 
 
 if __name__ == "__main__":

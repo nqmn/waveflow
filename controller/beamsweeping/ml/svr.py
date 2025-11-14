@@ -119,22 +119,40 @@ class SVRPredictor(SweepMLPredictor):
         return 3.5  # SVR uncertainty
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct simple geometry-based features."""
-        ap_pos = ap.pos
-        ris_pos = ris.pos
-        ue_pos = ue.pos
-        vec_ap_ris = ris_pos - ap_pos
-        vec_ris_ue = ue_pos - ris_pos
+        """Construct feature vector using 13 features (9 positions + 4 derived).
+
+        Features (13 total):
+          - AP position (3 coords: x, y, z)
+          - RIS position (3 coords: x, y, z)
+          - UE position (3 coords: x, y, z)
+          - d_ap_ris: Euclidean distance from AP to RIS
+          - d_ris_ue: Euclidean distance from RIS to UE
+          - aoa: Angle of Arrival (azimuth, degrees, [0, 360))
+          - aod: Angle of Departure (azimuth, degrees, [0, 360))
+        """
+        ap_pos = np.array(ap.pos)
+        ris_pos = np.array(ris.pos)
+        ue_pos = np.array(ue.pos)
+
+        # Distance features
+        d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
+        d_ris_ue = float(np.linalg.norm(ue_pos - ris_pos))
+
+        # Angle features (azimuth only, 2D XY plane)
+        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])))
+        aoa = aoa % 360  # Normalize to [0, 360)
+
+        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])))
+        aod = aod % 360  # Normalize to [0, 360)
 
         features = [
+            # Position features (3D coordinates)
             float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
             float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
             float(ue_pos[0]), float(ue_pos[1]), float(ue_pos[2]),
-            float(np.linalg.norm(vec_ap_ris)),
-            float(np.linalg.norm(vec_ris_ue)),
-            float(getattr(ap, "power_dBm", 20.0)),
-            float(getattr(ap, "freq", 5.8e9)),
-            float(getattr(ris, "N", 16)),
-            float(getattr(ris, "bits", 1)),  # Default: 1 bit (matches trained dataset)
+            # Distance features
+            d_ap_ris, d_ris_ue,
+            # Angle features
+            aoa, aod,
         ]
         return features
