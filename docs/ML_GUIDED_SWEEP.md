@@ -131,11 +131,17 @@ def sweep(self,
     max_feedback_iterations: int = 3,  # Max iterations per angle
     ml_predictor: str = 'xgb',   # Which ML model to use
     top_k: int = 5,              # Number of predictions to validate
+    codebook_increment: float = 5.0,  # Discretize predictions to this step
+    codebook_neighbors: int = 1,      # How many increments on each side to test
+    enable_codebook_validation: bool = False, # Quantize and verify neighbors (disabled by default)
+    include_predicted_angle: bool = True,    # Also test the raw prediction
     use_waveform: bool = False,  # Real signal-level simulation
     modulation: str = 'QPSK',    # Modulation type (QPSK, 16QAM, 64QAM)
     num_symbols: int = 1000      # Symbols per measurement
 ) -> Dict:
 ```
+
+By default ML predictions are used as-is—no quantization or neighbor validation happens. If you want to validate a small codebook around each suggestion, set `enable_codebook_validation` to `True`, adjust `codebook_increment` (defaults to 5°), and `codebook_neighbors` to the number of steps you want to test on each side. That keeps the measurement budget small while compensating for the predictor’s ±5° MAE.
 
 ### Return Value
 
@@ -156,7 +162,11 @@ def sweep(self,
     'best_angle': 125.5,                 # Best absolute angle found
     'best_snr': 18.3,                    # Best SNR measured
     'best_local': 45.2,                  # Best deflection angle
-    'num_angles_tested': 5,              # How many were validated
+    'num_predictions': 5,                 # ML suggestions that were generated
+    'num_angles_tested': 13,              # Actual measurements recorded
+    'codebook_increment': 5.0,            # Quantization step used during validation
+    'codebook_neighbors': 1,              # ± neighbors tested around each codebook value
+    'codebook_validation_enabled': True,  # Whether the quantization/neighbor loop ran
     'ml_metrics': {...},                 # Confidence metrics from ML model
     'specular_angle': 80.3               # Reference incident angle
 }
@@ -225,9 +235,11 @@ features = [
 ### Training Dataset
 
 Models trained on `controller/beamsweeping/ml/data/beam_dataset.csv`:
+- **Sampling mode:** Default `ris-aware` matches `add random`; pass `--sampling-mode stratified` with higher `--ap/--ris/--ue-bins` (e.g., `20 20 5`) when you need full cube coverage.
 - **Samples:** ~1000 different geometries
 - **Target:** Optimal local deflection angle for each geometry
 - **Validation:** Test on unseen geometries
+Regenerate the dataset with `python3 controller/beamsweeping/ml/tools/dataset_builder.py --samples 10000` (RIS-aware mode defaults to 5–7 m), or switch to `--sampling-mode stratified` when you want systematic spatial coverage.
 
 ### Model Selection Guide
 

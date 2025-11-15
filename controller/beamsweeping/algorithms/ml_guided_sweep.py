@@ -10,14 +10,13 @@ This is a smart ML-guided validation approach:
 - Balances prediction efficiency with measurement accuracy
 """
 import numpy as np
-from typing import Dict
+from typing import Dict, List
 from ..base import SweepAlgorithmBase
 from ..ml import MLPredictorLoader
 from ..common import (
     apply_waveform_realism,
     setup_waveform_simulator,
     validate_and_get_nodes,
-    clamp_to_ris_fov,
     clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
@@ -35,11 +34,52 @@ class MLGuidedSweep(SweepAlgorithmBase):
     def description(self) -> str:
         return "ML-guided beam sweep: validates top ML-predicted angles through measurement."
 
+    @staticmethod
+    def _quantize_local_angle(angle: float, increment: float) -> float:
+        """Snap a prediction to the closest codebook increment."""
+        if increment <= 0:
+            return angle
+        return round(angle / increment) * increment
+
+    def _build_validation_candidates(
+        self,
+        predicted_angle: float,
+        ris_max_angle: float,
+        enable_validation: bool,
+        increment: float,
+        neighbors: int,
+        include_predicted: bool,
+    ) -> List[float]:
+        """Return the local angles we should validate around the ML prediction."""
+        neighbors = max(0, neighbors)
+        candidates = set()
+
+        if include_predicted or not enable_validation:
+            candidates.add(predicted_angle)
+
+        if enable_validation and increment > 0:
+            center = self._quantize_local_angle(predicted_angle, increment)
+            for offset in range(-neighbors, neighbors + 1):
+                candidates.add(center + offset * increment)
+
+        if not candidates:
+            candidates.add(predicted_angle)
+
+        clamped = clamp_local_deflection_to_ris_fov(
+            np.array(list(candidates), dtype=float),
+            ris_max_angle
+        )
+        return sorted(set(clamped.tolist()))
+
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_predictor: str = 'xgb', top_k: int = 5,
+              codebook_increment: float = 5.0,
+              codebook_neighbors: int = 1,
+              enable_codebook_validation: bool = False,
+              include_predicted_angle: bool = True,
               ml_angles=None, use_waveform: bool = False,
               modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
         """Execute ML-guided beam sweep with validation (single phase)
@@ -55,6 +95,10 @@ class MLGuidedSweep(SweepAlgorithmBase):
             max_feedback_iterations: Max iterations for feedback loop
             ml_predictor: ML predictor name (default: 'xgb')
             top_k: Number of top angles to test (default: 5)
+            codebook_increment: Quantization step (degrees) for codebook validation
+            codebook_neighbors: Number of increments to test on either side of the quantized angle
+            enable_codebook_validation: Whether to run codebook quantization and neighbor validation
+            include_predicted_angle: If True, keep the raw prediction in the validation set
             use_waveform: If True, simulate real signal-level SNR/SER
             modulation: Modulation type: QPSK, 16QAM, or 64QAM
             num_symbols: Number of symbols per measurement
@@ -112,47 +156,61 @@ class MLGuidedSweep(SweepAlgorithmBase):
         print(f"\n[ML-GUIDED SWEEP]")
         print(f"ML Predictor: {ml_predictor}")
         print(f"Validating {len(clamped_ml_suggestions)} ML-predicted angles (top_k={top_k})")
+        if enable_codebook_validation and codebook_increment > 0 and codebook_neighbors >= 0:
+            print(f"  Quantizing to {codebook_increment:.1f}° and verifying ±{codebook_neighbors} steps per prediction")
 
         ml_results = []
         local_angles = []
         snr_values = []
         ser_values = [] if use_waveform else None
 
-        for i, ml_angle in enumerate(clamped_ml_suggestions):
-            # Convert deflection angle to absolute beam angle
-            if angle_diff > 0:
-                abs_angle = ap_angle + ml_angle
-            else:
-                abs_angle = ap_angle - ml_angle
-            local_angles.append(ml_angle)
-
-            with self._ap_state_guard(ap):
-                res = self.network.connect(
-                    ap_name, ris_name, ue_name,
-                    beam_angle_deg=abs_angle, seed=seed,
-                    enable_feedback=enable_feedback,
-                    max_feedback_iterations=max_feedback_iterations,
-                    store_in_active_links=False,  # Don't store intermediate measurements
-                    use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
-                )
-
-            snr_val, ser_val = apply_waveform_realism(
-                res,
-                link_simulator,
-                seed=seed + i if seed else None,
+        for ml_angle in clamped_ml_suggestions:
+            validation_angles = self._build_validation_candidates(
+                ml_angle,
+                ris_max_angle,
+                enable_codebook_validation,
+                codebook_increment,
+                codebook_neighbors,
+                include_predicted_angle,
             )
-            snr_values.append(snr_val)
 
-            if ser_values is not None:
-                ser_values.append(ser_val)
+            for local_angle in validation_angles:
+                if angle_diff > 0:
+                    abs_angle = ap_angle + local_angle
+                else:
+                    abs_angle = ap_angle - local_angle
 
-            ml_results.append({
-                'local_angle': float(ml_angle),
-                'abs_angle': float(abs_angle),
-                'snr_dB': float(snr_val),
-                'pwr_dBm': float(res['pwr_dBm']),
-                'ser_percent': ser_val
-            })
+                with self._ap_state_guard(ap):
+                    measurement_seed = (seed + len(snr_values)) if seed is not None else None
+                    res = self.network.connect(
+                        ap_name, ris_name, ue_name,
+                        beam_angle_deg=abs_angle,
+                        seed=measurement_seed,
+                        enable_feedback=enable_feedback,
+                        max_feedback_iterations=max_feedback_iterations,
+                        store_in_active_links=False,
+                        use_get_snr=self._should_use_get_snr()
+                    )
+
+                snr_val, ser_val = apply_waveform_realism(
+                    res,
+                    link_simulator,
+                    seed=measurement_seed,
+                )
+                snr_values.append(snr_val)
+                local_angles.append(local_angle)
+
+                if ser_values is not None:
+                    ser_values.append(ser_val)
+
+                ml_results.append({
+                    'prediction_angle': float(ml_angle),
+                    'local_angle': float(local_angle),
+                    'abs_angle': float(abs_angle),
+                    'snr_dB': float(snr_val),
+                    'pwr_dBm': float(res['pwr_dBm']),
+                    'ser_percent': ser_val
+                })
 
         # Find best result first
         best_idx = int(np.argmax(snr_values))
@@ -160,13 +218,13 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Now print with marker only for the best index
         for i, snr_val in enumerate(snr_values):
             ml_angle = local_angles[i]
-            # Convert deflection angle to absolute beam angle for display
+            prediction_angle = ml_results[i].get('prediction_angle', ml_angle)
             if angle_diff > 0:
                 abs_angle = ap_angle + ml_angle
             else:
                 abs_angle = ap_angle - ml_angle
             marker = " <-- BEST" if i == best_idx else ""
-            print(f"  idx={i}: {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
+            print(f"  idx={i}: pred {prediction_angle:>7.1f}°, {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
         # Convert deflection angle to absolute beam angle
@@ -191,7 +249,11 @@ class MLGuidedSweep(SweepAlgorithmBase):
             'best_snr': float(best_snr),
             'best_local': float(best_local),
             'specular_angle': float(specular_angle),
-            'num_angles_tested': len(ml_suggestions),
+            'num_angles_tested': len(local_angles),
+            'num_predictions': len(ml_suggestions),
+            'codebook_increment': float(codebook_increment),
+            'codebook_neighbors': codebook_neighbors,
+            'codebook_validation_enabled': enable_codebook_validation,
             'ml_metrics': ml_metrics,
         }
 

@@ -115,7 +115,7 @@ class ConnectionHandler:
             'fov': None,
             'step': None,
             'algo_name': 'linear',
-            'ml_predictor': 'rf',
+            'ml_predictor': 'xgb',
             'angle': None,
             'seed': None,
             'error_msg': None,

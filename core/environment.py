@@ -45,7 +45,7 @@ class Environment:
 
     def __init__(self):
         self.walls: List[Wall] = []
-        self.bounds = {'x_min': -20, 'x_max': 20, 'y_min': -20, 'y_max': 20}
+        self.bounds = {'x_min': -10, 'x_max': 10, 'y_min': -10, 'y_max': 10}
 
     def add_wall(self, start, end, attenuation_dB=20.0, name=None):
         """Add a wall to the environment

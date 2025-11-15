@@ -18,11 +18,13 @@ DATASET CONSTRAINT:
 
 import argparse
 import csv
+import itertools
+import math
 import os
 import random
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 from multiprocessing import Pool
 import time
 
@@ -128,6 +130,77 @@ def compute_theta_rcv(ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarra
 
     # Return magnitude (always positive, 0° to 180°)
     return abs(dtheta)
+
+
+def stratified_positions(bounds: Dict[str, float], bins: Tuple[int, int, int], rng: random.Random) -> List[np.ndarray]:
+    """Generate one representative position per stratified bin."""
+    if bins[0] <= 0 or bins[1] <= 0 or bins[2] <= 0:
+        raise ValueError("Bin counts must be positive integers")
+
+    x_edges = np.linspace(bounds['x_min'], bounds['x_max'], bins[0] + 1)
+    y_edges = np.linspace(bounds['y_min'], bounds['y_max'], bins[1] + 1)
+    z_edges = np.linspace(bounds['z_min'], bounds['z_max'], bins[2] + 1)
+
+    positions = []
+    for ix in range(bins[0]):
+        for iy in range(bins[1]):
+            for iz in range(bins[2]):
+                x = rng.uniform(x_edges[ix], x_edges[ix + 1])
+                y = rng.uniform(y_edges[iy], y_edges[iy + 1])
+                z = rng.uniform(z_edges[iz], z_edges[iz + 1])
+                positions.append(np.array([x, y, z]))
+    return positions
+
+
+def generate_stratified_samples(
+    bounds: Dict,
+    ris_max_angle: float,
+    num_samples: int,
+    bins_config: Dict[str, Tuple[int, int, int]],
+    seed: int,
+) -> Dict[int, Dict]:
+    """Produce stratified samples using precomputed AP/RIS/UE bins."""
+    rng = random.Random(seed)
+
+    ap_positions = stratified_positions(bounds['ap'], bins_config['ap'], rng)
+    ris_positions = stratified_positions(bounds['ris'], bins_config['ris'], rng)
+    ue_positions = stratified_positions(bounds['ue'], bins_config['ue'], rng)
+
+    rng.shuffle(ap_positions)
+    rng.shuffle(ris_positions)
+    rng.shuffle(ue_positions)
+
+    ap_cycle = itertools.cycle(ap_positions)
+    ris_cycle = itertools.cycle(ris_positions)
+    ue_cycle = itertools.cycle(ue_positions)
+
+    samples = {}
+    attempts = 0
+    max_attempts = max(num_samples * 20, len(ap_positions) * len(ris_positions) * len(ue_positions) * 2)
+
+    while len(samples) < num_samples and attempts < max_attempts:
+        ap_pos = next(ap_cycle)
+        ris_pos = next(ris_cycle)
+        ue_pos = next(ue_cycle)
+
+        theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
+        if theta_rcv <= ris_max_angle:
+            d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
+            aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
+            sample = {
+                'ap_pos': ap_pos.tolist(),
+                'ris_pos': ris_pos.tolist(),
+                'ue_pos': ue_pos.tolist(),
+                'd_ap_ris': d_ap_ris,
+                'd_ris_ue': d_ris_ue,
+                'aoa': aoa,
+                'aod': aod,
+                'best_angle': float(round(theta_rcv)),
+            }
+            samples[len(samples)] = sample
+        attempts += 1
+
+    return samples
 
 
 def random_position(bounds: Dict[str, float]) -> np.ndarray:
@@ -258,14 +331,163 @@ def flatten_sample(sample: Dict) -> Dict:
     }
 
 
+def _wrap_angle(angle: float) -> float:
+    """Normalize angle to [-180°, 180°]."""
+    while angle > 180:
+        angle -= 360
+    while angle < -180:
+        angle += 360
+    return angle
+
+
+def _sample_ue_within_fov(ris_pos: np.ndarray, ap_pos: np.ndarray, rng: random.Random,
+                          ris_max_angle: float, distance_range: Tuple[float, float]) -> np.ndarray:
+    ris_normal = 0.0
+    ris_fov_min = ris_normal - ris_max_angle
+    ris_fov_max = ris_normal + ris_max_angle
+
+    # Calculate AP angle relative to RIS
+    ap_angle = math.degrees(math.atan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0]))
+    ap_angle = _wrap_angle(ap_angle)
+    ap_within_fov = ris_fov_min <= ap_angle <= ris_fov_max
+
+    # Deflection constraint window
+    min_from_ap = ap_angle - ris_max_angle
+    max_from_ap = ap_angle + ris_max_angle
+    intersect_min = max(ris_fov_min, min_from_ap)
+    intersect_max = min(ris_fov_max, max_from_ap)
+
+    if intersect_min <= intersect_max:
+        min_angle = intersect_min
+        max_angle = intersect_max
+    else:
+        if ap_within_fov:
+            min_angle = ris_fov_min
+            max_angle = ris_fov_max
+        else:
+            dist_to_min = abs(ap_angle - ris_fov_min)
+            dist_to_max = abs(ap_angle - ris_fov_max)
+            while dist_to_min > 180:
+                dist_to_min = 360 - dist_to_min
+            while dist_to_max > 180:
+                dist_to_max = 360 - dist_to_max
+            if dist_to_min <= dist_to_max:
+                min_angle = max(ris_fov_min, ap_angle - ris_max_angle)
+                max_angle = ris_fov_max
+            else:
+                min_angle = ris_fov_min
+                max_angle = min(ris_fov_max, ap_angle + ris_max_angle)
+
+    if min_angle > max_angle:
+        min_angle = ris_fov_min
+        max_angle = ris_fov_max
+
+    ue_angle = rng.uniform(min_angle, max_angle)
+    distance = rng.uniform(distance_range[0], distance_range[1])
+    ue_x = ris_pos[0] + distance * math.cos(math.radians(ue_angle))
+    ue_y = ris_pos[1] + distance * math.sin(math.radians(ue_angle))
+    return np.array([ue_x, ue_y, 0.0])
+
+
+def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
+                             distance_range: Tuple[float, float],
+                             rng: random.Random) -> Dict:
+    """Generate a sample following the CLI’s `add random` RIS-aware placement."""
+    ris_x = rng.uniform(bounds['ris']['x_min'], bounds['ris']['x_max'])
+    ris_y = rng.uniform(bounds['ris']['y_min'], bounds['ris']['y_max'])
+    ris_pos = np.array([ris_x, ris_y, 0.0])
+
+    ap_distance = rng.uniform(distance_range[0], distance_range[1])
+    ap_angle = rng.uniform(-ris_max_angle, ris_max_angle)
+    ap_x = ris_x + ap_distance * math.cos(math.radians(ap_angle))
+    ap_y = ris_y + ap_distance * math.sin(math.radians(ap_angle))
+    ap_pos = np.array([ap_x, ap_y, 0.0])
+
+    ue_pos = _sample_ue_within_fov(ris_pos, ap_pos, rng, ris_max_angle, distance_range)
+    theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
+    d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
+    aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
+
+    sample = {
+        'ap_pos': ap_pos.tolist(),
+        'ris_pos': ris_pos.tolist(),
+        'ue_pos': ue_pos.tolist(),
+        'd_ap_ris': d_ap_ris,
+        'd_ris_ue': d_ris_ue,
+        'aoa': aoa,
+        'aod': aod,
+        'best_angle': float(round(theta_rcv)),
+    }
+    return sample
+def build_stratified_dataset(args, bounds, ris_max_angle):
+    """Generate samples using stratified coverage."""
+    bins_config = {
+        'ap': tuple(args.ap_bins),
+        'ris': tuple(args.ris_bins),
+        'ue': tuple(args.ue_bins),
+    }
+
+    print(f"Generating {args.samples} stratified samples with bins AP{bins_config['ap']} RIS{bins_config['ris']} UE{bins_config['ue']}...")
+    start_time = time.time()
+
+    samples_dict = generate_stratified_samples(
+        bounds,
+        ris_max_angle,
+        args.samples,
+        bins_config,
+        args.seed
+    )
+
+    elapsed = time.time() - start_time
+    if len(samples_dict) < args.samples:
+        print(f"⚠️  Stratified generation produced {len(samples_dict)} samples (requested {args.samples}). Consider loosening the RIS FOV or increasing bins.")
+
+    return samples_dict, 0, elapsed
+
+
+def build_ris_aware_dataset(args, bounds, ris_max_angle):
+    """Generate samples using the CLI’s RIS-aware placement logic."""
+    rng = random.Random(args.seed)
+    samples_dict = {}
+    start_time = time.time()
+    print(f"Generating {args.samples} RIS-aware samples (distance range {args.distance_min}-{args.distance_max} m)...")
+
+    for idx in range(args.samples):
+        sample = generate_ris_aware_sample(
+            bounds,
+            ris_max_angle,
+            (args.distance_min, args.distance_max),
+            rng
+        )
+        samples_dict[idx] = sample
+        if args.verbose and (idx + 1) % 1000 == 0:
+            print(f"  Generated {idx + 1}/{args.samples} samples...")
+
+    elapsed = time.time() - start_time
+    return samples_dict, 0, elapsed
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Generate pure geometric beam dataset")
+    parser = argparse.ArgumentParser(description="Generate beam dataset (stratified or RIS-aware)")
     parser.add_argument('--samples', type=int, default=5000, help='Number of samples to generate')
     parser.add_argument('--output', type=Path,
-                       default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
-                       help='Output CSV file')
+                        default=Path('controller/beamsweeping/ml/data/beam_dataset.csv'),
+                        help='Output CSV file')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
-    parser.add_argument('--cores', type=int, default=4, help='Number of CPU cores')
+    parser.add_argument('--sampling-mode', choices=('stratified', 'ris-aware'),
+                        default='ris-aware', help='Sampling strategy to use')
+    parser.add_argument('--ap-bins', type=int, nargs=3, default=[13, 13, 3], metavar=('X', 'Y', 'Z'),
+                        help='Bins per axis for AP stratification (default 13×13×3)')
+    parser.add_argument('--ris-bins', type=int, nargs=3, default=[13, 13, 3], metavar=('X', 'Y', 'Z'),
+                        help='Bins per axis for RIS stratification (default 13×13×3)')
+    parser.add_argument('--ue-bins', type=int, nargs=3, default=[13, 13, 3], metavar=('X', 'Y', 'Z'),
+                        help='Bins per axis for UE stratification (default 13×13×3)')
+    parser.add_argument('--distance-min', type=float, default=5.0,
+                        help='Minimum distance from RIS for AP/UE when using RIS-aware mode')
+    parser.add_argument('--distance-max', type=float, default=7.0,
+                        help='Maximum distance from RIS for AP/UE when using RIS-aware mode')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Show progress when generating large datasets')
     args = parser.parse_args()
 
     # Position bounds (20m × 20m × 5m space)
@@ -278,36 +500,10 @@ def main():
     # RIS FOV constraint
     ris_max_angle = 60.0
 
-    print(f"Generating {args.samples} samples using {args.cores} cores...")
-    start_time = time.time()
-
-    # Prepare worker arguments
-    worker_args = [
-        (idx, bounds, ris_max_angle, args.seed)
-        for idx in range(args.samples)
-    ]
-
-    samples_dict = {}
-    error_count = 0
-    completed = 0
-
-    with Pool(processes=args.cores) as pool:
-        for idx, sample, error in pool.imap_unordered(build_sample_worker, worker_args):
-            completed += 1
-
-            if error:
-                print(f"[{completed:5d}/{args.samples}] Error in sample {idx}: {error}")
-                error_count += 1
-            elif completed % 100 == 0 or completed == args.samples:
-                elapsed = time.time() - start_time
-                rate = completed / elapsed
-                remaining = (args.samples - completed) / rate if rate > 0 else 0
-                print(f"[{completed:5d}/{args.samples}] {rate:.1f} samples/sec | ETA: {remaining:.0f}s")
-
-            if sample is not None:
-                samples_dict[idx] = sample
-
-    elapsed_time = time.time() - start_time
+    if args.sampling_mode == 'ris-aware':
+        samples_dict, error_count, elapsed_time = build_ris_aware_dataset(args, bounds, ris_max_angle)
+    else:
+        samples_dict, error_count, elapsed_time = build_stratified_dataset(args, bounds, ris_max_angle)
 
     # Write to CSV
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -321,7 +517,8 @@ def main():
 
     print(f"✓ Wrote {len(samples_dict)} samples to {args.output}")
     print(f"✗ Errors: {error_count}")
-    print(f"⏱ Total time: {elapsed_time:.2f}s ({args.samples/elapsed_time:.1f} samples/sec)")
+    rate = len(samples_dict) / elapsed_time if elapsed_time > 0 else 0
+    print(f"⏱ Total time: {elapsed_time:.2f}s ({rate:.1f} samples/sec)")
 
     # Statistics
     if samples_dict:

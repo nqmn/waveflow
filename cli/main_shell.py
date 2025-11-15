@@ -666,6 +666,426 @@ class RISNetCLI(cmd.Cmd):
 
         print("\n" + "="*70 + "\n")
 
+    def do_env(self, arg):
+        """env [size W H [CX CY]] [bounds set XMIN XMAX YMIN YMAX] - Show or resize the environment"""
+
+        parts = shlex.split(arg)
+        env = self.net.environment
+        bounds = env.bounds
+        if not parts:
+            width = bounds['x_max'] - bounds['x_min']
+            height = bounds['y_max'] - bounds['y_min']
+            wall_count = len(env.walls)
+            print("\nEnvironment:")
+            print("  Bounds:")
+            print(f"    x: {bounds['x_min']} → {bounds['x_max']} ({width} m)")
+            print(f"    y: {bounds['y_min']} → {bounds['y_max']} ({height} m)")
+            print(f"  Size: {width:.1f} m × {height:.1f} m  (area {width*height:.1f} m²)")
+            print(f"  Walls configured: {wall_count}")
+            return
+
+        cmd = parts[0].lower()
+        if cmd == 'size':
+            if len(parts) < 3:
+                print("Usage: env size <width> <height> [<center_x> <center_y>]")
+                return
+            try:
+                width = float(parts[1])
+                height = float(parts[2])
+                if width <= 0 or height <= 0:
+                    raise ValueError("width and height must be positive")
+                center_x = float(parts[3]) if len(parts) > 3 else (bounds['x_min'] + bounds['x_max']) / 2.0
+                center_y = float(parts[4]) if len(parts) > 4 else (bounds['y_min'] + bounds['y_max']) / 2.0
+            except ValueError as exc:
+                print(f"Error: {exc}")
+                return
+
+            half_width = width / 2.0
+            half_height = height / 2.0
+            new_bounds = {
+                'x_min': center_x - half_width,
+                'x_max': center_x + half_width,
+                'y_min': center_y - half_height,
+                'y_max': center_y + half_height
+            }
+            env.bounds = new_bounds
+            print("✓ Environment resized")
+            print(f"  Center: ({center_x:.1f}, {center_y:.1f}), Width: {width:.1f}, Height: {height:.1f}")
+            print(f"  New bounds: x={new_bounds['x_min']:.1f} → {new_bounds['x_max']:.1f}, "
+                  f"y={new_bounds['y_min']:.1f} → {new_bounds['y_max']:.1f}")
+            self._save_network()
+            return
+
+        if cmd == 'bounds':
+            if len(parts) == 1:
+                print("Bounds:")
+                print(f"  x: {bounds['x_min']} → {bounds['x_max']}")
+                print(f"  y: {bounds['y_min']} → {bounds['y_max']}")
+                return
+
+            if parts[1].lower() != 'set' or len(parts) != 6:
+                print("Usage: env bounds set <x_min> <x_max> <y_min> <y_max>")
+                return
+
+            try:
+                x_min = float(parts[2])
+                x_max = float(parts[3])
+                y_min = float(parts[4])
+                y_max = float(parts[5])
+            except ValueError:
+                print("Error: bounds must be numeric values")
+                return
+
+            if x_min >= x_max or y_min >= y_max:
+                print("Error: min values must be less than max values")
+                return
+
+            env.bounds = {
+                'x_min': x_min,
+                'x_max': x_max,
+                'y_min': y_min,
+                'y_max': y_max
+            }
+            print("✓ Environment bounds updated")
+            print(f"  x: {x_min} → {x_max}")
+            print(f"  y: {y_min} → {y_max}")
+            self._save_network()
+            return
+
+        print("Usage: env [size <width> <height> [<center_x> <center_y>]] | "
+              "env bounds [set <x_min> <x_max> <y_min> <y_max>]")
+
+    def do_ap(self, arg):
+        """ap <name>|list [show]|ap <name> set key=value ... - Inspect or update AP settings"""
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_ap_list()
+            return
+
+        if parts[0].lower() == 'list':
+            self._print_ap_list()
+            return
+
+        ap_name = parts[0]
+        ap_node = self.net.get(ap_name)
+        if ap_node is None or type(ap_node).__name__ != 'AccessPoint':
+            print(f"Error: Access Point '{ap_name}' not found")
+            return
+
+        if len(parts) == 1 or (len(parts) > 1 and parts[1].lower() == 'show'):
+            self._print_ap_details(ap_node)
+            return
+
+        if parts[1].lower() != 'set' or len(parts) < 3:
+            print("Usage: ap <name> set key=value [key=value ...]")
+            return
+
+        key_map = {
+            'power': ('power_dBm', float),
+            'freq': ('freq', float),
+            'frequency': ('freq', float),
+            'bandwidth': ('bandwidth_MHz', float),
+            'bw': ('bandwidth_MHz', float),
+            'gain': ('antenna_gain_dBi', float),
+            'antenna_gain': ('antenna_gain_dBi', float),
+            'noise': ('noise_figure_dB', float),
+            'noise_figure': ('noise_figure_dB', float),
+            'target_snr': ('target_snr_dB', float),
+            'power_max': ('power_dBm_max', float),
+            'power_min': ('power_dBm_min', float),
+            'pos': ('pos', self._parse_position_arg),
+            'position': ('pos', self._parse_position_arg)
+        }
+
+        applied = []
+        for token in parts[2:]:
+            if '=' not in token:
+                print(f"Skipping invalid token: {token}")
+                continue
+            key, value = token.split('=', 1)
+            key = key.lower()
+            if key not in key_map:
+                print(f"Unknown parameter: {key}")
+                continue
+            attr, parser = key_map[key]
+            try:
+                parsed = parser(value) if callable(parser) else parser
+            except ValueError as exc:
+                print(f"Error parsing {key}: {exc}")
+                continue
+            if attr == 'pos':
+                ap_node.pos = parsed
+            else:
+                setattr(ap_node, attr, parsed)
+            applied.append((key, attr, parsed))
+
+        if not applied:
+            print("No valid parameters were updated")
+            return
+
+        for key, attr, parsed in applied:
+            if attr == 'pos':
+                pos = parsed
+                print(f"  ✓ Position set to ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            elif attr in ('freq',):
+                print(f"  ✓ {key} set to {parsed} Hz")
+            elif attr in ('bandwidth_MHz',):
+                print(f"  ✓ {key} set to {parsed:.2f} MHz")
+            else:
+                suffix = ' dBm' if attr.startswith('power') or attr == 'noise_figure_dB' else ''
+                print(f"  ✓ {key} set to {parsed}{suffix}")
+
+        self._save_network()
+
+    def do_ris(self, arg):
+        """ris <name>|list [show]|ris <name> set key=value ... - Inspect or update RIS settings"""
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_ris_list()
+            return
+
+        if parts[0].lower() == 'list':
+            self._print_ris_list()
+            return
+
+        ris_name = parts[0]
+        ris_node = self.net.get(ris_name)
+        if ris_node is None or type(ris_node).__name__ != 'RIS':
+            print(f"Error: RIS '{ris_name}' not found")
+            return
+
+        if len(parts) == 1 or (len(parts) > 1 and parts[1].lower() == 'show'):
+            self._print_ris_details(ris_node)
+            return
+
+        if parts[1].lower() != 'set' or len(parts) < 3:
+            print("Usage: ris <name> set key=value [key=value ...]")
+            return
+
+        key_map = {
+            'n': ('N', int),
+            'size': ('N', int),
+            'grid': ('N', int),
+            'bits': ('bits', int),
+            'max_angle': ('max_angle_deg', float),
+            'fov': ('max_angle_deg', float),
+            'normal': ('normal_angle_deg', float),
+            'freq': ('freq', float),
+            'active': ('active_mode', self._parse_bool),
+            'active_mode': ('active_mode', self._parse_bool),
+            'amp_gain': ('amplifier_gain', float),
+            'efficiency': ('element_efficiency', float),
+            'phase_error': ('phase_rms', float),
+            'phase_rms': ('phase_rms', float),
+            'amp_std': ('amp_std', float),
+            'noise': ('noise_floor', float),
+            'noise_floor': ('noise_floor', float),
+            'coupling': ('coupling_enabled', self._parse_bool),
+            'pos': ('pos', self._parse_position_arg),
+            'position': ('pos', self._parse_position_arg)
+        }
+
+        applied = []
+        geometry_touched = False
+        for token in parts[2:]:
+            if '=' not in token:
+                print(f"Skipping invalid token: {token}")
+                continue
+            key, value = token.split('=', 1)
+            key = key.lower()
+            if key not in key_map:
+                print(f"Unknown parameter: {key}")
+                continue
+            attr, parser = key_map[key]
+            try:
+                parsed = parser(value) if callable(parser) else parser
+            except ValueError as exc:
+                print(f"Error parsing {key}: {exc}")
+                continue
+            if attr == 'pos':
+                ris_node.pos = parsed
+                geometry_touched = True
+            else:
+                setattr(ris_node, attr, parsed)
+                if attr == 'N':
+                    geometry_touched = True
+            applied.append((key, attr, parsed))
+
+        if geometry_touched:
+            ris_node.update_geometry()
+
+        if not applied:
+            print("No valid parameters were updated")
+            return
+
+        for key, attr, parsed in applied:
+            if attr == 'pos':
+                pos = parsed
+                print(f"  ✓ Position set to ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            elif attr in ('N', 'bits', 'max_angle_deg', 'normal_angle_deg'):
+                print(f"  ✓ {key} set to {parsed}")
+            elif attr in ('freq',):
+                print(f"  ✓ {key} set to {parsed} Hz")
+            else:
+                print(f"  ✓ {key} set to {parsed}")
+
+        self._save_network()
+
+    def do_ue(self, arg):
+        """ue <name>|list [show]|ue <name> set key=value ... - Inspect or update UE settings"""
+        parts = shlex.split(arg)
+        if not parts:
+            self._print_ue_list()
+            return
+
+        if parts[0].lower() == 'list':
+            self._print_ue_list()
+            return
+
+        ue_name = parts[0]
+        ue_node = self.net.get(ue_name)
+        if ue_node is None or type(ue_node).__name__ != 'UE':
+            print(f"Error: UE '{ue_name}' not found")
+            return
+
+        if len(parts) == 1 or (len(parts) > 1 and parts[1].lower() == 'show'):
+            self._print_ue_details(ue_node)
+            return
+
+        if parts[1].lower() != 'set' or len(parts) < 3:
+            print("Usage: ue <name> set key=value [key=value ...]")
+            return
+
+        key_map = {
+            'gain': ('antenna_gain_dBi', float),
+            'antenna_gain': ('antenna_gain_dBi', float),
+            'noise': ('noise_figure_dB', float),
+            'noise_figure': ('noise_figure_dB', float),
+            'max_angle': ('max_angle_deg', float),
+            'fov': ('max_angle_deg', float),
+            'normal': ('normal_angle_deg', float),
+            'feedback': ('feedback_enabled', self._parse_bool),
+            'pos': ('pos', self._parse_position_arg),
+            'position': ('pos', self._parse_position_arg)
+        }
+
+        applied = []
+        for token in parts[2:]:
+            if '=' not in token:
+                print(f"Skipping invalid token: {token}")
+                continue
+            key, value = token.split('=', 1)
+            key = key.lower()
+            if key not in key_map:
+                print(f"Unknown parameter: {key}")
+                continue
+            attr, parser = key_map[key]
+            try:
+                parsed = parser(value) if callable(parser) else parser
+            except ValueError as exc:
+                print(f"Error parsing {key}: {exc}")
+                continue
+            if attr == 'pos':
+                ue_node.pos = parsed
+            else:
+                setattr(ue_node, attr, parsed)
+            applied.append((key, attr, parsed))
+
+        if not applied:
+            print("No valid parameters were updated")
+            return
+
+        for key, attr, parsed in applied:
+            if attr == 'pos':
+                pos = parsed
+                print(f"  ✓ Position set to ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+            else:
+                print(f"  ✓ {key} set to {parsed}")
+
+        self._save_network()
+
+    def _print_ap_list(self):
+        nodes = [n for n in self.net.nodes.values() if type(n).__name__ == 'AccessPoint']
+        if not nodes:
+            print("No Access Points configured")
+            return
+        print("\nAccess Points:")
+        for node in nodes:
+            pos = node.pos
+            print(f"  {node.name:<10} pos=({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                  f"power={node.power_dBm:.1f} dBm freq={node.freq/1e9:.2f} GHz")
+
+    def _print_ris_list(self):
+        nodes = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
+        if not nodes:
+            print("No RIS surfaces configured")
+            return
+        print("\nRIS Surfaces:")
+        for node in nodes:
+            pos = node.pos
+            print(f"  {node.name:<10} pos=({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                  f"N={node.N} bits={node.bits} max_angle=±{node.max_angle_deg}°")
+
+    def _print_ue_list(self):
+        nodes = [n for n in self.net.nodes.values() if type(n).__name__ == 'UE']
+        if not nodes:
+            print("No UEs configured")
+            return
+        print("\nUser Equipment:")
+        for node in nodes:
+            pos = node.pos
+            print(f"  {node.name:<10} pos=({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) "
+                  f"FOV=±{node.max_angle_deg}°")
+
+    def _print_ap_details(self, node):
+        pos = node.pos
+        print(f"\n{node.name} (Access Point)")
+        print(f"  Position: ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+        print(f"  Power: {node.power_dBm:.1f} dBm")
+        print(f"  Frequency: {node.freq/1e9:.3f} GHz")
+        print(f"  Bandwidth: {node.bandwidth_MHz:.1f} MHz")
+        print(f"  Antenna Gain: {node.antenna_gain_dBi:.1f} dBi")
+        print(f"  Noise Figure: {node.noise_figure_dB:.1f} dB")
+        print(f"  Target SNR: {node.target_snr_dB:.1f} dB")
+
+    def _print_ris_details(self, node):
+        pos = node.pos
+        print(f"\n{node.name} (RIS)")
+        print(f"  Position: ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+        print(f"  Grid: {node.N} × {node.N} elements")
+        print(f"  Bits: {node.bits}")
+        print(f"  Frequency: {node.freq/1e9:.3f} GHz")
+        print(f"  FOV: ±{node.max_angle_deg}° (normal={node.normal_angle_deg}°)")
+        print(f"  Active mode: {'Yes' if node.active_mode else 'No'}")
+        print(f"  Amplifier gain: {node.amplifier_gain:.2f}")
+        print(f"  Phase RMS: {node.phase_rms:.2f}°")
+
+    def _print_ue_details(self, node):
+        pos = node.pos
+        print(f"\n{node.name} (UE)")
+        print(f"  Position: ({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})")
+        print(f"  Antenna Gain: {node.antenna_gain_dBi:.1f} dBi")
+        print(f"  Noise Figure: {node.noise_figure_dB:.1f} dB")
+        print(f"  FOV: ±{node.max_angle_deg}° (normal={node.normal_angle_deg}°)")
+        print(f"  Feedback: {'Enabled' if node.feedback_enabled else 'Disabled'}")
+
+    def _parse_position_arg(self, value):
+        parts = value.replace(',', ' ').split()
+        if len(parts) not in (2, 3):
+            raise ValueError("position must have 2 or 3 values")
+        numbers = [float(p) for p in parts]
+        if len(numbers) == 2:
+            numbers.append(0.0)
+        return np.array(numbers)
+
+    def _parse_bool(self, value):
+        norm = value.strip().lower()
+        if norm in {'true', '1', 'yes', 'on', 'enabled'}:
+            return True
+        if norm in {'false', '0', 'no', 'off', 'disabled'}:
+            return False
+        raise ValueError("must be a boolean (true/false)")
+
     def do_links(self, arg):
         """links - Show all active connection links"""
         active_links = self.net.get_active_links()
