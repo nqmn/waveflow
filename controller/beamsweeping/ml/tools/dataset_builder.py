@@ -35,13 +35,20 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
+from utils.link_budget import build_config, compute_ris_link_metrics
+
 
 FIELDNAMES = [
     'ap_x', 'ap_y', 'ap_z',
     'ris_x', 'ris_y', 'ris_z',
     'ue_x', 'ue_y', 'ue_z',
     'd_ap_ris', 'd_ris_ue',
-    'aoa', 'aod',
+    'aoa_sin', 'aoa_cos', 'aod_sin', 'aod_cos',
+    'dx', 'dy', 'dz', 'az_sin', 'az_cos', 'el_sin', 'el_cos',
+    'ap_az_sin', 'ap_az_cos', 'ap_el_sin', 'ap_el_cos',
+    'spec_sin', 'spec_cos',
+    'align_cos', 'align_sin',
+    'snr_dB', 'rssi_dBm',
     'best_angle'
 ]
 
@@ -158,6 +165,7 @@ def generate_stratified_samples(
     num_samples: int,
     bins_config: Dict[str, Tuple[int, int, int]],
     seed: int,
+    physics_config: Dict[str, float],
 ) -> Dict[int, Dict]:
     """Produce stratified samples using precomputed AP/RIS/UE bins."""
     rng = random.Random(seed)
@@ -197,6 +205,9 @@ def generate_stratified_samples(
                 'aod': aod,
                 'best_angle': float(round(theta_rcv)),
             }
+            _add_angle_trigs(sample, aoa, aod)
+            _add_ap_ris_orientation(sample)
+            _add_physics_metrics(sample, physics_config)
             samples[len(samples)] = sample
         attempts += 1
 
@@ -285,6 +296,8 @@ def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
         'aod': aod,
         'best_angle': best_angle_rounded
     }
+    _add_angle_trigs(sample, aoa, aod)
+    _add_ap_ris_orientation(sample)
     return sample
 
 
@@ -325,8 +338,27 @@ def flatten_sample(sample: Dict) -> Dict:
         'ue_z': sample['ue_pos'][2],
         'd_ap_ris': sample['d_ap_ris'],
         'd_ris_ue': sample['d_ris_ue'],
-        'aoa': sample['aoa'],
-        'aod': sample['aod'],
+        'aoa_sin': sample['aoa_sin'],
+        'aoa_cos': sample['aoa_cos'],
+        'aod_sin': sample['aod_sin'],
+        'aod_cos': sample['aod_cos'],
+        'dx': sample['dx'],
+        'dy': sample['dy'],
+        'dz': sample['dz'],
+        'az_sin': sample['az_sin'],
+        'az_cos': sample['az_cos'],
+        'el_sin': sample['el_sin'],
+        'el_cos': sample['el_cos'],
+        'ap_az_sin': sample['ap_az_sin'],
+        'ap_az_cos': sample['ap_az_cos'],
+        'ap_el_sin': sample['ap_el_sin'],
+        'ap_el_cos': sample['ap_el_cos'],
+        'spec_sin': sample['spec_sin'],
+        'spec_cos': sample['spec_cos'],
+        'align_cos': sample['align_cos'],
+        'align_sin': sample['align_sin'],
+        'snr_dB': sample['snr_dB'],
+        'rssi_dBm': sample['rssi_dBm'],
         'best_angle': sample['best_angle']
     }
 
@@ -340,8 +372,79 @@ def _wrap_angle(angle: float) -> float:
     return angle
 
 
+def _absolute_angle(angle: float) -> float:
+    """Normalize an angle to the [0°, 360°) range."""
+    return angle % 360.0
+
+
+def _signed_local_deflection(aoa_deg: float, aod_deg: float) -> float:
+    """Return the signed deflection from the incident direction."""
+    return _wrap_angle(aod_deg - aoa_deg)
+
+
+def _add_ap_ris_orientation(sample: Dict) -> None:
+    """Annotate the sample with AP→RIS offset + sin/cos of azimuth/elevation."""
+    ap_pos = np.array(sample['ap_pos'], dtype=float)
+    ris_pos = np.array(sample['ris_pos'], dtype=float)
+    dx, dy, dz = (ris_pos - ap_pos).tolist()
+    azimuth = math.atan2(dy, dx)
+    elevation = math.atan2(dz, math.hypot(dx, dy))
+    sample['dx'] = float(dx)
+    sample['dy'] = float(dy)
+    sample['dz'] = float(dz)
+    sample['az_sin'] = float(math.sin(azimuth))
+    sample['az_cos'] = float(math.cos(azimuth))
+    sample['el_sin'] = float(math.sin(elevation))
+    sample['el_cos'] = float(math.cos(elevation))
+    sample['ap_az_sin'] = sample['az_sin']
+    sample['ap_az_cos'] = sample['az_cos']
+    sample['ap_el_sin'] = sample['el_sin']
+    sample['ap_el_cos'] = sample['el_cos']
+    aoa_rad = sample.get('_aoa_rad')
+    if aoa_rad is None:
+        aoa_rad = math.atan2(sample['aoa_sin'], sample['aoa_cos'])
+    spec_rad = 2.0 * azimuth - aoa_rad
+    sample['spec_sin'] = float(math.sin(spec_rad))
+    sample['spec_cos'] = float(math.cos(spec_rad))
+    sample.pop('_aoa_rad', None)
+    sample['align_cos'] = float(sample['az_cos'] * sample['aoa_cos'] + sample['az_sin'] * sample['aoa_sin'])
+    sample['align_sin'] = float(sample['az_sin'] * sample['aoa_cos'] - sample['az_cos'] * sample['aoa_sin'])
+
+
+def _add_angle_trigs(sample: Dict, aoa_deg: float, aod_deg: float) -> None:
+    """Cache sine/cosine of AoA/AoD for the dataset export."""
+    rad = math.radians
+    aoa_rad = rad(aoa_deg)
+    sample['aoa_sin'] = float(math.sin(aoa_rad))
+    sample['aoa_cos'] = float(math.cos(aoa_rad))
+    sample['aod_sin'] = float(math.sin(rad(aod_deg)))
+    sample['aod_cos'] = float(math.cos(rad(aod_deg)))
+    sample['_aoa_rad'] = aoa_rad
+
+
+def _add_physics_metrics(sample: Dict, physics_config: Dict[str, float]) -> None:
+    """Annotate the sample with SNR and RSSI using a shared RIS budget."""
+    ap_pos = np.array(sample['ap_pos'], dtype=float)
+    ris_pos = np.array(sample['ris_pos'], dtype=float)
+    ue_pos = np.array(sample['ue_pos'], dtype=float)
+    beam_angle = float(sample['aod'])
+
+    metrics = compute_ris_link_metrics(
+        ap_pos=ap_pos,
+        ris_pos=ris_pos,
+        ue_pos=ue_pos,
+        beam_angle_deg=beam_angle,
+        physics_config=physics_config
+    )
+
+    sample['snr_dB'] = float(metrics['snr_dB'])
+    sample['rssi_dBm'] = float(metrics['rssi_dBm'])
+
+
+
 def _sample_ue_within_fov(ris_pos: np.ndarray, ap_pos: np.ndarray, rng: random.Random,
-                          ris_max_angle: float, distance_range: Tuple[float, float]) -> np.ndarray:
+                          ris_max_angle: float, distance_range: Tuple[float, float],
+                          z_range: Tuple[float, float] = (0.0, 1.0)) -> np.ndarray:
     ris_normal = 0.0
     ris_fov_min = ris_normal - ris_max_angle
     ris_fov_max = ris_normal + ris_max_angle
@@ -386,24 +489,30 @@ def _sample_ue_within_fov(ris_pos: np.ndarray, ap_pos: np.ndarray, rng: random.R
     distance = rng.uniform(distance_range[0], distance_range[1])
     ue_x = ris_pos[0] + distance * math.cos(math.radians(ue_angle))
     ue_y = ris_pos[1] + distance * math.sin(math.radians(ue_angle))
-    return np.array([ue_x, ue_y, 0.0])
+    ue_z = rng.uniform(z_range[0], z_range[1])
+    return np.array([ue_x, ue_y, ue_z])
 
 
 def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
                              distance_range: Tuple[float, float],
-                             rng: random.Random) -> Dict:
+                             rng: random.Random,
+                             physics_config: Dict[str, float]) -> Dict:
     """Generate a sample following the CLI’s `add random` RIS-aware placement."""
     ris_x = rng.uniform(bounds['ris']['x_min'], bounds['ris']['x_max'])
     ris_y = rng.uniform(bounds['ris']['y_min'], bounds['ris']['y_max'])
-    ris_pos = np.array([ris_x, ris_y, 0.0])
+    ris_z = rng.uniform(0.0, 1.0)
+    ris_pos = np.array([ris_x, ris_y, ris_z])
 
     ap_distance = rng.uniform(distance_range[0], distance_range[1])
     ap_angle = rng.uniform(-ris_max_angle, ris_max_angle)
     ap_x = ris_x + ap_distance * math.cos(math.radians(ap_angle))
     ap_y = ris_y + ap_distance * math.sin(math.radians(ap_angle))
-    ap_pos = np.array([ap_x, ap_y, 0.0])
+    ap_z = rng.uniform(0.0, 1.0)
+    ap_pos = np.array([ap_x, ap_y, ap_z])
 
-    ue_pos = _sample_ue_within_fov(ris_pos, ap_pos, rng, ris_max_angle, distance_range)
+    ue_pos = _sample_ue_within_fov(
+        ris_pos, ap_pos, rng, ris_max_angle, distance_range, z_range=(0.0, 1.0)
+    )
     theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
     aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
@@ -418,8 +527,11 @@ def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
         'aod': aod,
         'best_angle': float(round(theta_rcv)),
     }
+    _add_angle_trigs(sample, aoa, aod)
+    _add_ap_ris_orientation(sample)
+    _add_physics_metrics(sample, physics_config)
     return sample
-def build_stratified_dataset(args, bounds, ris_max_angle):
+def build_stratified_dataset(args, bounds, ris_max_angle, physics_config: Dict[str, float]):
     """Generate samples using stratified coverage."""
     bins_config = {
         'ap': tuple(args.ap_bins),
@@ -435,7 +547,8 @@ def build_stratified_dataset(args, bounds, ris_max_angle):
         ris_max_angle,
         args.samples,
         bins_config,
-        args.seed
+        args.seed,
+        physics_config
     )
 
     elapsed = time.time() - start_time
@@ -445,7 +558,7 @@ def build_stratified_dataset(args, bounds, ris_max_angle):
     return samples_dict, 0, elapsed
 
 
-def build_ris_aware_dataset(args, bounds, ris_max_angle):
+def build_ris_aware_dataset(args, bounds, ris_max_angle, physics_config: Dict[str, float]):
     """Generate samples using the CLI’s RIS-aware placement logic."""
     rng = random.Random(args.seed)
     samples_dict = {}
@@ -457,7 +570,8 @@ def build_ris_aware_dataset(args, bounds, ris_max_angle):
             bounds,
             ris_max_angle,
             (args.distance_min, args.distance_max),
-            rng
+            rng,
+            physics_config
         )
         samples_dict[idx] = sample
         if args.verbose and (idx + 1) % 1000 == 0:
@@ -488,6 +602,42 @@ def main():
                         help='Maximum distance from RIS for AP/UE when using RIS-aware mode')
     parser.add_argument('--verbose', action='store_true',
                         help='Show progress when generating large datasets')
+    parser.add_argument('--tx-power', type=float, default=15.0,
+                        help='Transmit power per AP (dBm)')
+    parser.add_argument('--ap-gain', type=float, default=16.0,
+                        help='AP antenna gain (dBi)')
+    parser.add_argument('--ue-gain', type=float, default=16.0,
+                        help='UE antenna gain (dBi)')
+    parser.add_argument('--bandwidth', type=float, default=1.0,
+                        help='Signal bandwidth for SNR calculations (MHz)')
+    parser.add_argument('--noise-figure', type=float, default=6.0,
+                        help='Receiver noise figure (dB)')
+    parser.add_argument('--frequency', type=float, default=5.8,
+                        help='Carrier frequency (GHz)')
+    parser.add_argument('--ris-elements', type=int, default=16,
+                        help='RIS elements per side (square panel size)')
+    parser.add_argument('--phase-bits', type=int, default=1,
+                        help='RIS phase quantization bits')
+    parser.add_argument('--element-efficiency', type=float, default=0.71,
+                        help='RIS element amplitude efficiency (0-1)')
+    parser.add_argument('--ris-amplifier-gain', type=float, default=1.0,
+                        help='RIS amplifier gain (linear, 1.0 = passive)')
+    parser.add_argument('--coherence-loss', type=float, default=0.0,
+                        help='Additional coherent gain loss (dB) applied to AF')
+    parser.add_argument('--taper-loss', type=float, default=1.0,
+                        help='Array taper loss (dB)')
+    parser.add_argument('--phase-error-loss', type=float, default=1.0,
+                        help='Phase error loss (dB)')
+    parser.add_argument('--nearfield-loss', type=float, default=1.0,
+                        help='Near-field/nonsphericity loss (dB)')
+    parser.add_argument('--reflection-loss', type=float, default=1.5,
+                        help='Per-element reflection loss (dB)')
+    parser.add_argument('--element-pattern', type=float, default=9.03,
+                        help='RIS element pattern gain (dBi)')
+    parser.add_argument('--other-losses', type=float, default=0.0,
+                        help='Additional miscellaneous RIS losses (dB)')
+    parser.add_argument('--noise-rise', type=float, default=0.0,
+                        help='Additional noise/interference margin applied to the noise floor (dB)')
     args = parser.parse_args()
 
     # Position bounds (20m × 20m × 5m space)
@@ -500,10 +650,35 @@ def main():
     # RIS FOV constraint
     ris_max_angle = 60.0
 
+    physics_config = build_config({
+        'tx_power_dBm': args.tx_power,
+        'ap_antenna_gain_dBi': args.ap_gain,
+        'ue_antenna_gain_dBi': args.ue_gain,
+        'bandwidth_mhz': args.bandwidth,
+        'noise_figure_dB': args.noise_figure,
+        'frequency_ghz': args.frequency,
+        'ris_elements_per_side': max(1, args.ris_elements),
+        'phase_bits': max(0, args.phase_bits),
+        'element_efficiency': max(0.0, min(1.0, args.element_efficiency)),
+        'ris_amplifier_gain': max(0.0, args.ris_amplifier_gain),
+        'coherence_loss_dB': max(0.0, args.coherence_loss),
+        'taper_loss_dB': max(0.0, args.taper_loss),
+        'phase_error_loss_dB': max(0.0, args.phase_error_loss),
+        'nearfield_loss_dB': max(0.0, args.nearfield_loss),
+        'reflection_loss_dB': max(0.0, args.reflection_loss),
+        'element_pattern_gain_dBi': args.element_pattern,
+        'other_loss_dB': max(0.0, args.other_losses),
+        'noise_rise_dB': max(0.0, args.noise_rise),
+    })
+
     if args.sampling_mode == 'ris-aware':
-        samples_dict, error_count, elapsed_time = build_ris_aware_dataset(args, bounds, ris_max_angle)
+        samples_dict, error_count, elapsed_time = build_ris_aware_dataset(
+            args, bounds, ris_max_angle, physics_config
+        )
     else:
-        samples_dict, error_count, elapsed_time = build_stratified_dataset(args, bounds, ris_max_angle)
+        samples_dict, error_count, elapsed_time = build_stratified_dataset(
+            args, bounds, ris_max_angle, physics_config
+        )
 
     # Write to CSV
     args.output.parent.mkdir(parents=True, exist_ok=True)

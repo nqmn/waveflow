@@ -7,7 +7,9 @@ Used throughout beamforming, beam sweeping, and core network modules.
 """
 
 import numpy as np
-from typing import Optional, Union
+from typing import Dict, Optional, Union
+
+from utils.link_budget import build_config, compute_ris_link_metrics
 
 
 def compute_snr(
@@ -32,6 +34,10 @@ def compute_snr(
     active_ris_mode: bool = False,
     amplifier_gain: float = 0.0,
     return_db: bool = False,
+    ap_pos: Optional[np.ndarray] = None,
+    ris_pos: Optional[np.ndarray] = None,
+    ue_pos: Optional[np.ndarray] = None,
+    physics_config: Optional[Dict[str, float]] = None,
 ) -> float:
     """
     Unified SNR computation with flexible input modes.
@@ -69,6 +75,10 @@ def compute_snr(
         transmit_power_dbm: Transmit power in dBm (default: 20)
         active_ris_mode: RIS amplifier mode (default: False)
         amplifier_gain: RIS amplifier gain in dB (default: 0)
+        ap_pos: Optional AP node position (for RIS-specific model)
+        ris_pos: Optional RIS position
+        ue_pos: Optional UE position
+        physics_config: Optional RIS physics overrides
 
     Returns:
         SNR in linear scale (or dB if return_db=True)
@@ -154,6 +164,10 @@ def _compute_snr_from_positions(
     active_ris_mode: bool = False,
     amplifier_gain: float = 0.0,
     return_db: bool = False,
+    ap_pos: Optional[np.ndarray] = None,
+    ris_pos: Optional[np.ndarray] = None,
+    ue_pos: Optional[np.ndarray] = None,
+    physics_config: Optional[Dict[str, float]] = None,
 ) -> float:
     """
     Compute SNR for a given beam angle.
@@ -178,6 +192,23 @@ def _compute_snr_from_positions(
     Returns:
         SNR in linear scale
     """
+
+    if ap_pos is not None and ris_pos is not None and ue_pos is not None:
+        beam_angle_abs = beam_angle if beam_angle is not None else float(
+            np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])) % 360
+        )
+        config = physics_config or build_config()
+        metrics = compute_ris_link_metrics(
+            ap_pos=ap_pos,
+            ris_pos=ris_pos,
+            ue_pos=ue_pos,
+            beam_angle_deg=beam_angle_abs,
+            physics_config=config
+        )
+        snr_db = metrics['snr_dB']
+        if return_db:
+            return snr_db
+        return 10 ** (snr_db / 10)
 
     # Calculate distance
     distance = np.linalg.norm(pos2 - pos1)

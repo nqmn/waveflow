@@ -27,6 +27,19 @@ from typing import List
 
 import numpy as np
 
+FEATURE_COLUMNS = [
+    'ap_x', 'ap_y', 'ap_z',
+    'ris_x', 'ris_y', 'ris_z',
+    'd_ap_ris',
+    'aoa_sin', 'aoa_cos',
+    'dx', 'dy', 'dz',
+    'az_sin', 'az_cos', 'el_sin', 'el_cos',
+    'ap_az_sin', 'ap_az_cos', 'ap_el_sin', 'ap_el_cos',
+    'spec_sin', 'spec_cos',
+    'align_cos', 'align_sin',
+    'snr_dB', 'rssi_dBm',
+]
+
 try:
     from sklearn.model_selection import train_test_split
 except ImportError as exc:  # pragma: no cover
@@ -40,17 +53,7 @@ def load_dataset(path: Path) -> tuple:
     with path.open(newline='') as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            # Use 13 features: 9 position + 4 derived (distances + angles)
-            features = [
-                # Position features (3D coordinates)
-                float(row['ap_x']), float(row['ap_y']), float(row['ap_z']),
-                float(row['ris_x']), float(row['ris_y']), float(row['ris_z']),
-                float(row['ue_x']), float(row['ue_y']), float(row['ue_z']),
-                # Distance features
-                float(row['d_ap_ris']), float(row['d_ris_ue']),
-                # Angle features (Angle of Arrival, Angle of Departure)
-                float(row['aoa']), float(row['aod']),
-            ]
+            features = [float(row[col]) for col in FEATURE_COLUMNS]
             X.append(features)
             # Use continuous angle directly (no binning for regression)
             y.append(float(row['best_angle']))

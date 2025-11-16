@@ -261,7 +261,10 @@ class RIS(Node):
                  freq=10e9, max_angle_deg=60, normal_angle_deg=0.0, active_mode=False,
                  amplifier_gain=1.0, element_efficiency=0.95,
                  phase_error_std_deg=8.0, amp_std=0.15,
-                 coupling_enabled=True, K_db=10, noise_floor=-90.0):
+                 coupling_enabled=True, K_db=10, noise_floor=-90.0,
+                 coherence_loss_dB=0.0, taper_loss_dB=1.0, phase_error_loss_dB=1.0,
+                 nearfield_loss_dB=1.0, reflection_loss_dB=1.5,
+                 element_pattern_gain_dBi=9.03, other_loss_dB=0.0, noise_rise_dB=0.0):
         super().__init__(name, x, y, z)
         self.N = int(N)  # Array size (will create N x N grid)
         self.bits = int(bits)  # Phase quantization bits
@@ -284,6 +287,14 @@ class RIS(Node):
         self.K_db = K_db  # Rician K-factor
         self.P_tx_dBm = 20  # Default transmit power
         self.noise_floor = noise_floor  # Noise floor in dBm
+        self.coherence_loss_dB = coherence_loss_dB
+        self.taper_loss_dB = taper_loss_dB
+        self.phase_error_loss_dB = phase_error_loss_dB
+        self.nearfield_loss_dB = nearfield_loss_dB
+        self.reflection_loss_dB = reflection_loss_dB
+        self.element_pattern_gain_dBi = element_pattern_gain_dBi
+        self.other_loss_dB = other_loss_dB
+        self.noise_rise_dB = noise_rise_dB
 
         # Current configuration
         self.current_phases = None  # Ideal phases (radians)
@@ -446,7 +457,15 @@ class RIS(Node):
             'noise_floor': self.noise_floor,
             'total_elements': self.N * self.N,
             'current_beam_angle': self.current_beam_angle,
-            'phase_manager': 'controller.ris_phase.RISPhaseManager'
+            'phase_manager': 'controller.ris_phase.RISPhaseManager',
+            'coherence_loss_dB': self.coherence_loss_dB,
+            'taper_loss_dB': self.taper_loss_dB,
+            'phase_error_loss_dB': self.phase_error_loss_dB,
+            'nearfield_loss_dB': self.nearfield_loss_dB,
+            'reflection_loss_dB': self.reflection_loss_dB,
+            'element_pattern_gain_dBi': self.element_pattern_gain_dBi,
+            'other_loss_dB': self.other_loss_dB,
+            'noise_rise_dB': self.noise_rise_dB,
         })
         return d
 

@@ -56,6 +56,7 @@ class BeamformingEngine:
                           node2: str,
                           compute_snr_fn: Optional[Callable[..., float]] = None,
                           ap_pos: np.ndarray = None,
+                          physics_config: Optional[Dict[str, float]] = None,
                           max_angle_deg: float = 60,
                           coarse_step_deg: float = 10,
                           fine_step_deg: float = 1,
@@ -73,8 +74,9 @@ class BeamformingEngine:
             pos2: Target position
             node1: Transmitter node name
             node2: Target node name
-            compute_snr_fn: Function to compute SNR(pos1, pos2, node1, node2, angle)
-            ap_pos: AP position (for specular calculation)
+        compute_snr_fn: Function to compute SNR(pos1, pos2, node1, node2, angle)
+        ap_pos: AP position (for specular calculation)
+        physics_config: Optional RIS physics overrides passed to compute_snr_fn
             max_angle_deg: Maximum steering angle
             coarse_step_deg: Coarse search step size
             fine_step_deg: Fine search step size
@@ -147,7 +149,8 @@ class BeamformingEngine:
         current_idx = len(codebook) // 2
         current_angle = codebook[current_idx]
         current_snr = BeamformingEngine._call_compute_snr(
-            compute_snr_fn, pos1, pos2, node1, node2, current_angle, specular_angle_deg
+            compute_snr_fn, pos1, pos2, node1, node2, current_angle, specular_angle_deg,
+            ap_pos=ap_pos, physics_config=physics_config
         )
         measurements.append({'angle': current_angle, 'SNR': current_snr, 'idx': current_idx})
 
@@ -164,7 +167,8 @@ class BeamformingEngine:
             if left_idx >= 0:
                 left_angle = codebook[left_idx]
                 left_snr = BeamformingEngine._call_compute_snr(
-                    compute_snr_fn, pos1, pos2, node1, node2, left_angle, specular_angle_deg
+                    compute_snr_fn, pos1, pos2, node1, node2, left_angle, specular_angle_deg,
+                    ap_pos=ap_pos, physics_config=physics_config
                 )
                 measurements.append({'angle': left_angle, 'SNR': left_snr, 'idx': left_idx})
 
@@ -177,7 +181,8 @@ class BeamformingEngine:
             if right_idx < len(codebook):
                 right_angle = codebook[right_idx]
                 right_snr = BeamformingEngine._call_compute_snr(
-                    compute_snr_fn, pos1, pos2, node1, node2, right_angle, specular_angle_deg
+                    compute_snr_fn, pos1, pos2, node1, node2, right_angle, specular_angle_deg,
+                    ap_pos=ap_pos, physics_config=physics_config
                 )
                 measurements.append({'angle': right_angle, 'SNR': right_snr, 'idx': right_idx})
 
@@ -199,7 +204,8 @@ class BeamformingEngine:
 
             for angle in refined_angles:
                 snr = BeamformingEngine._call_compute_snr(
-                    compute_snr_fn, pos1, pos2, node1, node2, angle, specular_angle_deg
+                    compute_snr_fn, pos1, pos2, node1, node2, angle, specular_angle_deg,
+                    ap_pos=ap_pos, physics_config=physics_config
                 )
                 measurements.append({'angle': angle, 'SNR': snr, 'idx': -1})
 
@@ -345,14 +351,42 @@ class BeamformingEngine:
         return len(params) >= 6
 
     @staticmethod
+    def _snr_fn_accepts_geometry_kwargs(compute_snr_fn: Callable[..., Any]) -> bool:
+        """Check if compute_snr_fn accepts the shared geometry keyword args."""
+        try:
+            signature = inspect.signature(compute_snr_fn)
+        except (ValueError, TypeError):
+            return True
+
+        params = signature.parameters
+        for param in params.values():
+            if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                return True
+
+        required = {'ap_pos', 'ris_pos', 'ue_pos', 'physics_config'}
+        return required.issubset(params)
+
+    @staticmethod
     def _call_compute_snr(compute_snr_fn: Callable[..., float],
                           pos1: np.ndarray,
                           pos2: np.ndarray,
                           node1: str,
                           node2: str,
                           angle: float,
-                          specular_angle: float) -> float:
+                          specular_angle: float,
+                          ap_pos: Optional[np.ndarray] = None,
+                          physics_config: Optional[Dict[str, float]] = None) -> float:
         """Invoke compute_snr_fn with backwards compatibility for legacy signatures."""
+        geometry_kwargs = {}
+        if BeamformingEngine._snr_fn_accepts_geometry_kwargs(compute_snr_fn):
+            geometry_kwargs = {
+                'ap_pos': ap_pos,
+                'ris_pos': pos1,
+                'ue_pos': pos2,
+                'physics_config': physics_config,
+            }
         if BeamformingEngine._snr_fn_accepts_spec_arg(compute_snr_fn):
-            return compute_snr_fn(pos1, pos2, node1, node2, angle, specular_angle)
-        return compute_snr_fn(pos1, pos2, node1, node2, angle)
+            return compute_snr_fn(
+                pos1, pos2, node1, node2, angle, specular_angle, **geometry_kwargs
+            )
+        return compute_snr_fn(pos1, pos2, node1, node2, angle, **geometry_kwargs)

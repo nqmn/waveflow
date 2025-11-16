@@ -6,9 +6,12 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
+import math
 import numpy as np
 
 from .base import SweepMLPredictor
+
+from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
 
 try:
     import xgboost as xgb  # type: ignore
@@ -109,40 +112,42 @@ class XGBPredictor(SweepMLPredictor):
         return 3.0  # XGBoost uncertainty
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct feature vector using 13 features (9 positions + 4 derived).
-
-        Features (13 total):
-          - AP position (3 coords: x, y, z)
-          - RIS position (3 coords: x, y, z)
-          - UE position (3 coords: x, y, z)
-          - d_ap_ris: Euclidean distance from AP to RIS
-          - d_ris_ue: Euclidean distance from RIS to UE
-          - aoa: Angle of Arrival (azimuth, degrees, [0, 360))
-          - aod: Angle of Departure (azimuth, degrees, [0, 360))
-        """
+        """Construct feature vector using the updated geometry trig + link metrics."""
         ap_pos = np.array(ap.pos)
         ris_pos = np.array(ris.pos)
         ue_pos = np.array(ue.pos)
 
-        # Distance features
         d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
-        d_ris_ue = float(np.linalg.norm(ue_pos - ris_pos))
 
-        # Angle features (azimuth only, 2D XY plane)
-        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])))
-        aoa = aoa % 360  # Normalize to [0, 360)
+        # Incident AoA azimuth (rad)
+        aoa_rad = math.atan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])
+        aoa_sin = float(math.sin(aoa_rad))
+        aoa_cos = float(math.cos(aoa_rad))
 
-        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])))
-        aod = aod % 360  # Normalize to [0, 360)
+        # AP→RIS offset for trig features
+        dx, dy, dz = (ris_pos - ap_pos).tolist()
+        azimuth = math.atan2(dy, dx)
+        elevation = math.atan2(dz, math.hypot(dx, dy))
+        az_sin = float(math.sin(azimuth))
+        az_cos = float(math.cos(azimuth))
+        el_sin = float(math.sin(elevation))
+        el_cos = float(math.cos(elevation))
 
-        features = [
-            # Position features (3D coordinates)
+        # AoD used only inside link-budget for physics metrics
+        aod_rad = math.atan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])
+        aod_deg = float(np.degrees(aod_rad)) % 360
+
+        physics_config = build_config_from_nodes(ap, ris, ue)
+        metrics = compute_ris_link_metrics(ap_pos, ris_pos, ue_pos, aod_deg, physics_config)
+        snr = float(metrics['snr_dB'])
+        rssi = float(metrics['rssi_dBm'])
+
+        return [
             float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
             float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
-            float(ue_pos[0]), float(ue_pos[1]), float(ue_pos[2]),
-            # Distance features
-            d_ap_ris, d_ris_ue,
-            # Angle features
-            aoa, aod,
+            d_ap_ris,
+            aoa_sin, aoa_cos,
+            float(dx), float(dy), float(dz),
+            az_sin, az_cos, el_sin, el_cos,
+            snr, rssi,
         ]
-        return features

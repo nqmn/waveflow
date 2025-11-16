@@ -11,6 +11,8 @@ import numpy as np
 
 from .base import SweepMLPredictor
 
+from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
+
 try:
     from sklearn.ensemble import RandomForestRegressor  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
@@ -108,40 +110,36 @@ class RFPredictor(SweepMLPredictor):
         return 2.5  # Random Forest uncertainty (best model)
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct feature vector using 13 features (9 positions + 4 derived).
+        """Construct feature vector using AP-to-RIS geometry + link metrics (12 features).
 
-        Features (13 total):
+        Features:
           - AP position (3 coords: x, y, z)
           - RIS position (3 coords: x, y, z)
-          - UE position (3 coords: x, y, z)
           - d_ap_ris: Euclidean distance from AP to RIS
-          - d_ris_ue: Euclidean distance from RIS to UE
-          - aoa: Angle of Arrival (azimuth, degrees, [0, 360))
-          - aod: Angle of Departure (azimuth, degrees, [0, 360))
+          - aoa: Angle of Arrival from AP to RIS (azimuth in degrees)
+          - snr_dB/rssi_dBm: predicted link metrics toward UE
         """
         ap_pos = np.array(ap.pos)
         ris_pos = np.array(ris.pos)
         ue_pos = np.array(ue.pos)
 
-        # Distance features
         d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
-        d_ris_ue = float(np.linalg.norm(ue_pos - ris_pos))
+        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0]))) % 360
+        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0]))) % 360
 
-        # Angle features (azimuth only, 2D XY plane)
-        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])))
-        aoa = aoa % 360  # Normalize to [0, 360)
-
-        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])))
-        aod = aod % 360  # Normalize to [0, 360)
+        physics_config = build_config_from_nodes(ap, ris, ue)
+        metrics = compute_ris_link_metrics(ap_pos, ris_pos, ue_pos, aod, physics_config)
+        snr = float(metrics['snr_dB'])
+        rssi = float(metrics['rssi_dBm'])
 
         features = [
-            # Position features (3D coordinates)
+            # AP position (3D)
             float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
+            # RIS position (3D)
             float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
-            float(ue_pos[0]), float(ue_pos[1]), float(ue_pos[2]),
-            # Distance features
-            d_ap_ris, d_ris_ue,
-            # Angle features
-            aoa, aod,
+            # Derived geometry
+            d_ap_ris, aoa,
+            # Link metrics
+            snr, rssi,
         ]
         return features

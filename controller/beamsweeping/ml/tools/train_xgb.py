@@ -2,14 +2,16 @@
 
 DATASET & FORMULA (Deflection Angle):
 ====================================
-The training dataset uses the NEW DEFLECTION ANGLE FORMULA from formula.md:
+The training dataset uses the NEW DEFLECTION ANGLE FORMULA from formula.md, but the
+model is only allowed to see AP/RIS geometry since UE coordinates are unavailable.
 
-INPUT FEATURES (13 features: 9 position coordinates + 4 derived features):
+INPUT FEATURES (~18 features: AP/RIS positions + derived geometry + link metrics):
   - AP position (3 coords: x, y, z)
   - RIS position (3 coords: x, y, z)
-  - UE position (3 coords: x, y, z)
-  - Distance features: d_ap_ris, d_ris_ue
-  - Angle features: aoa (Angle of Arrival), aod (Angle of Departure)
+  - Distance feature: d_ap_ris
+  - AoA/AoD sine/cosine pairs
+  - AP→RIS offset vector plus azimuth/elevation trig features
+  - Link metrics: snr_dB, rssi_dBm computed for the AP→RIS→UE path
 
 TRAINING TARGET (best_angle):
   - LOCAL DEFLECTION ANGLE in degrees (REGRESSION: continuous values)
@@ -17,7 +19,7 @@ TRAINING TARGET (best_angle):
   - Range: 0° to 180° (always positive)
   - Represents: How much to deflect from incident direction to reach target
 
-The model learns to predict the optimal deflection angle given network geometry.
+The model learns to predict the optimal deflection angle given AP-to-RIS geometry.
 """
 
 from __future__ import annotations
@@ -29,6 +31,14 @@ from pathlib import Path
 from typing import List
 
 import numpy as np
+
+FEATURE_COLUMNS = [
+    'd_ap_ris',
+    'aoa_sin', 'aoa_cos',
+    'spec_sin', 'spec_cos',
+    'align_cos', 'align_sin',
+    'snr_dB', 'rssi_dBm',
+]
 
 try:
     import xgboost as xgb  # type: ignore
@@ -44,17 +54,7 @@ def load_dataset(path: Path) -> tuple:
     with path.open(newline='') as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            # Use 13 features: 9 position + 4 derived (distances + angles)
-            features = [
-                # Position features (3D coordinates)
-                float(row['ap_x']), float(row['ap_y']), float(row['ap_z']),
-                float(row['ris_x']), float(row['ris_y']), float(row['ris_z']),
-                float(row['ue_x']), float(row['ue_y']), float(row['ue_z']),
-                # Distance features
-                float(row['d_ap_ris']), float(row['d_ris_ue']),
-                # Angle features (Angle of Arrival, Angle of Departure)
-                float(row['aoa']), float(row['aod']),
-            ]
+            features = [float(row[col]) for col in FEATURE_COLUMNS]
             X.append(features)
             # Use continuous angle directly (no binning for regression)
             y.append(float(row['best_angle']))

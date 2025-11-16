@@ -6,6 +6,7 @@ Extracted from monolithic main.py for better modularity
 import cmd
 import os
 import shlex
+import math
 import pprint
 try:
     import readline
@@ -1087,19 +1088,27 @@ class RISNetCLI(cmd.Cmd):
         raise ValueError("must be a boolean (true/false)")
 
     def do_links(self, arg):
-        """links - Show all active connection links"""
+        """links - Show active connection links.
+        Use 'links plot <index|name> [--out output.png]' to generate the top-down geometry for one."""
         active_links = self.net.get_active_links()
+        parts = shlex.split(arg) if arg else []
+
+        if parts and parts[0].lower() == 'plot':
+            self._handle_links_plot(parts[1:], active_links)
+            return
 
         print("\n" + "="*70)
         print("ACTIVE LINKS")
         print("="*70)
+
+        ordered_links = self._ordered_active_link_items(active_links)
 
         if not active_links:
             print("\nNo active links")
         else:
             print(f"\nACTIVE LINKS ({len(active_links)}):")
             print("-" * 70)
-            for idx, (link_name, link_info) in enumerate(active_links.items(), 1):
+            for idx, (link_name, link_info) in enumerate(ordered_links, 1):
                 print(f"\n  [{idx}] {link_name}")
                 origin = link_info.get('source', 'unknown')
                 origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
@@ -1122,6 +1131,235 @@ class RISNetCLI(cmd.Cmd):
                 print(f"      Quant Penalty:                  {penalty:>8.2f} dB")
 
         print("\n" + "="*70 + "\n")
+
+    def _handle_links_plot(self, args, active_links):
+        """Handle 'links plot' requests and forward to the geometry renderer."""
+        if not active_links:
+            print("✗ No active links to plot")
+            return
+
+        target = None
+        output_path = None
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token == '--out' and i + 1 < len(args):
+                output_path = args[i + 1]
+                i += 2
+                continue
+            if target is None:
+                target = token
+                i += 1
+                continue
+            print(f"Unexpected extra argument: {token}")
+            return
+
+        if not target:
+            print("Usage: links plot <index|name> [--out output.png]")
+            return
+
+        items = self._ordered_active_link_items(active_links)
+        link_index = None
+        link_name = None
+        link_info = None
+
+        if target.isdigit():
+            idx = int(target)
+            if idx < 1 or idx > len(items):
+                print(f"✗ Invalid link index. Available links: [1] to [{len(items)}]")
+                return
+            link_index = idx
+            link_name, link_info = items[idx - 1]
+        else:
+            matches = [idx for idx, (name, _) in enumerate(items) if name.lower() == target.lower()]
+            if not matches:
+                print(f"✗ No link named '{target}' found")
+                return
+            if len(matches) > 1:
+                print(f"✗ Link name '{target}' is ambiguous (multiple matches). Use the numeric index.")
+                return
+            link_index = matches[0] + 1
+            link_name, link_info = items[matches[0]]
+
+        self._plot_active_link_geometry(link_index, link_name, link_info, output_path=output_path)
+
+    def _ordered_active_link_items(self, active_links):
+        """Return active link tuples in a deterministic order for indexing."""
+        return sorted(active_links.items(), key=lambda item: item[0].casefold())
+
+    def _plot_active_link_geometry(self, link_index, link_name, link_info, output_path=None):
+        """Plot the top-down geometry for an active link and save to disk."""
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+        except ImportError:
+            print("✗ matplotlib not installed. Install with: pip install matplotlib")
+            return
+
+        ap_node = self.net.get(link_info.get('ap'))
+        ris_node = self.net.get(link_info.get('ris'))
+        ue_node = self.net.get(link_info.get('ue'))
+
+        if not (ap_node and ris_node and ue_node):
+            print("✗ Unable to locate AP/RIS/UE nodes for this link")
+            return
+
+        ap_xy = np.array(ap_node.pos, dtype=float)[:2]
+        ris_xy = np.array(ris_node.pos, dtype=float)[:2]
+        ue_xy = np.array(ue_node.pos, dtype=float)[:2]
+
+        theta_in_rad = math.atan2(ap_xy[1] - ris_xy[1], ap_xy[0] - ris_xy[0])
+        theta_out_rad = math.atan2(ue_xy[1] - ris_xy[1], ue_xy[0] - ris_xy[0])
+        angle_diff = theta_out_rad - theta_in_rad
+        while angle_diff > math.pi:
+            angle_diff -= 2 * math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2 * math.pi
+        theta_out_norm = theta_in_rad + angle_diff
+
+        abs_diff_deg = math.degrees(abs(angle_diff))
+        mid_ang = theta_in_rad + angle_diff / 2
+
+        stored_deflection = link_info.get('deflection_angle_deg')
+        if stored_deflection is None:
+            stored_deflection = link_info.get('beam_angle_local')
+        if stored_deflection is not None:
+            try:
+                stored_deflection = float(stored_deflection)
+            except (TypeError, ValueError):
+                stored_deflection = abs_diff_deg
+        else:
+            stored_deflection = abs_diff_deg
+        deflection_display = abs(stored_deflection)
+
+        arc_radius = max(1.0, min(3.0, np.linalg.norm(ap_xy - ris_xy) * 0.35))
+        theta_vals = np.linspace(theta_in_rad, theta_out_norm, 200)
+        arc_x = ris_xy[0] + arc_radius * np.cos(theta_vals)
+        arc_y = ris_xy[1] + arc_radius * np.sin(theta_vals)
+
+        ris_normal_deg = link_info.get(
+            'ris_normal_angle',
+            getattr(ris_node, 'normal_angle_deg', 0.0)
+        )
+        if ris_normal_deg is None:
+            ris_normal_deg = 0.0
+        ris_normal_rad = math.radians(ris_normal_deg)
+        fov_half_deg = abs(getattr(ris_node, 'max_angle_deg', 60.0) or 60.0)
+        fov_radius = max(4.0, np.linalg.norm(ue_xy - ris_xy))
+        fov_angles = np.linspace(
+            ris_normal_rad - math.radians(fov_half_deg),
+            ris_normal_rad + math.radians(fov_half_deg),
+            200
+        )
+        fov_x = [ris_xy[0]] + list(ris_xy[0] + fov_radius * np.cos(fov_angles)) + [ris_xy[0]]
+        fov_y = [ris_xy[1]] + list(ris_xy[1] + fov_radius * np.sin(fov_angles)) + [ris_xy[1]]
+
+        ap_ris_dist = np.linalg.norm(ap_xy - ris_xy)
+        ris_ue_dist = np.linalg.norm(ue_xy - ris_xy)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.scatter(*ap_xy, s=140, color='green', marker='s', label='AP (Source)', zorder=5)
+        ax.scatter(*ris_xy, s=200, color='orange', marker='^', label='RIS', zorder=5)
+        ax.scatter(*ue_xy, s=140, color='red', marker='o', label='UE (Target)', zorder=5)
+        ax.plot([ris_xy[0], ap_xy[0]], [ris_xy[1], ap_xy[1]], 'g--', lw=2, label='AP→RIS ray', alpha=0.7)
+        ax.plot([ris_xy[0], ue_xy[0]], [ris_xy[1], ue_xy[1]], 'r--', lw=2, label='RIS→UE ray', alpha=0.7)
+        self._annotate_distance(ax, ap_xy, ris_xy, ap_ris_dist, color='green', offset=0.2)
+        self._annotate_distance(ax, ris_xy, ue_xy, ris_ue_dist, color='red', offset=-0.2)
+        ax.plot(arc_x, arc_y, color='purple', lw=2.5, label=f'Azimuth deflection: {deflection_display:.2f}°')
+        ax.fill(fov_x, fov_y, color='gray', alpha=0.15, label=f'RIS FOV ±{fov_half_deg:.1f}°')
+        for sign in (-1, 1):
+            edge_ang = ris_normal_rad + sign * math.radians(fov_half_deg)
+            ax.plot(
+                [ris_xy[0], ris_xy[0] + fov_radius * math.cos(edge_ang)],
+                [ris_xy[1], ris_xy[1] + fov_radius * math.sin(edge_ang)],
+                color='gray',
+                ls=':',
+                lw=1.5,
+                alpha=0.6
+            )
+        ax.text(
+            ris_xy[0] + arc_radius * math.cos(mid_ang),
+            ris_xy[1] + arc_radius * math.sin(mid_ang),
+            f"{deflection_display:.2f}°",
+            color='purple',
+            fontsize=10,
+            fontweight='bold'
+        )
+
+        def _fmt_number(value, precision=2):
+            if value is None:
+                return 'N/A'
+            try:
+                return f"{float(value):.{precision}f}"
+            except (TypeError, ValueError):
+                return str(value)
+
+        beam_angle_abs = link_info.get('beam_angle_absolute')
+        stats = [
+            f"SNR: {_fmt_number(link_info.get('snr_dB'))} dB",
+            f"Power: {_fmt_number(link_info.get('pwr_dBm'))} dBm",
+            f"Deflection: {deflection_display:.2f}°",
+            f"Beam angle: {_fmt_number(beam_angle_abs)}°"
+        ]
+        ax.text(
+            0.02,
+            0.98,
+            "\n".join(stats),
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment='top',
+            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.3')
+        )
+
+        margin = 1.5
+        xs = [ap_xy[0], ris_xy[0], ue_xy[0]]
+        ys = [ap_xy[1], ris_xy[1], ue_xy[1]]
+        ax.set_xlim(min(xs) - margin, max(xs) + margin)
+        ax.set_ylim(min(ys) - margin, max(ys) + margin)
+        ax.set_aspect('equal')
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        ax.legend(loc='lower right', fontsize=10, framealpha=0.9, edgecolor='black')
+        ax.set_title(f"Link Geometry: {link_name}", fontsize=12, pad=10)
+        ax.set_xlabel('X (m)')
+        ax.set_ylabel('Y (m)')
+        fig.tight_layout()
+
+        slug = ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in link_name)
+        if not slug:
+            slug = f"link{link_index}"
+
+        if output_path:
+            plot_path = Path(output_path)
+        else:
+            plot_path = Path(f"link_{link_index}_{slug}_geometry.png")
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(plot_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+
+        print(f"✓ Geometry plot saved to {plot_path}")
+
+    def _annotate_distance(self, ax, start, end, dist, color='black', offset=0.0):
+        """Annotate the midpoint between start and end with the given distance."""
+        start = np.array(start, dtype=float)
+        end = np.array(end, dtype=float)
+        midpoint = (start + end) / 2
+        direction = end - start
+        perp = np.array([-direction[1], direction[0]])
+        norm = np.linalg.norm(perp)
+        if norm > 0:
+            perp /= norm
+        text_pos = midpoint + perp * offset
+        ax.text(
+            text_pos[0],
+            text_pos[1],
+            f"{dist:.2f} m",
+            fontsize=9,
+            color=color,
+            ha='center',
+            va='center',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor=color, boxstyle='round,pad=0.2')
+        )
 
     def do_clear(self, arg):
         """clear [net|links] - Clear network or links

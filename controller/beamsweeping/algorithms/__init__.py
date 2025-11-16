@@ -10,12 +10,16 @@ from .linear_brute_force import LinearBruteForceSweep
 from .coarse_fine_sweep import CoarseFineSweep
 from .directional_exhaustive_sweep import DirectionalExhaustiveSweep
 from .ml_guided_sweep import MLGuidedSweep
+from .hierarchical_sweep import HierarchicalSweep
+from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 
 __all__ = [
     "LinearBruteForceSweep",
     "CoarseFineSweep",
     "MLGuidedSweep",
     "DirectionalExhaustiveSweep",
+    "HierarchicalSweep",
+    "AdaptiveDirectionalSweep",
     "register_algorithm",
     "get_algorithm_class",
     "list_registered_algorithms",

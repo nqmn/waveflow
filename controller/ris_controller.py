@@ -7,7 +7,8 @@ import time
 from .pathfinding import get_algorithm, list_algorithms
 from .beamforming import BeamformingEngine
 from core.physics import Physics
-from core.nodes import AccessPoint, RIS
+from core.nodes import AccessPoint, RIS, UE
+from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
 
 
 class RISController:
@@ -365,6 +366,13 @@ class RISController:
 
         freq = 10e9  # Default frequency
         tx_power_dBm = 20  # Default transmit power
+        ap_node = next((candidate for candidate in (node1_obj, node2_obj)
+                        if isinstance(candidate, AccessPoint)), None)
+        ris_node = node1_obj if isinstance(node1_obj, RIS) else (
+            node2_obj if isinstance(node2_obj, RIS) else None
+        )
+        ue_node = next((candidate for candidate in (node1_obj, node2_obj)
+                        if isinstance(candidate, UE)), None)
 
         # Use AccessPoint metadata if available (AP might be node1 or node2)
         for candidate in (node1_obj, node2_obj):
@@ -372,6 +380,27 @@ class RISController:
                 freq = candidate.freq
                 tx_power_dBm = candidate.power_dBm
                 break
+
+        if ris_node and ap_node and ue_node:
+            beam_angle_deg = beam_angle if beam_angle is not None else float(
+                np.degrees(np.arctan2(ue_node.pos[1] - ris_node.pos[1],
+                                      ue_node.pos[0] - ris_node.pos[0])) % 360
+            )
+            config = build_config_from_nodes(
+                ap_node, ris_node, ue_node,
+                frequency_ghz=freq / 1e9,
+                bandwidth_mhz=getattr(ap_node, 'bandwidth_MHz', None),
+                noise_figure_dB=getattr(ue_node, 'noise_figure_dB', None)
+            )
+            metrics = compute_ris_link_metrics(
+                ap_pos=ap_node.pos,
+                ris_pos=ris_node.pos,
+                ue_pos=ue_node.pos,
+                beam_angle_deg=beam_angle_deg,
+                physics_config=config
+            )
+            snr_linear = 10 ** (metrics['snr_dB'] / 10)
+            return snr_linear
 
         # Calculate path loss & atmospheric absorption
         path_loss_dB = Physics.path_loss_dB(distance, freq)

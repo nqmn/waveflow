@@ -19,6 +19,7 @@ class MLPredictorLoader:
         'knn': ('controller.beamsweeping.ml.knn', 'KNNPredictor'),
         'lr': ('controller.beamsweeping.ml.lr', 'LRPredictor'),
         'dt': ('controller.beamsweeping.ml.dt', 'DTPredictor'),
+        'lgbm': ('controller.beamsweeping.ml.lgbm', 'LGBMPredictor'),
         'zero': ('controller.beamsweeping.ml.trivial', 'ZeroOffsetPredictor'),
     }
     _CLASS_CACHE = {}
@@ -63,6 +64,7 @@ __all__ = [
     'KNNPredictor',
     'LRPredictor',
     'DTPredictor',
+    'LGBMPredictor',
     'ZeroOffsetPredictor',
 ]
 
