@@ -21,6 +21,8 @@ class MLPredictorLoader:
         'dt': ('controller.beamsweeping.ml.dt', 'DTPredictor'),
         'lgbm': ('controller.beamsweeping.ml.lgbm', 'LGBMPredictor'),
         'zero': ('controller.beamsweeping.ml.trivial', 'ZeroOffsetPredictor'),
+        'gmf': ('controller.beamsweeping.ml.gmf', 'GMFPredictor'),
+        'kgmf': ('controller.beamsweeping.ml.kgmf', 'KGMFPredictor'),
     }
     _CLASS_CACHE = {}
 
@@ -66,6 +68,8 @@ __all__ = [
     'DTPredictor',
     'LGBMPredictor',
     'ZeroOffsetPredictor',
+    'GMFPredictor',
+    'KGMFPredictor',
 ]
 
 

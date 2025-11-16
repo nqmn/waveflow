@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import pickle
 from pathlib import Path
 from typing import List, Optional
 
@@ -24,12 +26,28 @@ class XGBPredictor(SweepMLPredictor):
 
     MODEL_ENV = "RISNET_XGB_MODEL"
     DEFAULT_MODEL = Path("controller/beamsweeping/ml/models/xgb_beam_predictor.json")
+    SCALER_FILENAME = "xgb_scaler.pkl"
+    PCA_FILENAME = "xgb_pca.pkl"
+    KMEANS_FILENAME = "xgb_kmeans.pkl"
+    PIPELINE_META_FILENAME = "xgb_pipeline.json"
+
+    SCALER_ENV = "RISNET_XGB_SCALER"
+    PCA_ENV = "RISNET_XGB_PCA"
+    KMEANS_ENV = "RISNET_XGB_KMEANS"
 
     def __init__(self, network):
         super().__init__(network)
         self._booster: Optional["xgb.Booster"] = None
         self._model_path = None
         self._model_error = None
+        self._model_dir: Optional[Path] = None
+        self._scaler = None
+        self._pca = None
+        self._kmeans = None
+        self._pipeline_metadata = None
+        self._pipeline_loaded = False
+        self._pipeline_mandatory = False
+        self._pipeline_error = None
         self._load_model()
 
     @property
@@ -54,6 +72,8 @@ class XGBPredictor(SweepMLPredictor):
         else:
             candidate = self.DEFAULT_MODEL
 
+        self._model_dir = candidate.parent
+
         if not candidate.exists():
             self._model_error = f"model file not found ({candidate})"
             return
@@ -68,6 +88,57 @@ class XGBPredictor(SweepMLPredictor):
         self._booster = booster
         self._model_path = candidate
         self._model_error = None
+        self._load_pipeline(candidate.parent)
+        if self._pipeline_mandatory and not self._pipeline_loaded:
+            self._model_error = f"preprocessing pipeline missing: {self._pipeline_error}"
+
+    def _load_pipeline(self, model_dir: Path) -> None:
+        metadata = self._load_pipeline_metadata(model_dir)
+        self._pipeline_mandatory = metadata is not None
+        if not self._pipeline_mandatory:
+            return
+        try:
+            scaler_path = self._resolve_pipeline_path(self.SCALER_ENV, model_dir / self.SCALER_FILENAME)
+            pca_path = self._resolve_pipeline_path(self.PCA_ENV, model_dir / self.PCA_FILENAME)
+            kmeans_path = self._resolve_pipeline_path(self.KMEANS_ENV, model_dir / self.KMEANS_FILENAME)
+            self._scaler = self._load_pickle(scaler_path)
+            self._pca = self._load_pickle(pca_path)
+            self._kmeans = self._load_pickle(kmeans_path)
+            self._pipeline_loaded = True
+            self._pipeline_error = None
+            self._pipeline_metadata = metadata
+        except Exception as exc:
+            self._pipeline_loaded = False
+            self._pipeline_error = str(exc)
+
+    def _load_pipeline_metadata(self, model_dir: Path):
+        meta_path = model_dir / self.PIPELINE_META_FILENAME
+        if not meta_path.exists():
+            return None
+        with meta_path.open('r', encoding='utf-8') as stream:
+            return json.load(stream)
+
+    def _resolve_pipeline_path(self, env_var: str, default_path: Path) -> Path:
+        override_path = os.environ.get(env_var)
+        if override_path:
+            return Path(override_path)
+        return default_path
+
+    def _load_pickle(self, path: Path):
+        if not path.exists():
+            raise FileNotFoundError(f"pipeline artifact missing: {path}")
+        with path.open('rb') as stream:
+            return pickle.load(stream)
+
+    def _transform_feature_vector(self, features: List[float]) -> np.ndarray:
+        arr = np.array([features], dtype=float)
+        if not self._pipeline_loaded:
+            return arr
+        scaled = self._scaler.transform(arr)
+        pca_out = self._pca.transform(scaled)
+        cluster_ids = self._kmeans.predict(pca_out)
+        cluster_col = cluster_ids.reshape(-1, 1).astype(float)
+        return np.hstack([pca_out, cluster_col])
 
     def predict_local_angles(
         self,
@@ -88,9 +159,13 @@ class XGBPredictor(SweepMLPredictor):
         if not (ap and ris and ue):
             raise ValueError(f"Invalid nodes: AP={ap_name}, RIS={ris_name}, UE={ue_name}")
 
+        if self._pipeline_mandatory and not self._pipeline_loaded:
+            raise RuntimeError(f"ML preprocessing pipeline missing ({self._pipeline_error}). Please ensure the scaler/PCA/KMeans artifacts are available.")
+
         features = self._build_feature_vector(ap, ris, ue)
+        feature_vector = self._transform_feature_vector(features)
         try:
-            dmatrix = xgb.DMatrix(np.array([features], dtype=float))
+            dmatrix = xgb.DMatrix(feature_vector)
             pred = float(self._booster.predict(dmatrix)[0])
         except Exception as e:  # pragma: no cover - prediction failure
             raise RuntimeError(f"XGBoost prediction failed: {e}")
@@ -142,12 +217,21 @@ class XGBPredictor(SweepMLPredictor):
         snr = float(metrics['snr_dB'])
         rssi = float(metrics['rssi_dBm'])
 
+        ap_az_sin = az_sin
+        ap_az_cos = az_cos
+        ap_el_sin = el_sin
+        ap_el_cos = el_cos
+        spec_rad = 2.0 * azimuth - aoa_rad
+        spec_sin = float(math.sin(spec_rad))
+        spec_cos = float(math.cos(spec_rad))
+        align_cos = float(az_cos * aoa_cos + az_sin * aoa_sin)
+        align_sin = float(az_sin * aoa_cos - az_cos * aoa_sin)
+
         return [
-            float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
-            float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
             d_ap_ris,
             aoa_sin, aoa_cos,
             float(dx), float(dy), float(dz),
-            az_sin, az_cos, el_sin, el_cos,
+            spec_sin, spec_cos,
+            align_cos, align_sin,
             snr, rssi,
         ]

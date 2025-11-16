@@ -203,7 +203,7 @@ def generate_stratified_samples(
                 'd_ris_ue': d_ris_ue,
                 'aoa': aoa,
                 'aod': aod,
-                'best_angle': float(round(theta_rcv)),
+                'best_angle': float(theta_rcv),
             }
             _add_angle_trigs(sample, aoa, aod)
             _add_ap_ris_orientation(sample)
@@ -283,8 +283,8 @@ def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
     aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
 
-    # Round best_angle to nearest integer degree
-    best_angle_rounded = float(round(theta_rcv))
+    # Keep the continuous deflection angle as the label
+    best_angle = float(theta_rcv)
 
     sample = {
         'ap_pos': ap_pos.tolist(),
@@ -294,7 +294,7 @@ def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
         'd_ris_ue': d_ris_ue,
         'aoa': aoa,
         'aod': aod,
-        'best_angle': best_angle_rounded
+        'best_angle': best_angle
     }
     _add_angle_trigs(sample, aoa, aod)
     _add_ap_ris_orientation(sample)
@@ -525,12 +525,14 @@ def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
         'd_ris_ue': d_ris_ue,
         'aoa': aoa,
         'aod': aod,
-        'best_angle': float(round(theta_rcv)),
+        'best_angle': float(theta_rcv),
     }
     _add_angle_trigs(sample, aoa, aod)
     _add_ap_ris_orientation(sample)
     _add_physics_metrics(sample, physics_config)
     return sample
+
+
 def build_stratified_dataset(args, bounds, ris_max_angle, physics_config: Dict[str, float]):
     """Generate samples using stratified coverage."""
     bins_config = {
