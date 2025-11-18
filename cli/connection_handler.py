@@ -91,7 +91,28 @@ class ConnectionHandler:
             if len(ues) == 1:
                 ue = ues[0]
             elif len(ues) == 0:
-                return (None, None, None, None, "Error: No User Equipment available in network")
+                # Check if this is an OpenCV vision sweep (allows UE to be created from detection)
+                # Look ahead in remaining_parts for --algo opencv or --sweep with opencv
+                is_opencv_sweep = False
+                for i, part in enumerate(remaining_parts):
+                    if part == '--algo' and i + 1 < len(remaining_parts) and remaining_parts[i + 1] == 'opencv':
+                        is_opencv_sweep = True
+                        break
+                    elif part == '--sweep' and '--algo' in remaining_parts:
+                        algo_idx = remaining_parts.index('--algo')
+                        if algo_idx + 1 < len(remaining_parts) and remaining_parts[algo_idx + 1] == 'opencv':
+                            is_opencv_sweep = True
+                            break
+
+                if is_opencv_sweep:
+                    # For OpenCV vision sweep, UE can be created from camera detection
+                    # Try to extract UE name from remaining arguments
+                    if len(remaining_parts) > 0 and not remaining_parts[0].startswith('--'):
+                        ue = remaining_parts.pop(0)
+                    else:
+                        ue = 'ue1'  # Default UE name for OpenCV sweep
+                else:
+                    return (None, None, None, None, "Error: No User Equipment available in network")
             else:
                 error_msg = f"Error: Ambiguous UE selection for {ap}→{ris}. Available UEs:\n"
                 for u in ues:
@@ -108,7 +129,7 @@ class ConnectionHandler:
             dict: Parsed flags with keys: enable_feedback, use_waveform, modulation,
                   fov, step, algo_name, ml_predictor, metric, angle, seed, error_msg,
                   enable_codebook_validation, codebook_increment, codebook_neighbors,
-                  include_predicted_angle
+                  include_predicted_angle, r_cw, t_cw
         """
         result = {
             'enable_feedback': True,
@@ -130,7 +151,11 @@ class ConnectionHandler:
             'include_predicted_angle': True,
             'codebook_start': 10.0,
             'codebook_end': 60.0,
-            'codebook_step': 10.0
+            'codebook_step': 10.0,
+            'use_mock': False,  # Use mock camera (default: false for real camera)
+            'mock_trajectory': 'circular',  # Mock camera trajectory type
+            'r_cw': 'rotation.npy',  # Camera-to-world rotation matrix (default path)
+            't_cw': 'translation.npy'  # Camera-to-world translation vector (default path)
         }
 
         parts = list(parts)  # Make a copy
@@ -256,6 +281,38 @@ class ConnectionHandler:
                 result['metric'] = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
+        # Parse mock camera flag
+        if '--use-mock' in parts:
+            idx = parts.index('--use-mock')
+            if idx + 1 < len(parts):
+                use_mock_str = parts[idx + 1].lower()
+                result['use_mock'] = use_mock_str in ['true', '1', 'yes', 'on']
+                parts = parts[:idx] + parts[idx+2:]
+            else:
+                result['use_mock'] = True
+                parts = parts[:idx] + parts[idx+1:]
+
+        # Parse mock trajectory type
+        if '--mock-trajectory' in parts:
+            idx = parts.index('--mock-trajectory')
+            if idx + 1 < len(parts):
+                result['mock_trajectory'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse camera-to-world rotation matrix (as path to .npy file)
+        if '--r-cw' in parts:
+            idx = parts.index('--r-cw')
+            if idx + 1 < len(parts):
+                result['r_cw'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse camera-to-world translation vector (as path to .npy file)
+        if '--t-cw' in parts:
+            idx = parts.index('--t-cw')
+            if idx + 1 < len(parts):
+                result['t_cw'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
         # Helper to check if token is a number
         def _is_number(token):
             try:
@@ -267,7 +324,7 @@ class ConnectionHandler:
         # Check for unknown flags
         unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
         if unknown_flags:
-            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --no-waveform, --no-feedback"
+            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --use-mock, --mock-trajectory, --r-cw, --t-cw, --no-waveform, --no-feedback"
             return result
 
         # Validate flag combinations
@@ -501,7 +558,7 @@ class ConnectionHandler:
             'metrics': res
         }
 
-    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, print_func=print):
+    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None, print_func=print):
         """Execute multi-angle sweep"""
         try:
             algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
@@ -512,9 +569,16 @@ class ConnectionHandler:
             print_func(f"Error loading sweep algorithm: {e}")
             return None
 
-        if not self.net.get(ap) or not self.net.get(ris) or not self.net.get(ue):
-            print_func(f"Error: Invalid node names")
-            return None
+        # For OpenCV vision sweep, UE may not exist yet (will be created from detection)
+        # For other algorithms, all nodes must exist
+        if algo_name.lower() == 'opencv':
+            if not self.net.get(ap) or not self.net.get(ris):
+                print_func(f"Error: Invalid node names - AP and RIS must exist")
+                return None
+        else:
+            if not self.net.get(ap) or not self.net.get(ris) or not self.net.get(ue):
+                print_func(f"Error: Invalid node names")
+                return None
 
         print_func('\n' + '='*70)
         print_func('BEAM SWEEP (via unified connect command)')
@@ -547,6 +611,66 @@ class ConnectionHandler:
                 kwargs['use_waveform'] = True
                 kwargs['modulation'] = modulation
                 kwargs['num_symbols'] = 1000
+
+            # Add mock camera parameters for opencv algorithm
+            if algo_name.lower() in ['opencv', 'vision', 'aruco']:
+                kwargs['use_mock'] = use_mock
+                # Use static trajectory by default for simple testing
+                kwargs['mock_trajectory'] = 'static' if mock_trajectory == 'circular' else mock_trajectory
+                # Enable viewer (works with X11/VcXsrv on Windows)
+                kwargs['enable_viewer'] = True
+
+                # Handle camera-to-world transformations
+                if use_mock:
+                    # Use identity transform for mock camera (no external calibration needed)
+                    # Try to load from files if they exist, otherwise use defaults
+                    try:
+                        if r_cw and isinstance(r_cw, str):
+                            import os
+                            if os.path.exists(r_cw):
+                                kwargs['r_cw'] = np.load(r_cw)
+                            else:
+                                kwargs['r_cw'] = np.eye(3, dtype=np.float64)
+                        else:
+                            kwargs['r_cw'] = np.eye(3, dtype=np.float64)
+                    except Exception as e:
+                        print_func(f"Warning: Could not load r_cw, using identity: {e}")
+                        kwargs['r_cw'] = np.eye(3, dtype=np.float64)
+
+                    try:
+                        if t_cw and isinstance(t_cw, str):
+                            import os
+                            if os.path.exists(t_cw):
+                                kwargs['t_cw'] = np.load(t_cw)
+                            else:
+                                kwargs['t_cw'] = np.zeros(3, dtype=np.float64)
+                        else:
+                            kwargs['t_cw'] = np.zeros(3, dtype=np.float64)
+                    except Exception as e:
+                        print_func(f"Warning: Could not load t_cw, using zeros: {e}")
+                        kwargs['t_cw'] = np.zeros(3, dtype=np.float64)
+                else:
+                    # For real camera, require camera-to-world transformation
+                    try:
+                        import os
+                        if r_cw and isinstance(r_cw, str) and os.path.exists(r_cw):
+                            kwargs['r_cw'] = np.load(r_cw)
+                        else:
+                            print_func("Error: r_cw file not found (camera-to-world rotation matrix)")
+                            print_func(f"  Expected file: {r_cw}")
+                            print_func("  Usage: --r-cw <path_to_rotation_matrix.npy>")
+                            return None
+
+                        if t_cw and isinstance(t_cw, str) and os.path.exists(t_cw):
+                            kwargs['t_cw'] = np.load(t_cw)
+                        else:
+                            print_func("Error: t_cw file not found (camera-to-world translation vector)")
+                            print_func(f"  Expected file: {t_cw}")
+                            print_func("  Usage: --t-cw <path_to_translation_vector.npy>")
+                            return None
+                    except Exception as e:
+                        print_func(f"Error loading camera transformations: {e}")
+                        return None
 
             out = algo.sweep(ap, ris, ue, **kwargs)
 

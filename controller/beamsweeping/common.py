@@ -275,26 +275,27 @@ def apply_waveform_realism(
     return float(signal_result["snr_dB"]), signal_result.get("ser_percent")
 
 
-def validate_and_get_nodes(network, ap_name: str, ris_name: str, ue_name: str) -> Tuple[Any, Any, Any]:
+def validate_and_get_nodes(network, ap_name: str, ris_name: str, ue_name: str = None) -> Tuple[Any, Any, Any]:
     """Validate and retrieve nodes from network.
 
     Args:
         network: RISNetwork object
         ap_name: Access Point name
         ris_name: RIS name
-        ue_name: User Equipment name
+        ue_name: User Equipment name (optional for OpenCV vision sweep)
 
     Returns:
         Tuple of (ap, ris, ue) nodes
+        - If ue_name is None, returns (ap, ris, None)
 
     Raises:
-        ValueError: If any node is invalid
+        ValueError: If AP or RIS is invalid
     """
     ap = network.get(ap_name)
     ris = network.get(ris_name)
-    ue = network.get(ue_name)
+    ue = network.get(ue_name) if ue_name else None
 
-    if ap is None or ris is None or ue is None:
+    if ap is None or ris is None:
         raise ValueError("Invalid node name in sweep")
 
     return ap, ris, ue

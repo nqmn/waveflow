@@ -453,11 +453,13 @@ class RISNetCLI(cmd.Cmd):
           num_ris: Number of RIS nodes to add (default: 1)
           num_ue: Number of User Equipment to add (default: 1)
           --distance min-max: Distance range for UE from RIS (e.g., 5-15, default: 5-7)
+          --no-ue: Skip adding User Equipment (useful for OpenCV vision-based detection)
 
         Examples:
-          add random                    -> Adds 1 AP, 1 RIS, 1 UE
-          add random 2 1 5              -> Adds 2 APs, 1 RIS, 5 UEs
-          add random 1 2 4 --distance 8-12  -> Custom distance range
+          add random                           -> Adds 1 AP, 1 RIS, 1 UE
+          add random 2 1 5                     -> Adds 2 APs, 1 RIS, 5 UEs
+          add random 1 2 4 --distance 8-12     -> Custom distance range
+          add random 1 1 --no-ue               -> Adds 1 AP, 1 RIS, no UE
         """
         try:
             parts = shlex.split(arg) if arg else []
@@ -467,6 +469,7 @@ class RISNetCLI(cmd.Cmd):
             num_ris = 1
             num_ue = 1
             distance_range = (5.0, 7.0)
+            skip_ue = False
 
             # Parse positional arguments
             idx = 0
@@ -491,6 +494,10 @@ class RISNetCLI(cmd.Cmd):
                     except (ValueError, IndexError):
                         print(f"Invalid distance format: {distance_str}. Expected: min-max (e.g., 5-15)")
                         return
+                elif parts[idx] == '--no-ue':
+                    skip_ue = True
+                    num_ue = 0
+                    idx += 1
                 else:
                     idx += 1
 
@@ -1405,7 +1412,7 @@ class RISNetCLI(cmd.Cmd):
     # =====================================================================
 
     def do_connect(self, arg):
-        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback] [--sweep fov step] [--algo algorithm] [--ml-predictor predictor]
+        """connect [ap] [ris] [ue] [beam_angle_deg] [--modulation mod] [--no-waveform] [--no-feedback] [--sweep fov step] [--algo algorithm] [--ml-predictor predictor] [--use-mock true|false] [--mock-trajectory type]
         Unified connect command: single-angle measurement OR multi-angle beam optimization via --sweep flag.
 
         SINGLE-ANGLE MODE (default, traditional behavior):
@@ -1421,6 +1428,11 @@ class RISNetCLI(cmd.Cmd):
             connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor xgb  # ML-guided sweep
             connect ap1 ris1 ue1 --sweep 90 5 --modulation 16QAM  # Sweep with signal-level sim
 
+        OPENCV VISION SWEEP (synthetic camera for testing):
+            connect ap1 ris1 ue1 --sweep 60 10 --algo opencv --use-mock true  # Mock camera with circular motion
+            connect ap1 ris1 ue1 --sweep 60 10 --algo opencv --use-mock true --mock-trajectory linear  # Linear motion
+            connect ap1 ris1 ue1 --sweep 60 10 --algo opencv  # Real camera (requires --use-mock false or omit flag)
+
         AVAILABLE SWEEP ALGORITHMS (use with --sweep):
             linear (aliases: brute-force)
                 Exhaustive search: tests all beam angles across FOV at specified resolution.
@@ -1430,6 +1442,8 @@ class RISNetCLI(cmd.Cmd):
                 Exhaustive sweep of all codebook angles for all network links with directional SNR.
             ml (aliases: ml-guided)
                 ML-guided beam sweep: validates top ML-predicted angles through measurement.
+            opencv (aliases: vision, aruco)
+                Vision-based beam sweep: uses ArUco marker detection to track UE position from camera.
 
         ML PREDICTORS (use with --ml-predictor when algo is ml or ml-guided):
             rf          Random Forest (recommended, best balance of speed/accuracy)
@@ -1438,6 +1452,13 @@ class RISNetCLI(cmd.Cmd):
             dt          Decision Tree (interpretable, moderate accuracy)
             knn         K-Nearest Neighbors (local pattern recognition)
             lr          Linear Regression (fast, simple baseline)
+
+        MOCK CAMERA OPTIONS (use with --algo opencv):
+            --use-mock true|false       Enable/disable mock camera (default: false)
+            --mock-trajectory type      Trajectory type: circular, linear, random, static (default: circular)
+            --r-cw path/to/matrix.npy   Camera-to-world rotation matrix (.npy file, optional)
+            --t-cw path/to/vector.npy   Camera-to-world translation vector (.npy file, optional)
+                                        Note: Defaults to identity transform for mock camera
 
         Examples:
             connect                                        # Auto-detect nodes, single angle (specular)
@@ -1449,6 +1470,8 @@ class RISNetCLI(cmd.Cmd):
             connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor xgb  # ML-guided with XGBoost
             connect ap1 ris1 ue1 --sweep 60 10 --algo ml --ml-predictor knn  # ML-guided with KNN
             connect ap1 ris1 ue1 --sweep 60 10 --algo ml  # ML-guided sweep with default predictor
+            connect ap1 ris1 ue1 --sweep 60 10 --algo opencv --use-mock true  # OpenCV with mock camera
+            connect ap1 ris1 ue1 --sweep 60 10 --algo opencv --use-mock true --mock-trajectory linear  # Linear motion
 
         Tip: Use TAB completion with --algo and --ml-predictor flags to see available options.
         Default: 100% real signal-level simulation (generates actual waveforms, measures SNR and SER)
@@ -1482,6 +1505,10 @@ class RISNetCLI(cmd.Cmd):
         codebook_start = flags_result['codebook_start']
         codebook_end = flags_result['codebook_end']
         codebook_step = flags_result['codebook_step']
+        use_mock = flags_result.get('use_mock', False)
+        mock_trajectory = flags_result.get('mock_trajectory', 'circular')
+        r_cw = flags_result.get('r_cw', None)
+        t_cw = flags_result.get('t_cw', None)
 
         # Determine mode: single-angle vs sweep
         if fov is not None:
@@ -1490,7 +1517,8 @@ class RISNetCLI(cmd.Cmd):
                                          enable_feedback, use_waveform, modulation, seed,
                                          metric, enable_codebook_validation, codebook_increment,
                                          codebook_neighbors, include_predicted_angle,
-                                         codebook_start, codebook_end, codebook_step)
+                                         codebook_start, codebook_end, codebook_step, use_mock, mock_trajectory,
+                                         r_cw, t_cw)
         else:
             # Single-angle connect mode
             return self._do_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform,
@@ -1509,10 +1537,10 @@ class RISNetCLI(cmd.Cmd):
         connection_record = self.connection_handler.create_connection_record(ap, ris, ue, res, angle, seed, enable_feedback, use_waveform, modulation)
         self.net.last_connect_result = sanitize_for_json(connection_record)
 
-    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0):
+    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None):
         """Execute multi-angle sweep within unified connect command"""
         # Execute sweep using connection handler
-        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric=metric, enable_codebook_validation=enable_codebook_validation, codebook_increment=codebook_increment, codebook_neighbors=codebook_neighbors, include_predicted_angle=include_predicted_angle, codebook_start=codebook_start, codebook_end=codebook_end, codebook_step=codebook_step)
+        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric=metric, enable_codebook_validation=enable_codebook_validation, codebook_increment=codebook_increment, codebook_neighbors=codebook_neighbors, include_predicted_angle=include_predicted_angle, codebook_start=codebook_start, codebook_end=codebook_end, codebook_step=codebook_step, use_mock=use_mock, mock_trajectory=mock_trajectory, r_cw=r_cw, t_cw=t_cw)
         if out is None:
             return
 

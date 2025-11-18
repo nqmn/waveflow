@@ -12,6 +12,8 @@ from .directional_exhaustive_sweep import DirectionalExhaustiveSweep
 from .ml_guided_sweep import MLGuidedSweep
 from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
+from .opencv_sweep import OpenCVVisionSweep
+from utils import aruco_utils
 
 __all__ = [
     "LinearBruteForceSweep",
@@ -20,6 +22,8 @@ __all__ = [
     "DirectionalExhaustiveSweep",
     "HierarchicalSweep",
     "AdaptiveDirectionalSweep",
+    "OpenCVVisionSweep",
+    "aruco_utils",
     "register_algorithm",
     "get_algorithm_class",
     "list_registered_algorithms",
