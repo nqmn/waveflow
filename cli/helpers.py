@@ -275,8 +275,9 @@ class NetworkIO:
 
             net.nodes.clear()
 
+            # Clear active links before loading - will be repopulated if nodes exist
             if hasattr(net, 'active_links'):
-                net.active_links = network_data.get('active_links', {})
+                net.active_links.clear()
 
             results_block = network_data.get('results') or {}
             if hasattr(net, 'last_connect_result'):
@@ -357,5 +358,11 @@ class NetworkIO:
                         max_angle_deg=max_angle,
                         normal_angle_deg=normal_angle
                     )
+
+            # Restore active_links only if nodes were successfully loaded
+            # This prevents stale links from being restored on empty topologies
+            if net.nodes and hasattr(net, 'active_links'):
+                net.active_links = network_data.get('active_links', {})
+
         except Exception as e:
             print(f"Warning: Failed to load network from {filepath}: {e}")

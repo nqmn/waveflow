@@ -1474,12 +1474,23 @@ class RISNetCLI(cmd.Cmd):
         ml_predictor = flags_result['ml_predictor']
         angle = flags_result['angle']
         seed = flags_result['seed']
+        metric = flags_result.get('metric', 'snr')
+        enable_codebook_validation = flags_result['enable_codebook_validation']
+        codebook_increment = flags_result['codebook_increment']
+        codebook_neighbors = flags_result['codebook_neighbors']
+        include_predicted_angle = flags_result['include_predicted_angle']
+        codebook_start = flags_result['codebook_start']
+        codebook_end = flags_result['codebook_end']
+        codebook_step = flags_result['codebook_step']
 
         # Determine mode: single-angle vs sweep
         if fov is not None:
             # Multi-angle sweep mode
             return self._do_connect_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor,
-                                         enable_feedback, use_waveform, modulation, seed)
+                                         enable_feedback, use_waveform, modulation, seed,
+                                         metric, enable_codebook_validation, codebook_increment,
+                                         codebook_neighbors, include_predicted_angle,
+                                         codebook_start, codebook_end, codebook_step)
         else:
             # Single-angle connect mode
             return self._do_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform,
@@ -1498,16 +1509,16 @@ class RISNetCLI(cmd.Cmd):
         connection_record = self.connection_handler.create_connection_record(ap, ris, ue, res, angle, seed, enable_feedback, use_waveform, modulation)
         self.net.last_connect_result = sanitize_for_json(connection_record)
 
-    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed):
+    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0):
         """Execute multi-angle sweep within unified connect command"""
         # Execute sweep using connection handler
-        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed)
+        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric=metric, enable_codebook_validation=enable_codebook_validation, codebook_increment=codebook_increment, codebook_neighbors=codebook_neighbors, include_predicted_angle=include_predicted_angle, codebook_start=codebook_start, codebook_end=codebook_end, codebook_step=codebook_step)
         if out is None:
             return
 
         try:
             # Print sweep results using connection handler
-            best_angles_info = self.connection_handler.print_sweep_results(out, fov, step, ap, ris, ue, algo_name)
+            best_angles_info = self.connection_handler.print_sweep_results(out, fov, step, ap, ris, ue, algo_name, metric=metric)
 
             # Create sweep record and update network using connection handler
             self.connection_handler.create_sweep_record_and_link(ap, ris, ue, out, best_angles_info, fov, step, algo_name, use_waveform, modulation)
@@ -2481,15 +2492,16 @@ class RISNetCLI(cmd.Cmd):
     def do_quit(self, arg):
         """quit - Exit the CLI"""
         if self.net.nodes:
-            print("Clearing topology...")
-            self.net.nodes.clear()
+            print("Clearing topology and active links...")
             self.net.clear_links()
+            self.net.nodes.clear()
             if hasattr(self.net, 'last_connect_result'):
                 self.net.last_connect_result = None
             if hasattr(self.net, 'last_sweep_result'):
                 self.net.last_sweep_result = None
-            self._save_network()
-            print("✓ Topology cleared")
+            # Do NOT save network on exit - ensures clean state on restart
+            # Only save results would be blank anyway after clearing
+            print("✓ Topology and links cleared (not saved)")
         print('Exiting RISNet CLI')
         return True
 

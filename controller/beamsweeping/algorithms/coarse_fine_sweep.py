@@ -45,7 +45,8 @@ class CoarseFineSweep(SweepAlgorithmBase):
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
-              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+              modulation: str = 'QPSK', num_symbols: int = 1000,
+              metric_selector=None, **kwargs) -> Dict:
         """Execute coarse-fine two-phase sweep with optional closed-loop feedback
 
         Args:
@@ -168,8 +169,11 @@ class CoarseFineSweep(SweepAlgorithmBase):
         snr_coarse = snr_array.tolist()
         pwr_coarse = pwr_array.tolist()
 
-        # Find best coarse angle
-        best_idx = int(np.argmax(snr_array))
+        # Find best coarse angle using metric selector (if provided, otherwise default to SNR)
+        if metric_selector is not None:
+            best_idx = metric_selector.find_best_index(snr_array.tolist())
+        else:
+            best_idx = int(np.argmax(snr_array))
         best_local = local_coarse[best_idx]
 
         # Phase 2: Fine sweep (constrained within original FOV and RIS constraint)
@@ -211,7 +215,11 @@ class CoarseFineSweep(SweepAlgorithmBase):
             if enable_feedback and 'feedback_info' in r:
                 feedback_collector.add(float(abs_a), float(local_fine[i]), r['feedback_info'], phase='fine')
 
-        best_fine_idx = int(np.argmax(snr_fine))
+        # Find best fine angle using metric selector (if provided, otherwise default to SNR)
+        if metric_selector is not None:
+            best_fine_idx = metric_selector.find_best_index(snr_fine)
+        else:
+            best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
 
         result = {

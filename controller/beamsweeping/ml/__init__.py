@@ -23,6 +23,8 @@ class MLPredictorLoader:
         'zero': ('controller.beamsweeping.ml.trivial', 'ZeroOffsetPredictor'),
         'gmf': ('controller.beamsweeping.ml.gmf', 'GMFPredictor'),
         'kgmf': ('controller.beamsweeping.ml.kgmf', 'KGMFPredictor'),
+        'vgmf': ('controller.beamsweeping.ml.vgmf', 'VGMFPredictor'),
+        'vxgb': ('controller.beamsweeping.ml.vxgb', 'VXGBPredictor'),
     }
     _CLASS_CACHE = {}
 
@@ -70,6 +72,8 @@ __all__ = [
     'ZeroOffsetPredictor',
     'GMFPredictor',
     'KGMFPredictor',
+    'VGMFPredictor',
+    'VXGBPredictor',
 ]
 
 

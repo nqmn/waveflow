@@ -109,7 +109,17 @@ class GMFPredictor(SweepMLPredictor):
         aoa_rad = math.atan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])
         aoa_sin = float(math.sin(aoa_rad))
         aoa_cos = float(math.cos(aoa_rad))
-        return np.array([snr, rssi, d_ap_ris, aoa_sin, aoa_cos], dtype=float)
+
+        # Compute elevation angle and AP-RIS offset from AP-RIS geometry
+        dx = ris_pos[0] - ap_pos[0]
+        dy = ris_pos[1] - ap_pos[1]
+        dz = ris_pos[2] - ap_pos[2]
+        d_xy = math.hypot(dx, dy)
+        el_rad = math.atan2(dz, d_xy)
+        el_sin = float(math.sin(el_rad))
+        el_cos = float(math.cos(el_rad))
+
+        return np.array([snr, rssi, d_ap_ris, aoa_sin, aoa_cos, el_sin, el_cos, float(dx), float(dy), float(dz)], dtype=float)
 
     def _compute_angle_posterior(self, obs: np.ndarray, fov: float, resolution: float = 1.0) -> tuple:
         """Estimate posterior probabilities across an angle grid using the GMM."""

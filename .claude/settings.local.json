@@ -4,7 +4,8 @@
       "Bash(mkdir:*)",
       "Bash(python3 main.py:*)",
       "Bash(python3:*)",
-      "Bash(timeout 120 python3:*)"
+      "Bash(timeout 120 python3:*)",
+      "mcp__sequential-thinking__sequentialthinking"
     ],
     "deny": [],
     "ask": []

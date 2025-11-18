@@ -17,6 +17,7 @@ from .angle_utils import (
 )
 from .feedback_channel import FeedbackChannelManager, FeedbackChannel
 from .snr_messaging import SNRMessagingSystem
+from utils.rssi import compute_rssi_dBm
 
 
 class RISNetwork:
@@ -465,10 +466,17 @@ class RISNetwork:
         # Calculate local deflection from RIS normal
         local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
 
+        # Calculate RSSI using standardized utility
+        rssi_dBm = compute_rssi_dBm(
+            tx_power_dBm=ap.power_dBm,
+            total_loss_dB=total_loss_dB,
+            gain_dBi=total_gain_dBi
+        )
+
         result = {
             "snr_dB": float(snr_dB),
             "pwr_dBm": float(pwr_dBm),
-            "rssi_dBm": float(pwr_dBm),
+            "rssi_dBm": float(rssi_dBm),
             "gain_linear": float(gain_linear),
             "gain_dBi": float(gain_dBi),
             "quant_loss_dB": float(quant_loss_dB),

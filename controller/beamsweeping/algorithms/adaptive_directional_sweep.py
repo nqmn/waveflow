@@ -38,7 +38,8 @@ class AdaptiveDirectionalSweep(SweepAlgorithmBase):
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
-              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+              modulation: str = 'QPSK', num_symbols: int = 1000,
+              metric_selector=None, **kwargs) -> Dict:
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
         ap_vec = ap.pos - ris.pos
@@ -239,7 +240,14 @@ class AdaptiveDirectionalSweep(SweepAlgorithmBase):
             raise RuntimeError("Adaptive sweep could not record any measurements.")
 
         all_measurements = list(measured.values())
-        best_measurement = max(all_measurements, key=lambda item: item['snr'])
+        if metric_selector is not None:
+            # Use metric selector to find best measurement
+            snr_values = [item['snr'] for item in all_measurements]
+            best_idx = metric_selector.find_best_index(snr_values)
+            best_measurement = all_measurements[best_idx]
+        else:
+            # Default: use SNR
+            best_measurement = max(all_measurements, key=lambda item: item['snr'])
 
         result = {
             'algorithm': self.name,

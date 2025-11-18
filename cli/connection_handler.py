@@ -106,7 +106,9 @@ class ConnectionHandler:
 
         Returns:
             dict: Parsed flags with keys: enable_feedback, use_waveform, modulation,
-                  fov, step, algo_name, ml_predictor, angle, seed, error_msg
+                  fov, step, algo_name, ml_predictor, metric, angle, seed, error_msg,
+                  enable_codebook_validation, codebook_increment, codebook_neighbors,
+                  include_predicted_angle
         """
         result = {
             'enable_feedback': True,
@@ -120,7 +122,15 @@ class ConnectionHandler:
             'seed': None,
             'error_msg': None,
             'algo_specified': False,
-            'ml_predictor_specified': False
+            'ml_predictor_specified': False,
+            'metric': 'snr',  # Default metric for beam selection
+            'enable_codebook_validation': False,
+            'codebook_increment': 5.0,
+            'codebook_neighbors': 1,
+            'include_predicted_angle': True,
+            'codebook_start': 10.0,
+            'codebook_end': 60.0,
+            'codebook_step': 10.0
         }
 
         parts = list(parts)  # Make a copy
@@ -179,6 +189,73 @@ class ConnectionHandler:
             result['ml_predictor_specified'] = True
             parts = parts[:idx] + parts[idx+2:]
 
+        # Parse codebook validation flag
+        if '--enable-codebook-validation' in parts:
+            result['enable_codebook_validation'] = True
+            parts.remove('--enable-codebook-validation')
+
+        # Parse codebook increment
+        if '--codebook-increment' in parts:
+            idx = parts.index('--codebook-increment')
+            if idx + 1 < len(parts):
+                try:
+                    result['codebook_increment'] = float(parts[idx + 1])
+                except ValueError:
+                    pass
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse codebook neighbors
+        if '--codebook-neighbors' in parts:
+            idx = parts.index('--codebook-neighbors')
+            if idx + 1 < len(parts):
+                try:
+                    result['codebook_neighbors'] = int(parts[idx + 1])
+                except ValueError:
+                    pass
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse include predicted angle flag
+        if '--no-predicted-angle' in parts:
+            result['include_predicted_angle'] = False
+            parts.remove('--no-predicted-angle')
+
+        # Parse codebook start
+        if '--codebook-start' in parts:
+            idx = parts.index('--codebook-start')
+            if idx + 1 < len(parts):
+                try:
+                    result['codebook_start'] = float(parts[idx + 1])
+                except ValueError:
+                    pass
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse codebook end
+        if '--codebook-end' in parts:
+            idx = parts.index('--codebook-end')
+            if idx + 1 < len(parts):
+                try:
+                    result['codebook_end'] = float(parts[idx + 1])
+                except ValueError:
+                    pass
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse codebook step
+        if '--codebook-step' in parts:
+            idx = parts.index('--codebook-step')
+            if idx + 1 < len(parts):
+                try:
+                    result['codebook_step'] = float(parts[idx + 1])
+                except ValueError:
+                    pass
+            parts = parts[:idx] + parts[idx+2:]
+
+        # Parse metric for beam selection
+        if '--metric' in parts:
+            idx = parts.index('--metric')
+            if idx + 1 < len(parts):
+                result['metric'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
         # Helper to check if token is a number
         def _is_number(token):
             try:
@@ -190,7 +267,7 @@ class ConnectionHandler:
         # Check for unknown flags
         unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
         if unknown_flags:
-            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --modulation, --ml-predictor, --no-waveform, --no-feedback"
+            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --no-waveform, --no-feedback"
             return result
 
         # Validate flag combinations
@@ -424,7 +501,7 @@ class ConnectionHandler:
             'metrics': res
         }
 
-    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, print_func=print):
+    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, print_func=print):
         """Execute multi-angle sweep"""
         try:
             algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
@@ -444,14 +521,27 @@ class ConnectionHandler:
         print_func('='*70)
 
         try:
+            # Create standardized metric selector
+            from utils import create_metric_selector
+            metric_selector = create_metric_selector(metric)
+
             kwargs = {
                 'fov': fov,
                 'step': step,
                 'enable_feedback': enable_feedback,
-                'max_feedback_iterations': 3
+                'max_feedback_iterations': 3,
+                'metric': metric,  # Beam selection metric string
+                'metric_selector': metric_selector  # Standardized metric selector object
             }
             if algo_name.lower() in ['ml', 'ml-guided']:
                 kwargs['ml_predictor'] = ml_predictor
+                kwargs['enable_codebook_validation'] = enable_codebook_validation
+                kwargs['codebook_increment'] = codebook_increment
+                kwargs['codebook_neighbors'] = codebook_neighbors
+                kwargs['include_predicted_angle'] = include_predicted_angle
+                kwargs['codebook_start'] = codebook_start
+                kwargs['codebook_end'] = codebook_end
+                kwargs['codebook_step'] = codebook_step
 
             if use_waveform:
                 kwargs['use_waveform'] = True
@@ -459,6 +549,22 @@ class ConnectionHandler:
                 kwargs['num_symbols'] = 1000
 
             out = algo.sweep(ap, ris, ue, **kwargs)
+
+            # Compute metric-specific values for display
+            if metric.lower() == 'rssi' and 'snr_coarse' in out:
+                # Compute RSSI from SNR and noise power
+                from utils.rssi import rssi_from_snr
+                noise_power = 10 ** (-10 / 10)  # Assume -10 dB noise power as reference
+                out['rssi_coarse'] = [rssi_from_snr(snr_val, noise_power) for snr_val in out.get('snr_coarse', [])]
+                if 'snr_fine' in out:
+                    out['rssi_fine'] = [rssi_from_snr(snr_val, noise_power) for snr_val in out.get('snr_fine', [])]
+
+            if metric.lower() in ['csi', 'csi_quality'] and 'snr_coarse' in out:
+                # Compute CSI quality metrics
+                from utils.csi import estimate_channel_capacity_bps_hz
+                out['csi_quality_coarse'] = [estimate_channel_capacity_bps_hz(snr_val) for snr_val in out.get('snr_coarse', [])]
+                if 'snr_fine' in out:
+                    out['csi_quality_fine'] = [estimate_channel_capacity_bps_hz(snr_val) for snr_val in out.get('snr_fine', [])]
 
             # Post-process waveform simulation if needed
             if use_waveform and 'ser_coarse' not in out:
@@ -502,6 +608,50 @@ class ConnectionHandler:
                 except ImportError:
                     pass
 
+            # Post-process: Apply metric-based beam selection if metric != 'snr'
+            if metric.lower() != 'snr' and out is not None:
+                from utils import create_metric_selector
+                metric_selector = create_metric_selector(metric)
+
+                # Determine which phase to use for final selection
+                has_fine_phase = 'snr_fine' in out and len(out.get('snr_fine', [])) > 0
+
+                if has_fine_phase:
+                    # Fine phase exists - use it for final selection
+                    if metric.lower() in ['rssi', 'power'] and 'rssi_fine' in out:
+                        metric_values = out['rssi_fine']
+                    elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_fine' in out:
+                        metric_values = out['csi_quality_fine']
+                    else:
+                        metric_values = out['snr_fine']
+                    best_idx = metric_selector.find_best_index(metric_values)
+
+                    if best_idx < len(out.get('local_fine', [])):
+                        out['best_local_fine'] = float(out['local_fine'][best_idx])
+                        out['best_snr_fine'] = float(out['snr_fine'][best_idx])
+                        out['best_angle'] = float(out['local_fine'][best_idx])
+                        out['best_snr'] = float(out['snr_fine'][best_idx])
+                else:
+                    # Only coarse phase - select based on metric
+                    if metric.lower() in ['rssi', 'power'] and 'rssi_coarse' in out:
+                        metric_values = out['rssi_coarse']
+                    elif metric.lower() in ['rssi', 'power'] and 'pwr_coarse' in out:
+                        metric_values = out['pwr_coarse']
+                    elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_coarse' in out:
+                        metric_values = out['csi_quality_coarse']
+                    else:
+                        metric_values = out.get('snr_coarse', out.get('snr', []))
+
+                    best_idx = metric_selector.find_best_index(metric_values)
+
+                    # Update best beam info from coarse phase
+                    if best_idx < len(out.get('local_coarse', [])):
+                        out['best_angle'] = float(out['local_coarse'][best_idx])
+                        if 'snr_coarse' in out:
+                            out['best_snr'] = float(out['snr_coarse'][best_idx])
+                        if 'pwr_coarse' in out:
+                            out['best_power'] = float(out['pwr_coarse'][best_idx])
+
             return out
 
         except ValueError as e:
@@ -511,7 +661,7 @@ class ConnectionHandler:
             print_func(f"\nError during sweep: {e}\n")
             return None
 
-    def print_sweep_results(self, out, fov, step, ap, ris, ue, algo_name, print_func=print):
+    def print_sweep_results(self, out, fov, step, ap, ris, ue, algo_name, metric='snr', print_func=print):
         """Print detailed sweep results and return best beam angle info"""
         algo = out.get('algo_object') or {'name': algo_name}
         algo_display_name = getattr(algo, 'name', algo_name) if hasattr(algo, 'name') else algo_name
@@ -600,14 +750,44 @@ class ConnectionHandler:
                     marker = " <-- BEST" if i == best_idx else ""
                     print_func(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
             else:
-                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
+                # Determine which metric column to display
+                if metric.lower() in ['rssi', 'power']:
+                    # Display RSSI or Power values
+                    if 'rssi_coarse' in out:
+                        metric_values = out['rssi_coarse']
+                        metric_label = 'RSSI (dBm)'
+                    else:
+                        metric_values = pwr_coarse
+                        metric_label = 'Power (dBm)'
+                elif metric.lower() in ['csi', 'csi_quality']:
+                    # Display CSI quality metrics
+                    metric_values = out.get('csi_quality_coarse', snr_coarse)
+                    metric_label = 'CSI Quality (bps/Hz)'
+                else:
+                    # Default: Display SNR
+                    metric_values = snr_coarse
+                    metric_label = 'SNR (dB)'
+
+                header = f'{"Local (°)":<12} {metric_label:^25}'
                 print_func(header)
                 print_func('-'*70)
-                best_idx = int(np.argmax(snr_coarse))
-                for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
-                    pwr = pwr_coarse[i] if i < len(pwr_coarse) else 0.0
+
+                # Use metric-selected best angle from output dict (handles metric-based selection)
+                best_angle_selected = out.get('best_angle')
+                best_idx = None
+                if best_angle_selected is not None:
+                    # Find index matching the selected best angle
+                    for i, angle in enumerate(local_coarse):
+                        if abs(float(angle) - float(best_angle_selected)) < 0.01:
+                            best_idx = i
+                            break
+                if best_idx is None:
+                    # Fallback to metric value
+                    best_idx = int(np.argmax(metric_values))
+
+                for i, (angle, metric_val) in enumerate(zip(local_coarse, metric_values)):
                     marker = " <-- BEST" if i == best_idx else ""
-                    print_func(f'{angle:>11.1f}  {snr:>13.2f}  {pwr:>13.2f}{marker}')
+                    print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
             print_func()
 
         # Show fine phase results if available
@@ -632,14 +812,40 @@ class ConnectionHandler:
                     else:
                         print_func(f'{angle:>11.1f}  {snr:>13.2f}  {"N/A":>13s}')
             else:
-                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"Power (dBm)":<15}'
+                # Determine which metric column to display
+                if metric.lower() in ['rssi', 'power']:
+                    if 'rssi_fine' in out:
+                        metric_values = out['rssi_fine']
+                        metric_label = 'RSSI (dBm)'
+                    else:
+                        metric_values = snr_fine
+                        metric_label = 'SNR (dB)'
+                elif metric.lower() in ['csi', 'csi_quality']:
+                    metric_values = out.get('csi_quality_fine', snr_fine)
+                    metric_label = 'CSI Quality (bps/Hz)'
+                else:
+                    metric_values = snr_fine
+                    metric_label = 'SNR (dB)'
+
+                header = f'{"Local (°)":<12} {metric_label:^25}'
                 print_func(header)
                 print_func('-'*70)
-                best_fine_idx = int(np.argmax(snr_fine))
-                best_snr_fine = float(np.max(snr_fine))
-                for i, (angle, snr) in enumerate(zip(local_fine, snr_fine)):
-                    marker = " <-- BEST OVERALL" if snr == best_snr_fine else ""
-                    print_func(f'{angle:>11.1f}  {snr:>13.2f}  {" "*15}{marker}')
+                # Use metric-selected best angle from output dict (handles metric-based selection)
+                best_angle_selected = out.get('best_angle')
+                best_fine_idx = None
+                if best_angle_selected is not None:
+                    # Find index in fine phase matching the selected best angle
+                    for i, angle in enumerate(local_fine):
+                        if abs(float(angle) - float(best_angle_selected)) < 0.01:
+                            best_fine_idx = i
+                            break
+                if best_fine_idx is None:
+                    # Fallback to metric value
+                    best_fine_idx = int(np.argmax(metric_values))
+
+                for i, (angle, metric_val) in enumerate(zip(local_fine, metric_values)):
+                    marker = " <-- BEST OVERALL" if i == best_fine_idx else ""
+                    print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
             print_func()
 
             # Show summary
@@ -687,10 +893,46 @@ class ConnectionHandler:
 
         best_final_abs = specular_angle + best_final_local
 
+        # Get the metric-specific expected value at best angle
+        best_final_metric = best_final_snr  # Default
+        metric_display_label = 'Expected SNR'
+        metric_display_unit = 'dB'
+
+        # Find best angle index in appropriate phase
+        best_angle_idx = None
+        if has_fine_phase and local_fine:
+            for i, angle in enumerate(local_fine):
+                if abs(float(angle) - float(best_final_local)) < 0.01:
+                    best_angle_idx = i
+                    break
+            if best_angle_idx is not None:
+                if metric.lower() in ['rssi', 'power'] and 'rssi_fine' in out:
+                    best_final_metric = out['rssi_fine'][best_angle_idx]
+                    metric_display_label = 'Expected RSSI'
+                    metric_display_unit = 'dBm'
+                elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_fine' in out:
+                    best_final_metric = out['csi_quality_fine'][best_angle_idx]
+                    metric_display_label = 'Expected CSI Quality'
+                    metric_display_unit = 'bps/Hz'
+        elif local_coarse:
+            for i, angle in enumerate(local_coarse):
+                if abs(float(angle) - float(best_final_local)) < 0.01:
+                    best_angle_idx = i
+                    break
+            if best_angle_idx is not None:
+                if metric.lower() in ['rssi', 'power'] and 'rssi_coarse' in out:
+                    best_final_metric = out['rssi_coarse'][best_angle_idx]
+                    metric_display_label = 'Expected RSSI'
+                    metric_display_unit = 'dBm'
+                elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_coarse' in out:
+                    best_final_metric = out['csi_quality_coarse'][best_angle_idx]
+                    metric_display_label = 'Expected CSI Quality'
+                    metric_display_unit = 'bps/Hz'
+
         print_func('RECOMMENDATION TO SEND TO RIS:')
         print_func('-'*70)
-        print_func(f'Steering Angle (Local Deflection): {best_final_local:>8.2f}°  (relative to RIS normal)')
-        print_func(f'Expected SNR:                      {best_final_snr:>8.2f} dB')
+        print_func(f'Steering Angle (Local Deflection): {best_final_local:.2f}°  (relative to RIS normal)')
+        print_func(f'{metric_display_label:<34} {best_final_metric:.4f} {metric_display_unit}')
         print_func()
 
         return {

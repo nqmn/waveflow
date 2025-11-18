@@ -6,6 +6,7 @@ Implements full OFDM reception, channel estimation, and CSI feedback
 import numpy as np
 from typing import Dict, Tuple, Optional
 from scipy import signal
+from utils.csi import generate_csi_report
 
 
 class UEReceiverPipeline:
@@ -253,23 +254,17 @@ class UEReceiverPipeline:
             ris_phases: RIS phase configuration (for context)
 
         Returns:
-            CSI feedback dictionary
+            CSI feedback dictionary using standardized utility
         """
-        import time
-
-        feedback = {
-            'ue_name': self.ue.name,
-            'timestamp': time.time(),
-            'snr_dB': float(snr_dB),
-            'channel_estimate': channel_est,
-            'antenna_gain_dBi': self.ue.antenna_gain_dBi,
-            'noise_figure_dB': self.ue.noise_figure_dB,
-            'ris_phases': ris_phases,  # Context information
-            'equalized_symbols_count': len(self.equalized_symbols) if self.equalized_symbols is not None else 0,
-            'pilot_reliability': self._estimate_pilot_reliability()
-        }
-
-        return feedback
+        return generate_csi_report(
+            ue_name=self.ue.name,
+            snr_dB=snr_dB,
+            channel_estimate=channel_est,
+            antenna_gain_dBi=self.ue.antenna_gain_dBi,
+            noise_figure_dB=self.ue.noise_figure_dB,
+            ris_phases=ris_phases,
+            pilot_reliability=self._estimate_pilot_reliability(),
+        )
 
     def _estimate_pilot_reliability(self) -> float:
         """

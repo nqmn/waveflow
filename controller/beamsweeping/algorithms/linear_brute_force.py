@@ -41,7 +41,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
-              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+              modulation: str = 'QPSK', num_symbols: int = 1000,
+              metric_selector=None, **kwargs) -> Dict:
         """Execute linear brute-force sweep with optional closed-loop feedback
 
         Args:
@@ -155,8 +156,12 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         for idx in range(len(angles)):
             measure_index(idx)
 
-        # Find best angle
-        best_idx = int(np.argmax(snr_values))
+        # Find best angle using metric selector (if provided, otherwise default to SNR)
+        if metric_selector is not None:
+            best_idx = metric_selector.find_best_index(snr_values)
+        else:
+            best_idx = int(np.argmax(snr_values))
+
         best_angle = angles[best_idx]
         best_snr = snr_values[best_idx]
         best_power = power_values[best_idx]

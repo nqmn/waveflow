@@ -1,0 +1,9 @@
+{
+  "pipeline": "vae_xgb",
+  "vae_latent_dim": 6,
+  "vae_hidden_dim": 64,
+  "xgb_max_depth": 6,
+  "xgb_eta": 0.1,
+  "samples": 10000,
+  "created_at": "2025-11-18T00:34:27Z"
+}

@@ -51,7 +51,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
-              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+              modulation: str = 'QPSK', num_symbols: int = 1000,
+              metric_selector=None, **kwargs) -> Dict:
         """Execute directional exhaustive sweep across all codebook angles for all links
 
         Args:
@@ -189,10 +190,16 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                 if error > 180:
                     error = 360 - error
 
-                # Track the best result found so far
-                if current_snr > best_snr_found:
-                    best_snr_found = current_snr
-                    best_index_found = i
+                # Track the best result found so far (using metric selector if available)
+                if metric_selector is None:
+                    # Default: use SNR
+                    if current_snr > best_snr_found:
+                        best_snr_found = current_snr
+                        best_index_found = i
+                else:
+                    # Use metric selector: re-evaluate against all collected measurements
+                    # This will be applied after all measurements are collected
+                    pass
 
                 # Determine if this angle is close to target (within half a step)
                 is_target_detected = error < (step / 2)
@@ -206,6 +213,11 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
                     ser_measurements.append(ser_val)
 
             print(f"│")
+
+            # Apply metric selector if provided
+            if metric_selector is not None:
+                best_index_found = metric_selector.find_best_index(snr_measurements)
+                best_snr_found = snr_measurements[best_index_found]
 
             # --- Step 4: Greedy refinement (check neighbors of peak) ---
             print(f"│ Step 4: GREEDY REFINEMENT - Checking neighbors of peak (index {best_index_found})")

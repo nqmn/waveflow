@@ -41,6 +41,25 @@ class MLGuidedSweep(SweepAlgorithmBase):
             return angle
         return round(angle / increment) * increment
 
+    @staticmethod
+    def _build_fixed_codebook(codebook_start: float, codebook_end: float, codebook_step: float) -> List[float]:
+        """Build a fixed codebook with angles from start to end at specified step."""
+        if codebook_step <= 0:
+            return []
+        codebook = []
+        angle = codebook_start
+        while angle <= codebook_end + 1e-6:
+            codebook.append(round(angle, 1))
+            angle += codebook_step
+        return sorted(set(codebook))
+
+    @staticmethod
+    def _find_closest_codebook_angle(predicted_angle: float, codebook: List[float]) -> float:
+        """Find the closest angle in the codebook."""
+        if not codebook:
+            return predicted_angle
+        return min(codebook, key=lambda x: abs(x - predicted_angle))
+
     def _build_validation_candidates(
         self,
         predicted_angle: float,
@@ -49,18 +68,36 @@ class MLGuidedSweep(SweepAlgorithmBase):
         increment: float,
         neighbors: int,
         include_predicted: bool,
+        codebook_start: float = 10.0,
+        codebook_end: float = 60.0,
+        codebook_step: float = 10.0,
     ) -> List[float]:
-        """Return the local angles we should validate around the ML prediction."""
+        """Return the local angles we should validate around the ML prediction.
+
+        With enable_validation=True and fixed codebook:
+        - Quantize predicted angle to nearest codebook angle
+        - Include N neighbors on each side from the codebook
+        - include_predicted controls whether to add the raw prediction
+        """
         neighbors = max(0, neighbors)
         candidates = set()
 
         if include_predicted or not enable_validation:
             candidates.add(predicted_angle)
 
-        if enable_validation and increment > 0:
-            center = self._quantize_local_angle(predicted_angle, increment)
-            for offset in range(-neighbors, neighbors + 1):
-                candidates.add(center + offset * increment)
+        if enable_validation:
+            # Build fixed codebook
+            codebook = self._build_fixed_codebook(codebook_start, codebook_end, codebook_step)
+            if codebook:
+                # Find closest codebook angle
+                closest = self._find_closest_codebook_angle(predicted_angle, codebook)
+                closest_idx = codebook.index(closest)
+
+                # Add neighbors from codebook
+                for offset in range(-neighbors, neighbors + 1):
+                    idx = closest_idx + offset
+                    if 0 <= idx < len(codebook):
+                        candidates.add(codebook[idx])
 
         if not candidates:
             candidates.add(predicted_angle)
@@ -75,13 +112,17 @@ class MLGuidedSweep(SweepAlgorithmBase):
               fov: float = 60.0, step: float = 10.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
-              ml_predictor: str = 'xgb', top_k: int = 5,
+              ml_predictor: str = 'xgb', top_k: int = 1,
               codebook_increment: float = 5.0,
               codebook_neighbors: int = 1,
               enable_codebook_validation: bool = False,
               include_predicted_angle: bool = True,
+              codebook_start: float = 10.0,
+              codebook_end: float = 60.0,
+              codebook_step: float = 10.0,
               ml_angles=None, use_waveform: bool = False,
-              modulation: str = 'QPSK', num_symbols: int = 1000) -> Dict:
+              modulation: str = 'QPSK', num_symbols: int = 1000,
+              metric_selector=None, **kwargs) -> Dict:
         """Execute ML-guided beam sweep with validation (single phase)
 
         Args:
@@ -94,11 +135,14 @@ class MLGuidedSweep(SweepAlgorithmBase):
             enable_feedback: If True, use closed-loop feedback
             max_feedback_iterations: Max iterations for feedback loop
             ml_predictor: ML predictor name (default: 'xgb')
-            top_k: Number of top angles to test (default: 5)
-            codebook_increment: Quantization step (degrees) for codebook validation
-            codebook_neighbors: Number of increments to test on either side of the quantized angle
-            enable_codebook_validation: Whether to run codebook quantization and neighbor validation
-            include_predicted_angle: If True, keep the raw prediction in the validation set
+            top_k: Number of top angles to test (default: 1)
+            codebook_increment: Deprecated - use codebook_start/end/step instead
+            codebook_neighbors: Number of codebook angles to test on either side of quantized angle
+            enable_codebook_validation: Whether to enable fixed codebook quantization and neighbor validation
+            include_predicted_angle: If True, also include the raw ML prediction in validation set
+            codebook_start: Start angle of fixed codebook (degrees, default: 10)
+            codebook_end: End angle of fixed codebook (degrees, default: 60)
+            codebook_step: Step size for fixed codebook (degrees, default: 10)
             use_waveform: If True, simulate real signal-level SNR/SER
             modulation: Modulation type: QPSK, 16QAM, or 64QAM
             num_symbols: Number of symbols per measurement
@@ -155,9 +199,6 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # PHASE 1: Test ML-suggested angles (clamped to RIS FOV)
         print(f"\n[ML-GUIDED SWEEP]")
         print(f"ML Predictor: {ml_predictor}")
-        print(f"Validating {len(clamped_ml_suggestions)} ML-predicted angles (top_k={top_k})")
-        if enable_codebook_validation and codebook_increment > 0 and codebook_neighbors >= 0:
-            print(f"  Quantizing to {codebook_increment:.1f}° and verifying ±{codebook_neighbors} steps per prediction")
 
         ml_results = []
         local_angles = []
@@ -172,7 +213,16 @@ class MLGuidedSweep(SweepAlgorithmBase):
                 codebook_increment,
                 codebook_neighbors,
                 include_predicted_angle,
+                codebook_start=codebook_start,
+                codebook_end=codebook_end,
+                codebook_step=codebook_step,
             )
+
+            if enable_codebook_validation:
+                print(f"\nML Prediction: {ml_angle:.1f}°")
+                print(f"Codebook angles to test: {[f'{a:.0f}°' for a in sorted(validation_angles)]}")
+            else:
+                print(f"\nTesting {len(validation_angles)} angles")
 
             for local_angle in validation_angles:
                 if angle_diff > 0:
@@ -212,19 +262,21 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     'ser_percent': ser_val
                 })
 
-        # Find best result first
-        best_idx = int(np.argmax(snr_values))
+        # Find best result using metric selector (if provided, otherwise default to SNR)
+        if metric_selector is not None:
+            best_idx = metric_selector.find_best_index(snr_values)
+        else:
+            best_idx = int(np.argmax(snr_values))
 
-        # Now print with marker only for the best index
+        # Print test results in a clean format
+        print(f"\nCODEBOOK TEST RESULTS:")
+        print(f"{'Angle (°)':<12} {'SNR (dB)':<12} {'Power (dBm)':<15} {'Status':<15}")
+        print("-" * 55)
         for i, snr_val in enumerate(snr_values):
-            ml_angle = local_angles[i]
-            prediction_angle = ml_results[i].get('prediction_angle', ml_angle)
-            if angle_diff > 0:
-                abs_angle = ap_angle + ml_angle
-            else:
-                abs_angle = ap_angle - ml_angle
-            marker = " <-- BEST" if i == best_idx else ""
-            print(f"  idx={i}: pred {prediction_angle:>7.1f}°, {ml_angle:>7.1f}° (abs: {abs_angle:>7.1f}°) SNR={snr_val:>7.2f} dB{marker}")
+            local_angle = local_angles[i]
+            pwr = ml_results[i]['pwr_dBm']
+            marker = "BEST" if i == best_idx else ""
+            print(f"{local_angle:<12.1f} {snr_val:<12.2f} {pwr:<15.2f} {marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
         # Convert deflection angle to absolute beam angle

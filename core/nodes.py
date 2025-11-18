@@ -5,6 +5,7 @@ import numpy as np
 from typing import Dict, Optional
 import copy
 from .physics import C, Physics
+from utils.csi import generate_csi_report
 
 class Node:
     """Base class for all network nodes"""
@@ -558,18 +559,19 @@ class UE(Node):
             feedback_channel: Optional FeedbackChannel to push report to (Option 3)
 
         Returns:
-            CSI feedback dictionary
+            CSI feedback dictionary using standardized utility
         """
         import time
 
-        feedback = {
-            'ue_name': self.name,
-            'timestamp': time.time(),
-            'snr_dB': snr_dB if snr_dB is not None else self.snr_measurement_dB,
-            'channel_estimate': channel_est,
-            'antenna_gain_dBi': self.antenna_gain_dBi,
-            'noise_figure_dB': self.noise_figure_dB
-        }
+        effective_snr = snr_dB if snr_dB is not None else self.snr_measurement_dB
+
+        feedback = generate_csi_report(
+            ue_name=self.name,
+            snr_dB=effective_snr,
+            channel_estimate=channel_est,
+            antenna_gain_dBi=self.antenna_gain_dBi,
+            noise_figure_dB=self.noise_figure_dB,
+        )
 
         self.csi_report = feedback
         self.last_feedback_time = feedback['timestamp']
@@ -584,7 +586,7 @@ class UE(Node):
                 snr_dB=feedback['snr_dB'],
                 antenna_gain_dBi=feedback['antenna_gain_dBi'],
                 noise_figure_dB=feedback['noise_figure_dB'],
-                channel_estimate=feedback['channel_estimate']
+                channel_estimate=feedback.get('channel_estimate')
             )
             feedback_channel.push_report(csi_report)
 
