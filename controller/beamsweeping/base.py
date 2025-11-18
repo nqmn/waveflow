@@ -9,10 +9,19 @@ class SweepAlgorithmBase(ABC):
     """Base class for all sweep algorithms"""
 
     # Class variable to control SNR retrieval mode across all algorithms
-    # When False (DEFAULT for sweeps), algorithms compute SNR directly instead of using messaging
-    # This is critical for sweep operations because the messaging system returns cached SNR values
-    # that don't vary with beam angle, making all swept angles appear to have identical SNR.
-    # Setting to False ensures SNR properly varies with the beam_angle_deg parameter.
+    # CRITICAL: Beam sweeps MUST use computed mode (use_get_snr=False)
+    #
+    # Why NOT messaging mode:
+    # - Messaging returns CACHED SNR from the last connect() call
+    # - For sweeps with store_in_active_links=False, cache never updates
+    # - Result: ALL angles return the SAME cached SNR value
+    #
+    # Why computed mode is correct for sweeps:
+    # - SNR is computed fresh for EACH beam angle
+    # - Variation in SNR correctly reflects beam angle changes
+    # - Matches the expected SNR curve (varying with beam alignment)
+    #
+    # Note: Messaging mode is still used in non-sweep operations where SNR caching is valid
     use_get_snr = False
 
     def __init__(self, network):
@@ -24,10 +33,14 @@ class SweepAlgorithmBase(ABC):
         self.network = network
 
     def _should_use_get_snr(self) -> bool:
-        """Check if get_snr should be used (class var or network global setting)"""
-        if self.use_get_snr:
+        """Decide if algorithms should call get_snr() or compute locally."""
+        # Explicit overrides always win
+        if self.use_get_snr is True:
             return True
-        # Also check network's global setting
+        if self.use_get_snr is False:
+            return False
+
+        # Only fall back to the network-wide default when class didn't pick a mode
         if hasattr(self.network, 'use_get_snr_global'):
             return self.network.use_get_snr_global
         return False

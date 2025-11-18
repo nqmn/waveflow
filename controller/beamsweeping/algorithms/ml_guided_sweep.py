@@ -20,9 +20,11 @@ from ..common import (
     clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
+from utils.csi import estimate_channel_capacity_bps_hz
+from utils.metric_selector import MetricType
 
 
-@register_algorithm("ml", aliases=("ml-guided",))
+@register_algorithm("ml", aliases=("ml-guided", "gmf"))
 class MLGuidedSweep(SweepAlgorithmBase):
     """ML-guided beam sweep algorithm with validation (1-phase)"""
 
@@ -112,7 +114,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
               fov: float = 60.0, step: float = 10.0,
               seed: int = 42, enable_feedback: bool = True,
               max_feedback_iterations: int = 3,
-              ml_predictor: str = 'xgb', top_k: int = 1,
+              ml_predictor: str = 'gmf', top_k: int = 1,
               codebook_increment: float = 5.0,
               codebook_neighbors: int = 1,
               enable_codebook_validation: bool = False,
@@ -134,7 +136,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
             seed: Random seed for reproducibility
             enable_feedback: If True, use closed-loop feedback
             max_feedback_iterations: Max iterations for feedback loop
-            ml_predictor: ML predictor name (default: 'xgb')
+              ml_predictor: ML predictor name (default: 'gmf')
             top_k: Number of top angles to test (default: 1)
             codebook_increment: Deprecated - use codebook_start/end/step instead
             codebook_neighbors: Number of codebook angles to test on either side of quantized angle
@@ -259,24 +261,65 @@ class MLGuidedSweep(SweepAlgorithmBase):
                     'abs_angle': float(abs_angle),
                     'snr_dB': float(snr_val),
                     'pwr_dBm': float(res['pwr_dBm']),
-                    'ser_percent': ser_val
+                    'ser_percent': ser_val,
+                    'evm_percent': float(res.get('evm_percent', 0.0))
                 })
 
         # Find best result using metric selector (if provided, otherwise default to SNR)
-        if metric_selector is not None:
-            best_idx = metric_selector.find_best_index(snr_values)
+        metric_selector_obj = metric_selector
+        metric_type = metric_selector_obj.metric_type if metric_selector_obj else MetricType.SNR
+
+        def _compute_metric_value(metric_type: MetricType, snr_val: float, measurement: Dict) -> float:
+            if metric_type == MetricType.SNR:
+                return float(snr_val)
+            if metric_type == MetricType.RSSI:
+                return float(measurement['pwr_dBm'])
+            if metric_type in (MetricType.CSI_QUALITY, MetricType.CAPACITY):
+                return float(estimate_channel_capacity_bps_hz(snr_val))
+            if metric_type == MetricType.SER:
+                ser = measurement.get('ser_percent')
+                return float(ser) if ser is not None else None
+            if metric_type == MetricType.EVM:
+                evm = measurement.get('evm_percent')
+                return float(evm) if evm is not None else None
+            if metric_type == MetricType.HYBRID_SNR_RSSI and metric_selector_obj is not None:
+                return float(metric_selector_obj.compute_hybrid_metric(snr_db=snr_val, rssi_dbm=measurement['pwr_dBm']))
+            return float(snr_val)
+
+        metric_values = []
+        metric_data_available = True
+        for snr_val, measurement in zip(snr_values, ml_results):
+            metric_val = _compute_metric_value(metric_type, snr_val, measurement)
+            if metric_val is None:
+                metric_data_available = False
+                break
+            metric_values.append(metric_val)
+
+        if not metric_data_available:
+            metric_type = MetricType.SNR
+            metric_values = list(snr_values)
+            if metric_selector_obj is not None:
+                print("[ML] Requested metric unavailable for ML predictor output; falling back to SNR.")
+            metric_selector_obj = None
+
+        if metric_selector_obj is not None:
+            metric_label = metric_selector_obj.get_metric_name()
         else:
-            best_idx = int(np.argmax(snr_values))
+            metric_label = "SNR (dB)"
+
+        if metric_selector_obj is not None and metric_data_available:
+            best_idx = metric_selector_obj.find_best_index(metric_values)
+        else:
+            best_idx = int(np.argmax(metric_values))
 
         # Print test results in a clean format
         print(f"\nCODEBOOK TEST RESULTS:")
-        print(f"{'Angle (°)':<12} {'SNR (dB)':<12} {'Power (dBm)':<15} {'Status':<15}")
-        print("-" * 55)
-        for i, snr_val in enumerate(snr_values):
+        print(f"{'Angle (°)':<12} {metric_label:<20} {'Status':<10}")
+        print("-" * 45)
+        for i, metric_val in enumerate(metric_values):
             local_angle = local_angles[i]
-            pwr = ml_results[i]['pwr_dBm']
             marker = "BEST" if i == best_idx else ""
-            print(f"{local_angle:<12.1f} {snr_val:<12.2f} {pwr:<15.2f} {marker}")
+            print(f"{local_angle:<12.1f} {metric_val:<20.4f} {marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
         # Convert deflection angle to absolute beam angle

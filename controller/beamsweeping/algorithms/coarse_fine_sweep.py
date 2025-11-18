@@ -144,15 +144,24 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     store_in_active_links=False,  # Don't store intermediate measurements
                     use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
                 )
-            snr_val, ser_val = apply_waveform_realism(
-                res,
-                link_simulator,
-                seed=seed + idx if seed else None,
-            )
-            snr_array[idx] = snr_val
-            pwr_array[idx] = res['pwr_dBm']
-            if ser_coarse is not None:
-                ser_coarse[idx] = ser_val
+            # Check if SNR measurement is valid
+            # None indicates UE cannot receive from this angle (outside FOV)
+            if res.get('snr_dB') is None:
+                # UE cannot receive from this angle - leave as NaN
+                snr_array[idx] = np.nan
+                pwr_array[idx] = np.nan
+                if ser_coarse is not None:
+                    ser_coarse[idx] = np.nan
+            else:
+                snr_val, ser_val = apply_waveform_realism(
+                    res,
+                    link_simulator,
+                    seed=seed + idx if seed else None,
+                )
+                snr_array[idx] = snr_val
+                pwr_array[idx] = res['pwr_dBm']
+                if ser_coarse is not None:
+                    ser_coarse[idx] = ser_val
 
             if enable_feedback and 'feedback_info' in res:
                 feedback_collector.add(float(abs_angles[idx]), float(local_coarse[idx]), res['feedback_info'], phase='coarse')
@@ -202,14 +211,22 @@ class CoarseFineSweep(SweepAlgorithmBase):
                     store_in_active_links=False,  # Don't store intermediate measurements
                     use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
                 )
-            snr_val, ser_val = apply_waveform_realism(
-                r,
-                link_simulator,
-                seed=seed + i if seed else None,
-            )
-            snr_fine.append(snr_val)
-            if ser_fine is not None:
-                ser_fine[i] = ser_val
+            # Check if SNR measurement is valid
+            # None indicates UE cannot receive from this angle (outside FOV)
+            if r.get('snr_dB') is None:
+                # UE cannot receive from this angle
+                snr_fine.append(np.nan)
+                if ser_fine is not None:
+                    ser_fine[i] = np.nan
+            else:
+                snr_val, ser_val = apply_waveform_realism(
+                    r,
+                    link_simulator,
+                    seed=seed + i if seed else None,
+                )
+                snr_fine.append(snr_val)
+                if ser_fine is not None:
+                    ser_fine[i] = ser_val
 
             # Store feedback details if enabled
             if enable_feedback and 'feedback_info' in r:

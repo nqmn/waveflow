@@ -43,6 +43,10 @@ class RISNetwork:
         # This is now the DEFAULT behavior - all commands query SNR from UE via messaging
         self.use_get_snr_global = use_get_snr
 
+        # Angular tolerance (deg) to consider UE present in a beam and SNR floor when absent
+        self.presence_detection_tolerance_deg = 5.0
+        self.no_ue_snr_floor_dB = 0.0
+
     def set_controller(self, controller):
         """Set network controller"""
         self._controller = controller
@@ -261,6 +265,11 @@ class RISNetwork:
             vec_tgt = ue.pos - ris.pos
             beam_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
 
+        # Canonical node names for metadata/storage
+        ap_key = ap.name if ap else ap_name
+        ris_key = ris.name if ris else ris_name
+        ue_key = ue.name if ue else ue_name
+
         # Compute RIS phase configuration
         if compute_phases:
             ris.compute_phases(ap.pos, ue.pos)
@@ -331,7 +340,7 @@ class RISNetwork:
         # Clamp local deflection to RIS FOV constraint (native RIS capability)
         # Calculate the ideal local deflection needed to reach the target
         ideal_local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
-
+        beam_angle_requested_deg = float(beam_angle_deg)
         # Clamp to RIS maximum steering angle
         clamped_local_deflection = clamp_offset_to_fov(ideal_local_deflection, max_angle)
 
@@ -341,6 +350,9 @@ class RISNetwork:
             beam_angle_deg = compute_absolute_angle_from_offset(ris_normal, clamped_local_deflection)
             # Note: We don't raise an error; RIS simply steers to nearest reachable position
 
+        # Track whether a physical UE is illuminated by this beam
+        beam_hits_ue = True
+
         # Check UE can receive from RIS (based on FINAL beam angle after clamping)
         # This validation uses the offset angle, not raw RIS direction
         ue_max_angle = getattr(ue, 'max_angle_deg', 180.0)  # Default: 180° FOV (nearly omnidirectional)
@@ -348,15 +360,20 @@ class RISNetwork:
 
         # From UE's perspective, the final beam comes from angle beam_angle_deg
         # We need to check if UE can receive from that direction
-        beam_offset_to_ue = compute_offset_from_normal(beam_angle_deg, ue_normal)
+        beam_offset_to_ue = compute_offset_from_normal(beam_angle_requested_deg, ue_normal)
 
         if not is_within_fov(beam_offset_to_ue, ue_max_angle):
-            raise ValueError(
-                f"UE cannot receive from final beam: RIS will steer to {beam_angle_deg:.2f}° (absolute), "
-                f"which is {beam_offset_to_ue:.2f}° relative to UE antenna normal, "
-                f"but UE FOV is only ±{ue_max_angle}°. "
-                f"Ensure UE antenna is pointed toward RIS."
-            )
+            beam_hits_ue = False
+
+        # CRITICAL: Check if RIS beam actually points toward UE location
+        # If beam is too far from where UE is, SNR should be None (no UE to measure)
+        # This handles the case: only one physical UE in network, other angles have no receiver
+        angle_to_ue = target_angle  # Where the UE actually is
+        angular_distance_to_ue = abs((beam_angle_requested_deg - angle_to_ue + 180) % 360 - 180)  # Shortest angle
+
+        presence_tol = getattr(self, 'presence_detection_tolerance_deg', 5.0)
+        if angular_distance_to_ue > presence_tol:
+            beam_hits_ue = False
 
         angle_loss = Physics.angle_loss_dB(beam_angle_deg, target_angle)
         # Track beam metadata on RIS for visualization
@@ -393,36 +410,31 @@ class RISNetwork:
                           ap_antenna_gain_dBi + ue_antenna_gain_dBi)
 
 
-        # Use get_snr() via messaging system if requested (real-world behavior)
-        # Check both the parameter and the global network setting
-        should_use_get_snr = use_get_snr or self.use_get_snr_global
-        if should_use_get_snr and self.snr_messaging is not None:
-            snr_dB = self.snr_messaging.get_snr(ue_name, ris_name)
-            if snr_dB is None:
-                # Fallback to computed SNR if messaging fails
-                snr_dB = Physics.compute_snr_dB(
-                    tx_power_dBm=ap.power_dBm,
-                    total_loss_dB=total_loss_dB,
-                    gain_dBi=total_gain_dBi,
-                    bandwidth_MHz=bandwidth_MHz,
-                    noise_figure_dB=noise_figure_dB
-                )
-        else:
-            # Standard computation mode
-            snr_dB = Physics.compute_snr_dB(
-                tx_power_dBm=ap.power_dBm,
-                total_loss_dB=total_loss_dB,
-                gain_dBi=total_gain_dBi,
-                bandwidth_MHz=bandwidth_MHz,
-                noise_figure_dB=noise_figure_dB
-            )
+        # Always compute deterministic SNR first
+        snr_computed_dB = Physics.compute_snr_dB(
+            tx_power_dBm=ap.power_dBm,
+            total_loss_dB=total_loss_dB,
+            gain_dBi=total_gain_dBi,
+            bandwidth_MHz=bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB
+        )
 
-            # Apply fading only if not in deterministic mode (seed not set)
-            # Fading reduces SNR when coefficient < 1.0
-            if seed is None:
-                fading_coeff = Physics.rician_fading(ris.K_db)
-                if fading_coeff < 1.0:
-                    snr_dB += 20 * np.log10(fading_coeff)  # Reduces SNR (negative dB)
+        if seed is None:
+            fading_coeff = Physics.rician_fading(ris.K_db)
+            if fading_coeff < 1.0:
+                snr_computed_dB += 20 * np.log10(fading_coeff)
+
+        snr_dB = snr_computed_dB
+
+        if not beam_hits_ue:
+            noise_floor_dbm = -174 + 10 * np.log10(bandwidth_MHz * 1e6) + noise_figure_dB
+            pwr_dBm = float(noise_floor_dbm)
+            snr_computed_dB = getattr(self, 'no_ue_snr_floor_dB', 0.0)
+            snr_dB = snr_computed_dB
+            gain_dBi = 0.0
+            quant_loss_dB = 0.0
+            total_gain_dBi = ap_antenna_gain_dBi + ue_antenna_gain_dBi
+            gain_linear = 0.0
 
         gain_linear = 10 ** (gain_dBi / 10)
 
@@ -466,12 +478,15 @@ class RISNetwork:
         # Calculate local deflection from RIS normal
         local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
 
-        # Calculate RSSI using standardized utility
-        rssi_dBm = compute_rssi_dBm(
-            tx_power_dBm=ap.power_dBm,
-            total_loss_dB=total_loss_dB,
-            gain_dBi=total_gain_dBi
-        )
+        # Calculate RSSI using standardized utility (after any UE-absence overrides)
+        if beam_hits_ue:
+            rssi_dBm = compute_rssi_dBm(
+                tx_power_dBm=ap.power_dBm,
+                total_loss_dB=total_loss_dB,
+                gain_dBi=total_gain_dBi
+            )
+        else:
+            rssi_dBm = float(pwr_dBm)
 
         result = {
             "snr_dB": float(snr_dB),
@@ -481,13 +496,16 @@ class RISNetwork:
             "gain_dBi": float(gain_dBi),
             "quant_loss_dB": float(quant_loss_dB),
             "beam_angle": float(beam_angle_deg),
+            "beam_angle_requested_deg": float(beam_angle_requested_deg),
             "evm_percent": float(Physics.snr_to_evm(snr_dB)),
             # Beam steering metadata
             "ris_normal_angle_deg": float(ris_normal),
             "local_deflection_deg": float(local_deflection),
             "target_angle_deg": float(target_angle),
+            "ue_present": bool(beam_hits_ue),
             **phase_data
         }
+        result["no_ue_detected"] = not beam_hits_ue
 
         # Automatic CSI feedback and closed-loop adaptation
         if enable_feedback:
@@ -507,11 +525,6 @@ class RISNetwork:
                     if ue_node is not None:
                         ue_node.snr_measurement_dB = float(final_measured_snr)
 
-        # Get node names for tracking
-        ap_key = ap.name if ap else ap_name
-        ris_key = ris.name if ris else ris_name
-        ue_key = ue.name if ue else ue_name
-
         metadata = {
             'ap_name': ap_key,
             'ris_name': ris_key,
@@ -522,16 +535,33 @@ class RISNetwork:
             'bandwidth_MHz': float(bandwidth_MHz),
             'noise_figure_dB': float(noise_figure_dB),
             'beam_angle_deg': float(beam_angle_deg),
+            'beam_angle_requested_deg': float(beam_angle_requested_deg),
             'target_angle_deg': float(target_angle),
             'quant_loss_dB': float(quant_loss_dB),
             'gain_dBi': float(gain_dBi),
             'ap_antenna_gain_dBi': float(ap_antenna_gain_dBi),
             'ue_antenna_gain_dBi': float(ue_antenna_gain_dBi),
-            'pwr_dBm': float(pwr_dBm)
+            'pwr_dBm': float(pwr_dBm),
+            'ue_present': bool(beam_hits_ue)
         }
         if ue_node is not None:
+            ue_node.snr_measurement_dB = float(snr_computed_dB)
+            ue_node.store_link_metadata(ap_key, ris_key, dict(metadata))
+
+        # Use get_snr() via messaging system AFTER persisting metadata.
+        # Check both the parameter and the global network setting.
+        should_use_get_snr = use_get_snr or self.use_get_snr_global
+        if should_use_get_snr and self.snr_messaging is not None:
+            queried_snr = self.snr_messaging.get_snr(ue_key, ris_key, ap_name=ap_key)
+            if queried_snr is not None:
+                snr_dB = queried_snr
+            else:
+                snr_dB = snr_computed_dB
+        else:
+            snr_dB = snr_computed_dB
+
+        if ue_node is not None:
             ue_node.snr_measurement_dB = float(snr_dB)
-            ue_node.store_link_metadata(ap_key, ris_key, metadata)
 
         # Track active link (only if not an intermediate sweep measurement)
         if store_in_active_links:

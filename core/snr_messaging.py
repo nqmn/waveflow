@@ -32,6 +32,7 @@ class SNRQueryMessage:
     request_id: str = None  # Unique identifier
     timestamp: float = None  # When request was sent
     controller_name: str = None  # Which RIS controller
+    ap_name: str = None  # AP associated with measurement
     target_ue_name: str = None  # Which UE to query
     target_ris_name: str = None  # Which RIS context
 
@@ -66,6 +67,7 @@ class SNRResponseMessage:
     rssi_dBm: float = None  # Received signal strength
     status: str = 'success'  # 'success', 'error', 'timeout'
     error_message: str = None  # If status != 'success'
+    ap_name: str = None  # AP context for metadata lookup
 
     def __post_init__(self):
         if self.timestamp_response is None:
@@ -140,7 +142,7 @@ class SNRMessagingChannel:
         return max(actual, 0.1)  # Minimum 0.1ms
 
     def send_snr_query(self, controller_name: str, target_ue_name: str,
-                      target_ris_name: str) -> Optional[str]:
+                      target_ris_name: str, ap_name: Optional[str] = None) -> Optional[str]:
         """
         Send SNR query request from controller to UE.
 
@@ -148,6 +150,7 @@ class SNRMessagingChannel:
             controller_name: RIS controller name
             target_ue_name: Target UE name
             target_ris_name: RIS context name
+            ap_name: AP associated with the measurement (for metadata lookup)
 
         Returns:
             Request ID (for tracking), or None if error
@@ -155,6 +158,7 @@ class SNRMessagingChannel:
         # Create query message
         query = SNRQueryMessage(
             controller_name=controller_name,
+            ap_name=ap_name or controller_name,
             target_ue_name=target_ue_name,
             target_ris_name=target_ris_name
         )
@@ -179,6 +183,7 @@ class SNRMessagingChannel:
             'status': 'sent',
             'timestamp': time.time(),
             'target_ue': target_ue_name,
+            'ap_name': query.ap_name,
             'latency_ms': self.get_actual_latency()
         })
 
@@ -240,6 +245,7 @@ class SNRMessagingChannel:
                 'status': 'received',
                 'timestamp': time.time(),
                 'snr_dB': response.snr_dB,
+                'ap_name': response.ap_name,
                 'rtt_ms': response.round_trip_time()
             })
 
@@ -353,7 +359,11 @@ class SNRMessagingSystem:
                     error_message=f'UE not found: {ue_name}'
                 )
 
-            metadata = ue.get_link_metadata(query.controller_name, query.target_ris_name)
+            ap_for_lookup = query.ap_name or query.controller_name
+            metadata = ue.get_link_metadata(ap_for_lookup, query.target_ris_name)
+            if metadata is None and query.ap_name and query.controller_name != query.ap_name:
+                # Fallback to controller key for legacy measurements
+                metadata = ue.get_link_metadata(query.controller_name, query.target_ris_name)
             if metadata is not None:
                 snr_db = ue.compute_snr_from_metadata(metadata)
             else:
@@ -373,6 +383,7 @@ class SNRMessagingSystem:
                 timestamp_received=time.time(),
                 ue_name=ue_name,
                 ris_name=query.target_ris_name,
+                ap_name=ap_for_lookup,
                 snr_dB=snr_db,
                 snr_linear=snr_linear,
                 status='success'
@@ -381,7 +392,7 @@ class SNRMessagingSystem:
         return handler
 
     def query_ue_snr(self, controller_name: str, ue_name: str,
-                     ris_name: str) -> Optional[SNRResponseMessage]:
+                     ris_name: str, ap_name: Optional[str] = None) -> Optional[SNRResponseMessage]:
         """
         Query SNR from UE (mimics real control channel).
 
@@ -397,6 +408,7 @@ class SNRMessagingSystem:
             controller_name: RIS controller name
             ue_name: Target UE name
             ris_name: RIS context
+            ap_name: AP associated with the RIS→UE link
 
         Returns:
             SNRResponseMessage with measured SNR, or None if error/timeout
@@ -411,7 +423,7 @@ class SNRMessagingSystem:
 
         # Send query request
         request_id = self.control_channel.send_snr_query(
-            controller_name, ue_name, ris_name
+            controller_name, ue_name, ris_name, ap_name=ap_name or controller_name
         )
 
         if request_id is None:
@@ -422,7 +434,8 @@ class SNRMessagingSystem:
 
         return response
 
-    def get_snr(self, ue_name: str, ris_name: str = None) -> Optional[float]:
+    def get_snr(self, ue_name: str, ris_name: str = None,
+                ap_name: Optional[str] = None) -> Optional[float]:
         """
         Get SNR for a UE via messaging system (instead of computing).
 
@@ -433,6 +446,7 @@ class SNRMessagingSystem:
         Args:
             ue_name: Target UE node name
             ris_name: RIS context name (optional, defaults to first RIS in network)
+            ap_name: AP name for metadata lookup (optional but recommended)
 
         Returns:
             SNR in dB (float), or None if query fails
@@ -449,8 +463,17 @@ class SNRMessagingSystem:
         # Use first RIS as controller
         controller_name = ris_name
 
+        # If AP missing, fall back to first AP in network
+        if ap_name is None:
+            for node_name, node in self.network.nodes.items():
+                if hasattr(node, 'power_dBm'):  # Access point indicator
+                    ap_name = node_name
+                    break
+        if ap_name is None:
+            ap_name = 'AP1'
+
         # Query UE for SNR via messaging system
-        response = self.query_ue_snr(controller_name, ue_name, ris_name)
+        response = self.query_ue_snr(controller_name, ue_name, ris_name, ap_name=ap_name)
 
         if response is None or response.status != 'success':
             return None

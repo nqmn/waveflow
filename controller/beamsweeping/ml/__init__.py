@@ -12,7 +12,7 @@ class MLPredictorLoader:
     """Factory for ML-based beam sweep predictors."""
 
     PREDICTORS: Dict[str, Tuple[str, str]] = {
-        'default': ('controller.beamsweeping.ml.xgb', 'XGBPredictor'),
+        'default': ('controller.beamsweeping.ml.gmf', 'GMFPredictor'),
         'xgb': ('controller.beamsweeping.ml.xgb', 'XGBPredictor'),
         'rf': ('controller.beamsweeping.ml.rf', 'RFPredictor'),
         'svr': ('controller.beamsweeping.ml.svr', 'SVRPredictor'),

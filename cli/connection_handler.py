@@ -138,7 +138,7 @@ class ConnectionHandler:
             'fov': None,
             'step': None,
             'algo_name': 'linear',
-            'ml_predictor': 'xgb',
+            'ml_predictor': 'gmf',
             'angle': None,
             'seed': None,
             'error_msg': None,
@@ -785,11 +785,13 @@ class ConnectionHandler:
         algo_display_name = getattr(algo, 'name', algo_name) if hasattr(algo, 'name') else algo_name
 
         algo_name_clean = algo_display_name.replace('Sweep', '').strip()
+        suppress_ml_details = algo_name.lower() in ('ml', 'ml-guided', 'gmf') or algo_display_name.lower().startswith('ml')
 
         has_fine_phase = 'local_fine' in out and len(out.get('local_fine', [])) > 0
 
-        print_func(f'\n[ALGORITHM: {algo_display_name}]')
-        print_func('-'*70)
+        if not suppress_ml_details:
+            print_func(f'\n[ALGORITHM: {algo_display_name}]')
+            print_func('-'*70)
 
         local_coarse = out.get('local_coarse', [])
         snr_coarse = out.get('snr_coarse', [])
@@ -805,177 +807,177 @@ class ConnectionHandler:
         ml_results = out.get('ml_results', [])
         ml_suggestions = out.get('ml_suggestions', [])
 
-        # Calculate efficiency metrics
-        total_angles_tested = len(local_coarse)
-        if has_fine_phase:
-            total_angles_tested += len(local_fine)
-            exhaustive_count = int(2 * fov / step) + 1
-            efficiency = (1.0 - len(local_coarse) / exhaustive_count) * 100
+        if not suppress_ml_details:
+            # Calculate efficiency metrics
+            total_angles_tested = len(local_coarse)
+            if has_fine_phase:
+                total_angles_tested += len(local_fine)
+                exhaustive_count = int(2 * fov / step) + 1
+                efficiency = (1.0 - len(local_coarse) / exhaustive_count) * 100
+                if ml_results:
+                    print_func(f'[THREE-PHASE SWEEP: ML ({len(ml_results)} suggestions) + Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
+                    total_angles_tested += len(ml_results)
+                    print_func(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
+                else:
+                    print_func(f'[TWO-PHASE SWEEP: Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
+                    print_func(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
+            else:
+                print_func(f'[SINGLE-PHASE SWEEP]')
+                print_func(f'Total angles tested: {total_angles_tested}')
+            print_func()
+
+            # Show ML predictions if available
             if ml_results:
-                print_func(f'[THREE-PHASE SWEEP: ML ({len(ml_results)} suggestions) + Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
-                total_angles_tested += len(ml_results)
-                print_func(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
-            else:
-                print_func(f'[TWO-PHASE SWEEP: Coarse ({len(local_coarse)} angles) + Fine ({len(local_fine)} angles)]')
-                print_func(f'Total angles tested: {total_angles_tested} | Efficiency gain: ~{efficiency:.1f}%')
-        else:
-            print_func(f'[SINGLE-PHASE SWEEP]')
-            print_func(f'Total angles tested: {total_angles_tested}')
-        print_func()
+                print_func('ML PREDICTOR RESULTS:')
+                print_func('-'*70)
+                print_func(f'Predictor: {out.get("ml_predictor", "unknown")}')
+                print_func(f'Suggestions: {[f"{a:.1f}°" for a in ml_suggestions]}')
 
-        # Show ML predictions if available
-        if ml_results:
-            print_func('ML PREDICTOR RESULTS:')
-            print_func('-'*70)
-            print_func(f'Predictor: {out.get("ml_predictor", "unknown")}')
-            print_func(f'Suggestions: {[f"{a:.1f}°" for a in ml_suggestions]}')
+                ml_metrics = out.get("ml_metrics", {})
+                if ml_metrics:
+                    pred_time = ml_metrics.get('prediction_time_ms', 0)
+                    uncertainty = ml_metrics.get('uncertainty', 0)
+                    error_bounds = ml_metrics.get('error_bounds', 0)
+                    model_avail = ml_metrics.get('model_available', False)
+                    model_status = "✓ Loaded" if model_avail else "✗ Unavailable"
 
-            ml_metrics = out.get("ml_metrics", {})
-            if ml_metrics:
-                pred_time = ml_metrics.get('prediction_time_ms', 0)
-                uncertainty = ml_metrics.get('uncertainty', 0)
-                error_bounds = ml_metrics.get('error_bounds', 0)
-                model_avail = ml_metrics.get('model_available', False)
-                model_status = "✓ Loaded" if model_avail else "✗ Unavailable"
+                    print_func(f'Prediction Time: {pred_time:.3f} ms | Uncertainty: ±{uncertainty:.1f}° | Model: {model_status}')
+                    print_func(f'Error Bounds: ±{error_bounds:.1f}°')
+                print_func()
 
-                print_func(f'Prediction Time: {pred_time:.3f} ms | Uncertainty: ±{uncertainty:.1f}° | Model: {model_status}')
-                print_func(f'Error Bounds: ±{error_bounds:.1f}°')
-            print_func()
-
-            header = f'{"Suggestion (°)":<18} {"SNR (dB)":<15} {"Power (dBm)":<15}'
-            print_func(header)
-            print_func('-'*70)
-            best_ml_idx = int(np.argmax([r["snr_dB"] for r in ml_results]))
-            for i, result in enumerate(ml_results):
-                marker = " <-- BEST IN ML" if i == best_ml_idx else ""
-                print_func(f'{result["local_angle"]:>16.1f}  {result["snr_dB"]:>13.2f}  {result["pwr_dBm"]:>13.2f}{marker}')
-            print_func()
-
-        if local_coarse and snr_coarse:
-            print_func('COARSE PHASE RESULTS:')
-            print_func('-'*70)
-            if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
+                header = f'{"Suggestion (°)":<18} {"SNR (dB)":<15} {"Power (dBm)":<15}'
                 print_func(header)
                 print_func('-'*70)
-                ser_vals = [s for s in ser_coarse if s is not None]
-                if ser_vals:
-                    best_idx = int(np.argmin(ser_coarse))
-                else:
-                    best_idx = int(np.argmax(snr_coarse))
-                for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
-                    ser = ser_coarse[i] if i < len(ser_coarse) and ser_coarse[i] is not None else 0.0
-                    marker = " <-- BEST" if i == best_idx else ""
-                    print_func(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
-            else:
-                # Determine which metric column to display
-                if metric.lower() in ['rssi', 'power']:
-                    # Display RSSI or Power values
-                    if 'rssi_coarse' in out:
-                        metric_values = out['rssi_coarse']
-                        metric_label = 'RSSI (dBm)'
+                best_ml_idx = int(np.argmax([r["snr_dB"] for r in ml_results]))
+                for i, result in enumerate(ml_results):
+                    marker = " <-- BEST IN ML" if i == best_ml_idx else ""
+                    print_func(f'{result["local_angle"]:>16.1f}  {result["snr_dB"]:>13.2f}  {result["pwr_dBm"]:>13.2f}{marker}')
+                print_func()
+
+            if local_coarse and snr_coarse:
+                print_func('COARSE PHASE RESULTS:')
+                print_func('-'*70)
+                if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
+                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
+                    print_func(header)
+                    print_func('-'*70)
+                    ser_vals = [s for s in ser_coarse if s is not None]
+                    if ser_vals:
+                        best_idx = int(np.argmin(ser_coarse))
                     else:
-                        metric_values = pwr_coarse
-                        metric_label = 'Power (dBm)'
-                elif metric.lower() in ['csi', 'csi_quality']:
-                    # Display CSI quality metrics
-                    metric_values = out.get('csi_quality_coarse', snr_coarse)
-                    metric_label = 'CSI Quality (bps/Hz)'
-                else:
-                    # Default: Display SNR
-                    metric_values = snr_coarse
-                    metric_label = 'SNR (dB)'
-
-                header = f'{"Local (°)":<12} {metric_label:^25}'
-                print_func(header)
-                print_func('-'*70)
-
-                # Use metric-selected best angle from output dict (handles metric-based selection)
-                best_angle_selected = out.get('best_angle')
-                best_idx = None
-                if best_angle_selected is not None:
-                    # Find index matching the selected best angle
-                    for i, angle in enumerate(local_coarse):
-                        if abs(float(angle) - float(best_angle_selected)) < 0.01:
-                            best_idx = i
-                            break
-                if best_idx is None:
-                    # Fallback to metric value
-                    best_idx = int(np.argmax(metric_values))
-
-                for i, (angle, metric_val) in enumerate(zip(local_coarse, metric_values)):
-                    marker = " <-- BEST" if i == best_idx else ""
-                    print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
-            print_func()
-
-        # Show fine phase results if available
-        if has_fine_phase and local_fine and snr_fine:
-            print_func('FINE PHASE RESULTS:')
-            print_func('-'*70)
-            if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
-                print_func(header)
-                print_func('-'*70)
-                ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
-                if ser_vals_idx:
-                    best_fine_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
-                    best_ser_fine = float(ser_fine[best_fine_idx])
-                else:
-                    best_fine_idx = 0
-                    best_ser_fine = 0.0
-                for i, (angle, snr, ser) in enumerate(zip(local_fine, snr_fine, ser_fine)):
-                    if ser is not None:
-                        marker = " <-- BEST OVERALL" if ser == best_ser_fine else ""
+                        best_idx = int(np.argmax(snr_coarse))
+                    for i, (angle, snr) in enumerate(zip(local_coarse, snr_coarse)):
+                        ser = ser_coarse[i] if i < len(ser_coarse) and ser_coarse[i] is not None else 0.0
+                        marker = " <-- BEST" if i == best_idx else ""
                         print_func(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
+                else:
+                    # Determine which metric column to display
+                    if metric.lower() in ['rssi', 'power']:
+                        # Display RSSI or Power values
+                        if 'rssi_coarse' in out:
+                            metric_values = out['rssi_coarse']
+                            metric_label = 'RSSI (dBm)'
+                        else:
+                            metric_values = pwr_coarse
+                            metric_label = 'Power (dBm)'
+                    elif metric.lower() in ['csi', 'csi_quality']:
+                        # Display CSI quality metrics
+                        metric_values = out.get('csi_quality_coarse', snr_coarse)
+                        metric_label = 'CSI Quality (bps/Hz)'
                     else:
-                        print_func(f'{angle:>11.1f}  {snr:>13.2f}  {"N/A":>13s}')
-            else:
-                # Determine which metric column to display
-                if metric.lower() in ['rssi', 'power']:
-                    if 'rssi_fine' in out:
-                        metric_values = out['rssi_fine']
-                        metric_label = 'RSSI (dBm)'
+                        # Default: Display SNR
+                        metric_values = snr_coarse
+                        metric_label = 'SNR (dB)'
+
+                    header = f'{"Local (°)":<12} {metric_label:^25}'
+                    print_func(header)
+                    print_func('-'*70)
+
+                    # Use metric-selected best angle from output dict (handles metric-based selection)
+                    best_angle_selected = out.get('best_angle')
+                    best_idx = None
+                    if best_angle_selected is not None:
+                        # Find index matching the selected best angle
+                        for i, angle in enumerate(local_coarse):
+                            if abs(float(angle) - float(best_angle_selected)) < 0.01:
+                                best_idx = i
+                                break
+                    if best_idx is None:
+                        # Fallback to metric value
+                        best_idx = int(np.argmax(metric_values))
+
+                    for i, (angle, metric_val) in enumerate(zip(local_coarse, metric_values)):
+                        marker = " <-- BEST" if i == best_idx else ""
+                        print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
+                print_func()
+
+            # Show fine phase results if available
+            if has_fine_phase and local_fine and snr_fine:
+                print_func('FINE PHASE RESULTS:')
+                print_func('-'*70)
+                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
+                    header = f'{"Local (°)":<12} {"SNR (dB)":<15} {"SER (%)":<15}'
+                    print_func(header)
+                    print_func('-'*70)
+                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
+                    if ser_vals_idx:
+                        best_fine_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
+                        best_ser_fine = float(ser_fine[best_fine_idx])
+                    else:
+                        best_fine_idx = 0
+                        best_ser_fine = 0.0
+                    for i, (angle, snr, ser) in enumerate(zip(local_fine, snr_fine, ser_fine)):
+                        if ser is not None:
+                            marker = " <-- BEST OVERALL" if ser == best_ser_fine else ""
+                            print_func(f'{angle:>11.1f}  {snr:>13.2f}  {ser:>13.2f}{marker}')
+                        else:
+                            print_func(f'{angle:>11.1f}  {snr:>13.2f}  {"N/A":>13s}')
+                else:
+                    # Determine which metric column to display
+                    if metric.lower() in ['rssi', 'power']:
+                        if 'rssi_fine' in out:
+                            metric_values = out['rssi_fine']
+                            metric_label = 'RSSI (dBm)'
+                        else:
+                            metric_values = snr_fine
+                            metric_label = 'SNR (dB)'
+                    elif metric.lower() in ['csi', 'csi_quality']:
+                        metric_values = out.get('csi_quality_fine', snr_fine)
+                        metric_label = 'CSI Quality (bps/Hz)'
                     else:
                         metric_values = snr_fine
                         metric_label = 'SNR (dB)'
-                elif metric.lower() in ['csi', 'csi_quality']:
-                    metric_values = out.get('csi_quality_fine', snr_fine)
-                    metric_label = 'CSI Quality (bps/Hz)'
-                else:
-                    metric_values = snr_fine
-                    metric_label = 'SNR (dB)'
 
-                header = f'{"Local (°)":<12} {metric_label:^25}'
-                print_func(header)
+                    header = f'{"Local (°)":<12} {metric_label:^25}'
+                    print_func(header)
+                    print_func('-'*70)
+                    # Use metric-selected best angle from output dict (handles metric-based selection)
+                    best_angle_selected = out.get('best_angle')
+                    best_fine_idx = None
+                    if best_angle_selected is not None:
+                        # Find index in fine phase matching the selected best angle
+                        for i, angle in enumerate(local_fine):
+                            if abs(float(angle) - float(best_angle_selected)) < 0.01:
+                                best_fine_idx = i
+                                break
+                    if best_fine_idx is None:
+                        # Fallback to metric value
+                        best_fine_idx = int(np.argmax(metric_values))
+
+                    for i, (angle, metric_val) in enumerate(zip(local_fine, metric_values)):
+                        marker = " <-- BEST OVERALL" if i == best_fine_idx else ""
+                        print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
+                print_func()
+
+                best_coarse_snr = float(np.max(snr_coarse))
+                best_snr_fine = float(np.max(snr_fine))
+                improvement = best_snr_fine - best_coarse_snr
+                print_func('SUMMARY:')
                 print_func('-'*70)
-                # Use metric-selected best angle from output dict (handles metric-based selection)
-                best_angle_selected = out.get('best_angle')
-                best_fine_idx = None
-                if best_angle_selected is not None:
-                    # Find index in fine phase matching the selected best angle
-                    for i, angle in enumerate(local_fine):
-                        if abs(float(angle) - float(best_angle_selected)) < 0.01:
-                            best_fine_idx = i
-                            break
-                if best_fine_idx is None:
-                    # Fallback to metric value
-                    best_fine_idx = int(np.argmax(metric_values))
-
-                for i, (angle, metric_val) in enumerate(zip(local_fine, metric_values)):
-                    marker = " <-- BEST OVERALL" if i == best_fine_idx else ""
-                    print_func(f'{angle:>11.1f}  {metric_val:>21.4f}{marker}')
-            print_func()
-
-            # Show summary
-            best_coarse_snr = float(np.max(snr_coarse))
-            best_snr_fine = float(np.max(snr_fine))
-            improvement = best_snr_fine - best_coarse_snr
-            print_func('SUMMARY:')
-            print_func('-'*70)
-            print_func(f'Best coarse SNR:        {best_coarse_snr:>8.2f} dB')
-            print_func(f'Best fine SNR:          {best_snr_fine:>8.2f} dB')
-            print_func(f'Improvement:            {improvement:>8.2f} dB')
-            print_func()
+                print_func(f'Best coarse SNR:        {best_coarse_snr:>8.2f} dB')
+                print_func(f'Best fine SNR:          {best_snr_fine:>8.2f} dB')
+                print_func(f'Improvement:            {improvement:>8.2f} dB')
+                print_func()
 
         # Calculate final best beam angle
         specular_angle = out.get('specular_angle', None)

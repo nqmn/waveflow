@@ -1,0 +1,131 @@
+SNR CALCULATION – UE PRESENCE VALIDATION
+===============================================================================
+
+PROBLEM STATEMENT
+-------------------------------------------------------------------------------
+Beam sweeps previously returned believable SNR values for *every* angle because
+the simulator always computed a physics-based result, even when no UE could
+possibly receive the beam. With messaging enabled, that single cached value was
+replayed at each angle, so sweeps never showed a true “null” region.
+
+CURRENT BEHAVIOR (core/network.py)
+-------------------------------------------------------------------------------
+Every `connect()` call now classifies the tested beam before any SNR is
+calculated:
+
+```
+beam_hits_ue = True
+
+# 1) UE field of view check
+ue_max_angle = getattr(ue, 'max_angle_deg', 180.0)
+beam_offset_to_ue = compute_offset_from_normal(beam_angle_deg, ue.normal_angle_deg)
+if not is_within_fov(beam_offset_to_ue, ue_max_angle):
+    beam_hits_ue = False
+
+# 2) Physical presence check (angular tolerance)
+angle_to_ue = target_angle  # absolute azimuth to UE
+angular_distance = abs((beam_angle_deg - angle_to_ue + 180) % 360 - 180)
+presence_tol = self.presence_detection_tolerance_deg  # default 5°
+if angular_distance > presence_tol:
+    beam_hits_ue = False
+```
+
+If both checks pass, SNR is computed exactly as before (path loss + RIS gain +
+noise floor). If either check fails, the beam is treated as “no UE present”.
+
+NO-UE RESPONSE MODEL
+-------------------------------------------------------------------------------
+When `beam_hits_ue` is `False`, we intentionally *do not* reuse stale values.
+Instead we clamp the result to an easily recognisable floor:
+
+```
+noise_floor_dbm = -174 + 10*log10(BW_Hz) + NF_dB
+pwr_dBm = noise_floor_dbm
+snr_computed_dB = self.no_ue_snr_floor_dB  # default 0.0 dB
+gain_dBi = quant_loss_dB = 0.0
+gain_linear = 0.0
+```
+
+The result object carries two helpers so downstream code and visualisations can
+react:
+
+```
+result["ue_present"] = bool(beam_hits_ue)
+result["no_ue_detected"] = not beam_hits_ue
+metadata["ue_present"] = bool(beam_hits_ue)
+```
+
+These flags are also persisted on the UE node, so the SNR-messaging subsystem
+only returns the floor value for angles that truly miss the UE instead of
+replaying the previous valid measurement.
+
+CONFIGURATION KNOBS
+-------------------------------------------------------------------------------
+Two parameters control the behavior (see `RISNetwork.__init__`):
+
+```
+self.presence_detection_tolerance_deg = 5.0  # angular gate
+self.no_ue_snr_floor_dB = 0.0               # display floor when no UE present
+```
+
+Tighter tolerances shrink the “valid” window; loosening them broadens the
+region that is treated as illuminated. Adjusting the SNR floor lets you choose
+between a 0 dB readout (current default) or a deeper negative value if you
+prefer to visualise these as “infinite loss”.
+
+SWEEP OUTPUT IMPACT
+-------------------------------------------------------------------------------
+`connect --sweep` now shows realistic patterns:
+
+```
+Local (°)    SNR (dB)   UE Present
+-----------------------------------
+  -60.0        0.0000   False
+   ...
+   50.0       14.4893   True   <-- only beam hitting the UE
+   ...
+```
+
+Every angle outside the UE’s receive cone collapses to the floor value, while
+the actual direction spikes to a meaningful SNR. This mirrors physical
+behavior—most beams “see” only thermal noise unless a UE is located there.
+
+MESSAGING VS. COMPUTED MODE
+-------------------------------------------------------------------------------
+Sweeps still force `use_get_snr=False` internally so each angle obtains a fresh
+physics reading. The top-level `connect` command can run with messaging enabled
+(`net.use_get_snr_global = True`), but because we store metadata before querying
+the UE, the response now reflects the per-angle result rather than the last
+valid measurement.
+
+KEY FILE REFERENCES
+-------------------------------------------------------------------------------
+- `core/network.py:26-48` – constructor defaults (`presence_detection_tolerance_deg`,
+  `no_ue_snr_floor_dB`)
+- `core/network.py:342-510` – UE presence detection, SNR computation, and
+  metadata flags
+- `controller/beamsweeping/base.py` – sweeps keep `use_get_snr=False`
+- `core/snr_messaging.py` – AP-aware queries ensure cached responses match the
+  exact AP→RIS→UE link that was just measured
+
+This combination produces beam sweep tables where only angles that truly hit
+the UE report a high SNR; every other angle cleanly reads `0.0000 dB`, making
+it immediately obvious where the UE resides.
+
+REQUESTED VS. ACTUAL BEAM ANGLES
+-------------------------------------------------------------------------------
+RIS hardware cannot steer beyond its field of view, so a requested deflection
+may be clamped to the nearest reachable angle. To make this behavior visible:
+
+```
+beam_angle_requested_deg = <commanded value before clamp>
+beam_angle_deg           = <actual angle sent to RIS>
+metadata["beam_angle_requested_deg"] = beam_angle_requested_deg
+result["beam_angle_requested_deg"]   = beam_angle_requested_deg
+```
+
+The UE presence check now evaluates the *requested* angle. If the operator asks
+for 50° but the UE sits at 30°, presence detection sees a 20° mismatch and
+returns the 0 dB floor, even if the hardware ultimately clamps the beam back to
+30°. CLI and visualization layers can therefore explain both what was commanded
+and what was actually transmitted.

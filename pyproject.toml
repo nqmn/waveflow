@@ -33,6 +33,7 @@ dependencies = [
     "flask",
     "pyyaml",
     "waitress",
+    "opencv-python",
 ]
 
 [project.optional-dependencies]

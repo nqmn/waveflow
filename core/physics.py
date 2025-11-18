@@ -354,7 +354,7 @@ class Physics:
         Args:
             beam_angle_deg: Actual beam steering angle
             target_angle_deg: Target angle
-            sensitivity: Loss per degree (dB/degree)
+            sensitivity: Loss per degree (dB/degree) - UNUSED (kept for compatibility)
 
         Returns:
             Angle loss in dB
@@ -366,21 +366,26 @@ class Physics:
         else:
             angular_deviation = delta
 
-        # Use realistic beamformer pattern loss model
-        # Based on sinc^2 pattern of linear array
-        # This represents the true directivity pattern without artificial capping
-        normalized_angle = angular_deviation / 90.0
-        if normalized_angle > 2.0:
-            normalized_angle = 2.0
+        # CRITICAL FIX: Use quadratic penalty function instead of sinc
+        # Sinc at small angles has floating-point precision issues causing plateaus
+        # Quadratic function provides smooth, monotonic loss variation
+        # Loss = k * (angular_deviation)^2, where k provides reasonable scaling
 
-        # Sinc-squared pattern: loss = 20*log10(|sinc(π*normalized_angle)|)
-        # This gives realistic nulls and sidelobes
-        sinc_arg = np.pi * normalized_angle / 2.0
-        # Avoid exact zeros in sinc
-        sinc_val = np.sinc(sinc_arg / np.pi)
-        loss_dB = -20 * np.log10(np.abs(sinc_val) + 1e-10)
+        # Loss magnitude: -20 dB at ±60°, -0 dB at 0°
+        # This means: loss = -20 * (angular_deviation / 60)^2
+        # Or more generally: loss = -a * angular_deviation^2
+        # where 'a' is chosen so peak loss = -20 dB at max deviation
 
-        return min(loss_dB, 30.0)
+        # For ±60° max deviation: a = 20 / (60^2) = 0.00556
+        # This gives smooth penalty without artifacts
+
+        a = 20.0 / (60.0 ** 2)  # Scaling factor: -20 dB at ±60°
+        loss_dB = -a * (angular_deviation ** 2)
+
+        # Clamp to maximum loss of -30 dB (more than -60° away)
+        loss_dB = max(loss_dB, -30.0)
+
+        return loss_dB
 
     @staticmethod
     def compute_snr_dB(tx_power_dBm, total_loss_dB, gain_dBi,

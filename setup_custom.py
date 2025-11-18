@@ -29,7 +29,7 @@ class RISNetSetup:
             Path.home() / ".profile",
         ]
         # Core required packages (readline is handled gracefully on Windows)
-        self.required_packages = ["numpy", "flask", "pyyaml", "waitress"]
+        self.required_packages = ["numpy<2", "flask", "pyyaml", "waitress", "opencv-python"]
         # Optional ML packages (torch gracefully handled if missing)
         self.optional_packages = ["torch", "scikit-learn"]
 
