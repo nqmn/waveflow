@@ -650,24 +650,18 @@ class ConnectionHandler:
                         print_func(f"Warning: Could not load t_cw, using zeros: {e}")
                         kwargs['t_cw'] = np.zeros(3, dtype=np.float64)
                 else:
-                    # For real camera, require camera-to-world transformation
+                    # For real camera, try loading calibration; otherwise fall back to default
                     try:
                         import os
                         if r_cw and isinstance(r_cw, str) and os.path.exists(r_cw):
                             kwargs['r_cw'] = np.load(r_cw)
                         else:
-                            print_func("Error: r_cw file not found (camera-to-world rotation matrix)")
-                            print_func(f"  Expected file: {r_cw}")
-                            print_func("  Usage: --r-cw <path_to_rotation_matrix.npy>")
-                            return None
+                            print_func("[OPENCV] No r_cw provided - assuming camera axes aligned with RIS.")
 
                         if t_cw and isinstance(t_cw, str) and os.path.exists(t_cw):
                             kwargs['t_cw'] = np.load(t_cw)
                         else:
-                            print_func("Error: t_cw file not found (camera-to-world translation vector)")
-                            print_func(f"  Expected file: {t_cw}")
-                            print_func("  Usage: --t-cw <path_to_translation_vector.npy>")
-                            return None
+                            print_func("[OPENCV] No t_cw provided - assuming camera located at RIS position.")
                     except Exception as e:
                         print_func(f"Error loading camera transformations: {e}")
                         return None

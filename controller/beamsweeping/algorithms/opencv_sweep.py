@@ -66,7 +66,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
               modulation: str = 'QPSK', num_symbols: int = 1000,
               metric_selector=None,
               camera_id: int = 0,
-              aruco_dict_type: str = "DICT_4X4_50",
+              aruco_dict_type: str = "DICT_5X5_100",
               marker_size: float = 0.05,
               camera_matrix_path: Optional[str] = None,
               dist_coeffs_path: Optional[str] = None,
@@ -77,19 +77,19 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
               enable_viewer: bool = True,
               use_mock: bool = False,
               mock_trajectory: str = "circular",
-              save_video: bool = True,
-              video_output_path: str = "opencv_sweep_output.mp4",
+              target_marker_id: Optional[int] = 0,
               **kwargs) -> Dict:
         """Execute OpenCV-based vision sweep
 
         Requires: pip install opencv-python (for camera and ArUco support)
 
-        IMPORTANT: When using OpenCV vision sweep, the UE position is determined
-        from the detected ArUco marker in the camera feed, NOT from the network
-        topology. This means:
-        - Use: topology add random --no-ue (if you want to avoid confusion)
-        - The detected marker position will override any UE position from the network
+        IMPORTANT: When using OpenCV vision sweep, the UE position is automatically
+        determined from the detected ArUco marker in the camera feed. This means:
+        - If UE does not exist: Creates placeholder UE at origin (will be replaced by detection)
+        - If UE exists in topology: Position will be replaced with detected marker position
+        - The detected marker position overrides any UE position from the network topology
         - This ensures beam steering angle is based on actually detected positions
+        - Benefit: User can run 'connect --algo opencv' directly without pre-positioning the UE
 
         Args:
             ap_name: Access Point name
@@ -116,8 +116,6 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             enable_viewer: Enable camera viewer with AP/RIS/UE overlay (default: True)
             use_mock: Use mock camera instead of real camera (default: False)
             mock_trajectory: Mock camera trajectory type: 'circular', 'linear', 'random', 'static' (default: 'circular')
-            save_video: Save camera feed with overlay to video file (default: True)
-            video_output_path: Path to save output video file (default: "opencv_sweep_output.mp4")
 
         Returns:
             Dictionary with sweep results in standard format:
@@ -139,11 +137,11 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             )
 
         # Validate nodes
-        # For OpenCV vision sweep: UE may not exist yet (using --no-ue flag)
-        # UE position will be determined from camera detection
+        # For OpenCV vision sweep: UE position will be determined from camera detection
+        # If UE exists in topology, it will be replaced with detected position
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # If UE doesn't exist, create a placeholder (will be updated from detection)
+        # Handle UE node
         if ue is None:
             print(f"\n[OPENCV VISION SWEEP] UE '{ue_name}' not found in network.")
             print(f"[OPENCV VISION SWEEP] Creating placeholder UE node (position will be set from camera detection).")
@@ -153,6 +151,11 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 print(f"[OPENCV VISION SWEEP] Created placeholder UE '{ue_name}' at origin.")
             except Exception as e:
                 raise ValueError(f"Could not create UE node: {e}") from e
+        else:
+            print(f"\n[OPENCV VISION SWEEP] UE '{ue_name}' exists in topology.")
+            print(f"[OPENCV VISION SWEEP] Will replace UE position with detected marker position.")
+            ue_pos_original = np.array(ue.pos, dtype=np.float64).copy()
+            print(f"[OPENCV VISION SWEEP] Original UE position: {ue_pos_original}")
 
         # Initialize camera and ArUco detection
         if use_mock:
@@ -182,12 +185,25 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         except AttributeError:
             raise ValueError(f"Invalid ArUco dictionary type: {aruco_dict_type}")
 
-        # Validate camera-to-world transformation
-        if r_cw is None or t_cw is None:
-            raise ValueError("Camera-to-world transformation (r_cw, t_cw) required")
+        # Camera assumed to be mounted at RIS if extrinsics not supplied
+        default_rotation = False
+        default_translation = False
+        if r_cw is None:
+            r_cw = np.eye(3, dtype=np.float64)
+            default_rotation = True
+        else:
+            r_cw = np.array(r_cw, dtype=np.float64)
 
-        r_cw = np.array(r_cw, dtype=np.float64)
-        t_cw = np.array(t_cw, dtype=np.float64)
+        if t_cw is None:
+            t_cw = np.array([ris.pos[0], ris.pos[1], ris.pos[2]], dtype=np.float64)
+            default_translation = True
+        else:
+            t_cw = np.array(t_cw, dtype=np.float64)
+
+        if default_rotation:
+            print("[OPENCV] r_cw not provided. Assuming camera axes aligned with RIS (identity rotation).")
+        if default_translation:
+            print(f"[OPENCV] t_cw not provided. Assuming camera located at RIS position {np.asarray(ris.pos)}.")
 
         # Get RIS parameters
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
@@ -199,19 +215,20 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         # For mock camera, compute r_cw and t_cw if using identity
         # so that camera detection maps correctly to world coordinates
         if use_mock and np.allclose(r_cw, np.eye(3)) and np.allclose(t_cw, np.zeros(3)):
-            # Position camera 3m in front of RIS, looking at RIS center
-            # Camera X-axis points right, Y-axis points down, Z-axis points forward
-            camera_distance = 3.0
+            # Position camera AT RIS center with axes aligned to world
+            # This ensures marker bearing in camera frame directly maps to world bearing
+            # If marker is detected at camera (x, y, z), world position = (x + ris_x, y + ris_y, z + ris_z)
 
-            # Camera is positioned at RIS location + offset
-            t_cw = np.array([ris.pos[0], ris.pos[1], ris.pos[2] + camera_distance])
+            # Camera is positioned at RIS location (same origin)
+            t_cw = np.array([ris.pos[0], ris.pos[1], ris.pos[2]])
 
-            # Camera looks at RIS/UE (identity rotation = world aligned)
+            # Camera axes aligned with world axes (identity rotation)
             r_cw = np.eye(3, dtype=np.float64)
 
             print(f"[MOCK CAMERA] Computed transformation:")
             print(f"  Camera position (t_cw): {t_cw}")
             print(f"  Camera rotation (r_cw): identity")
+            print(f"  Note: Camera is at RIS center with world-aligned axes")
 
         # Setup waveform simulator if requested
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
@@ -230,20 +247,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         last_detection_frame = None  # Store the last frame with detected marker
         last_detection_info = {}  # Store marker info for validation display
 
-        # Setup video writer for recording output frames
-        video_writer = None
-        if save_video and not use_mock:
-            try:
-                frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                fps = int(cap.get(cv2.CAP_PROP_FPS)) or 30
-
-                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                video_writer = cv2.VideoWriter(video_output_path, fourcc, fps, (frame_width, frame_height))
-                print(f"[VIDEO] Recording to: {video_output_path}")
-            except Exception as e:
-                print(f"[VIDEO] Warning: Could not setup video writer: {e}")
-                video_writer = None
+        # Note: Video recording removed. Detected frame will be saved as image instead.
 
         print(f"\n[OPENCV VISION SWEEP]")
         print(f"Camera ID: {camera_id}")
@@ -296,19 +300,38 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                             break
                         continue
 
+                    # Pick target marker (defaults to first if no filter)
+                    selected_index = 0
+                    if target_marker_id is not None:
+                        found = False
+                        for idx, marker_id in enumerate(ids.flatten()):
+                            if marker_id == target_marker_id:
+                                selected_index = idx
+                                found = True
+                                break
+                        if not found:
+                            # Requested marker id not in this frame
+                            continue
+
                     frames_with_markers += 1
                     marker_detected = True
 
-                    # Process first detected marker (UE position)
                     rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
-                        corners[0:1], marker_size, K, dist_coeffs
+                        [corners[selected_index]], marker_size, K, dist_coeffs
                     )
 
                     rvec = rvec[0]
                     tvec = tvec[0]
 
-                    # Draw detected markers
-                    cv2.aruco.drawDetectedMarkers(output_frame, corners, ids)
+                    # Draw detected markers with green squares
+                    selected_ids = ids[selected_index:selected_index+1]
+                    cv2.aruco.drawDetectedMarkers(output_frame, [corners[selected_index]], selected_ids)
+
+                    # Additionally draw explicit green rectangle around marker corners for clarity
+                    corner_points = corners[selected_index][0].astype(int)
+                    cv2.polylines(output_frame, [corner_points], True, (0, 255, 0), 3)
+                    for point in corner_points:
+                        cv2.circle(output_frame, tuple(point), 4, (0, 255, 0), -1)
 
                 # Transform UE position to world coordinates (camera → world)
                 p_ue_world = self._camera_to_world(tvec, rvec, r_cw, t_cw)
@@ -365,10 +388,6 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
 
-                # Write frame to video file if recording
-                if video_writer is not None:
-                    video_writer.write(output_frame)
-
                 # Store last detection frame and info for validation display
                 last_detection_frame = output_frame.copy()
                 last_detection_info = {
@@ -388,10 +407,10 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 # is calculated based on the actually detected marker position.
                 if unique_poses == 0:
                     ue_pos_before = np.array(ue.pos, dtype=np.float64).copy()
-                    ue.pos = p_ue_world.tolist()
+                    ue.pos = np.array(p_ue_world, dtype=np.float64)
                     print(f"\n[UE POSITION UPDATE]")
                     print(f"  UE position before (from network topology): {ue_pos_before}")
-                    print(f"  UE position after (from camera detection): {ue.pos}")
+                    print(f"  UE position after (from camera detection): {ue.pos.tolist()}")
                     print(f"  This ensures deflection angle is based on detected marker position")
 
                 # Compute deflection angle from AP/RIS/UE geometry
@@ -476,13 +495,6 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
         finally:
             cap.release()
-
-            # Release video writer and print output path
-            if video_writer is not None:
-                video_writer.release()
-                print(f"\n[VIDEO] Recording saved: {video_output_path}")
-                print(f"[VIDEO] To view: ffplay {video_output_path}")
-
             cv2.destroyAllWindows()
 
         # Validate results
@@ -538,12 +550,20 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         print(f"  Absolute beam angle: {best_abs:.2f}°")
         print(f"  Best SNR: {best_snr:.4f} dB")
 
-        # Display detected marker frame for validation
+        # Save and display detected marker frame
         if last_detection_frame is not None:
             print(f"\n[MARKER VALIDATION DISPLAY]")
             print(f"  Frame: {last_detection_info['frame_count']}")
             print(f"  Camera coords - X: {last_detection_info['x_cam']:.3f}m, Y: {last_detection_info['y_cam']:.3f}m, Z: {last_detection_info['z_cam']:.3f}m, Dist: {last_detection_info['dist_cam']:.3f}m")
             print(f"  World coords - X: {last_detection_info['p_ue_world'][0]:.3f}, Y: {last_detection_info['p_ue_world'][1]:.3f}, Z: {last_detection_info['p_ue_world'][2]:.3f}")
+
+            # Save detected frame as image file
+            marker_image_path = "aruco_marker_detected.png"
+            cv2.imwrite(marker_image_path, last_detection_frame)
+            print(f"\n[MARKER FRAME SAVED]")
+            print(f"  Path: {marker_image_path}")
+            print(f"  Shows: ArUco marker detection with green square outline")
+
             print(f"\nPress any key to view the detected marker frame...")
             cv2.imshow("Detected Marker Frame - Validation", last_detection_frame)
             cv2.waitKey(0)

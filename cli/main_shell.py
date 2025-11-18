@@ -1551,6 +1551,9 @@ class RISNetCLI(cmd.Cmd):
             # Create sweep record and update network using connection handler
             self.connection_handler.create_sweep_record_and_link(ap, ris, ue, out, best_angles_info, fov, step, algo_name, use_waveform, modulation)
 
+            # Save network state (important for OpenCV vision sweep to persist UE position)
+            self._save_network()
+
         except ValueError as e:
             # Clean error output for FOV violations
             print(f"\n✗ {e}\n")
