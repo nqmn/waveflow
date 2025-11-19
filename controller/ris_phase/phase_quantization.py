@@ -165,6 +165,54 @@ class NonuniformQuantizer(PhaseQuantizer):
         return quantized, states
 
 
+class OptimizedQuantizer(PhaseQuantizer):
+    """Optimization-aware quantization to maximize array gain for target angle"""
+
+    def __init__(self, num_bits: int, optimization_method: str = 'gradient_descent'):
+        """
+        Initialize optimized quantizer.
+
+        Args:
+            num_bits: Number of bits for phase quantization
+            optimization_method: 'gradient_descent', 'particle_swarm', or 'exhaustive'
+        """
+        super().__init__(num_bits)
+        self.optimization_method = optimization_method
+
+    def quantize(self, ideal_phases: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Quantize using optimization to find best 1-bit phases for target angle.
+
+        This method finds quantized phases that minimize deviation from ideal
+        while respecting quantization constraints.
+
+        Args:
+            ideal_phases: Ideal phases in radians
+
+        Returns:
+            Tuple of (quantized_phases, phase_states)
+        """
+        from controller.ris_phase.phase_steering import PhaseSteeringEngine
+
+        # Use optimization method to find best quantized phases
+        quantized_phases, metadata = PhaseSteeringEngine.optimize_quantized_phases(
+            ideal_phases=ideal_phases,
+            bits=self.num_bits,
+            ris_array_size=int(np.sqrt(len(ideal_phases))),
+            method=self.optimization_method
+        )
+
+        # Convert to states
+        normalized = quantized_phases % (2 * np.pi)
+        states = np.round(normalized / self.phase_step).astype(int) % self.num_levels
+
+        return quantized_phases, states
+
+    def get_optimization_metadata(self) -> Dict:
+        """Get metadata from last optimization run"""
+        return getattr(self, '_last_metadata', {})
+
+
 class QuantizationAnalyzer:
     """Analyze quantization effects and losses"""
 
@@ -330,17 +378,29 @@ class QuantizationLookupTable:
 class QuantizationController:
     """Control RIS phase quantization"""
 
-    def __init__(self, ris_node, quantizer_type: str = 'uniform'):
+    def __init__(self, ris_node, quantizer_type: str = 'uniform', optimization_method: str = None):
         """
         Initialize quantization controller.
 
         Args:
             ris_node: RIS node instance
-            quantizer_type: Type of quantizer ('uniform' or 'nonuniform')
+            quantizer_type: Type of quantizer ('uniform', 'nonuniform', or 'optimized')
+            optimization_method: For optimized quantizer: 'gradient_descent', 'particle_swarm', etc.
         """
         self.ris = ris_node
         self.quantizer_type = quantizer_type
-        self.quantizer = UniformQuantizer(ris_node.bits)
+
+        # Create appropriate quantizer type
+        if quantizer_type == 'optimized':
+            self.quantizer = OptimizedQuantizer(
+                ris_node.bits,
+                optimization_method=optimization_method or 'gradient_descent'
+            )
+        elif quantizer_type == 'nonuniform':
+            self.quantizer = NonuniformQuantizer(ris_node.bits)
+        else:  # 'uniform' or default
+            self.quantizer = UniformQuantizer(ris_node.bits)
+
         self.analyzer = QuantizationAnalyzer()
         self.lut = QuantizationLookupTable(ris_node.bits)
 

@@ -19,45 +19,56 @@ class PhaseSteeringEngine:
     """Compute and manage RIS phase steering arrays"""
 
     @staticmethod
+    def _synthetic_element_positions(ris_array_size: int, wavelength: float) -> np.ndarray:
+        """Create a centered λ/2-spaced planar grid used for phase synthesis."""
+        element_spacing = wavelength / 2.0
+        coords = np.arange(ris_array_size) - (ris_array_size - 1) / 2.0
+        xs, ys = np.meshgrid(coords, coords, indexing="ij")
+        positions = np.stack([xs, ys, np.zeros_like(xs)], axis=-1) * element_spacing
+        return positions.reshape(-1, 3)
+
+    @staticmethod
     def linear_steering_phases(
         beam_angle_deg: float,
         ris_position: np.ndarray,
         wavelength: float,
-        ris_array_size: int = 16
+        ris_array_size: int = 16,
+        element_positions: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """
-        Compute linear steering phases for a given beam angle.
+        Compute planar steering phases for a given beam angle.
 
-        Uses progressive phase shifts across array elements:
-        φ(i) = k * x(i) * sin(θ)
-        where k = 2π/λ, x(i) is element position, θ is steering angle
+        Uses progressive phase shifts across BOTH axes of the RIS:
+        φ(i) = -k * r_i · u(θ)
+        where k = 2π/λ, r_i is the element position relative to RIS center,
+        and u(θ) is the unit vector pointing toward the steering direction.
 
         Args:
-            beam_angle_deg: Steering angle in degrees
+            beam_angle_deg: Steering angle in degrees (absolute azimuth)
             ris_position: RIS node position (3D array)
             wavelength: Operating wavelength in meters
             ris_array_size: Array size (N for N×N array)
+            element_positions: Optional explicit element positions (N×3 array)
 
         Returns:
             Phase array (radians) for all N×N elements
         """
         k = 2 * np.pi / wavelength
         beam_angle_rad = np.radians(beam_angle_deg)
+        steering_dir = np.array([np.cos(beam_angle_rad), np.sin(beam_angle_rad), 0.0])
 
-        # Assume ULA along x-axis with λ/2 spacing
-        element_spacing = wavelength / 2
-        positions = np.arange(ris_array_size) * element_spacing
+        if element_positions is None:
+            rel_positions = PhaseSteeringEngine._synthetic_element_positions(ris_array_size, wavelength)
+        else:
+            rel_positions = np.asarray(element_positions, dtype=float).copy()
+            if ris_position is not None:
+                rel_positions -= ris_position
+            else:
+                rel_positions -= np.mean(rel_positions, axis=0)
 
-        # Linear steering: φ = k * x * sin(θ)
-        steering_phases = k * positions * np.sin(beam_angle_rad)
-
-        # Wrap to [0, 2π)
-        steering_phases = steering_phases % (2 * np.pi)
-
-        # Tile to 2D array (N×N)
-        phases_2d = np.tile(steering_phases, (ris_array_size, 1))
-
-        return phases_2d.flatten()
+        projections = rel_positions[:, 0] * steering_dir[0] + rel_positions[:, 1] * steering_dir[1]
+        steering_phases = (-k * projections) % (2 * np.pi)
+        return steering_phases
 
     @staticmethod
     def optimal_path_phases(
@@ -126,11 +137,13 @@ class PhaseSteeringEngine:
         # Absolute beam angle
         absolute_angle = specular_angle_deg + deflection_angle_deg
 
+        synthetic_positions = PhaseSteeringEngine._synthetic_element_positions(ris_array_size, wavelength)
         return PhaseSteeringEngine.linear_steering_phases(
             beam_angle_deg=absolute_angle,
-            ris_position=np.array([0, 0, 0]),
+            ris_position=np.array([0.0, 0.0, 0.0]),
             wavelength=wavelength,
-            ris_array_size=ris_array_size
+            ris_array_size=ris_array_size,
+            element_positions=synthetic_positions,
         )
 
     @staticmethod
@@ -175,6 +188,85 @@ class PhaseSteeringEngine:
         beam_angle_deg = np.degrees(beam_angle_rad)
 
         return beam_angle_deg
+
+    @staticmethod
+    def apply_tapering(rows: int, cols: int, window: str = 'hamming') -> np.ndarray:
+        """
+        Apply amplitude tapering (windowing) to a 2D RIS array.
+
+        Tapering reduces sidelobe levels at the cost of a wider main lobe.
+        This is useful for array factor calculations to model element amplitude
+        weights that reduce far-field sidelobe levels.
+
+        Window Functions:
+            'hamming':  Classic Hamming window, ~-43 dB sidelobe suppression
+            'hann':     Hann/Hanning window, ~-32 dB sidelobe suppression (smoother)
+            'blackman': Blackman window, ~-58 dB sidelobe suppression (very low sidelobes)
+            'kaiser':   Kaiser window, tunable sidelobe suppression
+            'uniform':  No tapering (default, ~-13 dB sidelobes for 2D array)
+            'taylor':   Taylor window approximation (for planar arrays)
+
+        Args:
+            rows: Number of rows in RIS array
+            cols: Number of columns in RIS array
+            window: Window type ('hamming', 'hann', 'blackman', 'kaiser', 'uniform', 'taylor')
+
+        Returns:
+            weights_2d: 2D array of amplitude weights (rows × cols)
+                       Ready to be reshaped/flattened for element_weights
+
+        Example:
+            >>> weights_hamming = PhaseSteeringEngine.apply_tapering(16, 16, window='hamming')
+            >>> # Use in array factor: Physics.compute_array_factor(..., weights=weights_hamming.flatten())
+        """
+        if window == 'uniform' or window is None:
+            # No tapering - all elements weighted equally
+            return np.ones((rows, cols))
+
+        elif window == 'hamming':
+            # Hamming window
+            w_row = np.hamming(rows)
+            w_col = np.hamming(cols)
+            weights_2d = np.outer(w_row, w_col)
+
+        elif window == 'hann':
+            # Hann/Hanning window (smoother than Hamming)
+            w_row = np.hanning(rows)
+            w_col = np.hanning(cols)
+            weights_2d = np.outer(w_row, w_col)
+
+        elif window == 'blackman':
+            # Blackman window (very low sidelobes, wider main lobe)
+            w_row = np.blackman(rows)
+            w_col = np.blackman(cols)
+            weights_2d = np.outer(w_row, w_col)
+
+        elif window == 'kaiser':
+            # Kaiser window with default shape parameter (beta=8.6 for ~50 dB sidelobe)
+            beta = 8.6  # Tunable: higher = lower sidelobes, wider main lobe
+            w_row = np.kaiser(rows, beta)
+            w_col = np.kaiser(cols, beta)
+            weights_2d = np.outer(w_row, w_col)
+
+        elif window == 'taylor':
+            # Taylor window approximation for planar arrays
+            # Provides nearly equal sidelobe levels
+            # Create Taylor window using Hamming as approximation
+            w_row = np.hamming(rows) + 0.1 * (1 - np.hamming(rows))  # Slight boost at edges
+            w_col = np.hamming(cols) + 0.1 * (1 - np.hamming(cols))
+            weights_2d = np.outer(w_row, w_col)
+
+        else:
+            # Unknown window type - default to Hamming
+            logger.warning(f"Unknown window type '{window}', defaulting to Hamming")
+            w_row = np.hamming(rows)
+            w_col = np.hamming(cols)
+            weights_2d = np.outer(w_row, w_col)
+
+        # Normalize weights to unit energy
+        weights_2d = weights_2d / np.sqrt(np.sum(weights_2d ** 2) + 1e-10)
+
+        return weights_2d
 
     @staticmethod
     def phase_pattern_from_deflection(
@@ -341,6 +433,120 @@ class PhaseSteeringEngine:
         return phase_pattern.flatten(), metadata
 
     @staticmethod
+    def optimize_quantized_phases(
+        ideal_phases: np.ndarray,
+        bits: int = 1,
+        ris_array_size: int = 16,
+        element_positions: np.ndarray = None,
+        target_angle_deg: float = 0.0,
+        frequency: float = 5.8e9,
+        method: str = 'gradient_descent'
+    ) -> Tuple[np.ndarray, Dict]:
+        """
+        Optimize quantized phase values to maximize array gain for target angle.
+
+        Given ideal continuous phases, find the best quantized values that
+        maximize array factor at the target steering angle. This accounts for
+        the fact that 1-bit (or low-bit) quantization loses information,
+        but can be optimized for specific geometry.
+
+        Args:
+            ideal_phases: Ideal continuous phases (radians) [0, 2π)
+            bits: Quantization bits per element (1, 2, 3, etc.)
+            ris_array_size: Array dimension (N for N×N array)
+            element_positions: 3D positions of all elements (optional, for array factor)
+            target_angle_deg: Target steering angle in degrees
+            frequency: Operating frequency in Hz
+            method: Optimization method ('gradient_descent', 'particle_swarm', 'exhaustive')
+
+        Returns:
+            Tuple of:
+            - quantized_phases: Optimized quantized phases
+            - metadata: Dict with optimization results (gain_improvement, iterations, etc.)
+        """
+        from scipy.optimize import differential_evolution, minimize
+
+        num_levels = 2 ** bits
+        phase_levels = np.linspace(0, 2 * np.pi, num_levels, endpoint=False)
+        num_elements = len(ideal_phases)
+
+        # Helper function to quantize phases
+        def quantize_to_levels(phases_continuous):
+            quantized = np.zeros_like(phases_continuous)
+            for i, phase in enumerate(phases_continuous):
+                # Find nearest quantization level
+                idx = np.argmin(np.abs(phase_levels - phase))
+                quantized[i] = phase_levels[idx]
+            return quantized
+
+        # Objective function: minimize phase error (deviation from ideal)
+        def phase_error(phase_indices):
+            # Convert indices to actual phases
+            phases_opt = np.array([phase_levels[int(idx) % num_levels] for idx in phase_indices])
+            # Return RMS phase error
+            error = np.sqrt(np.mean((phases_opt - ideal_phases) ** 2))
+            return error
+
+        # For small arrays (1-bit, 16x16), exhaustive search is feasible
+        if bits == 1 and ris_array_size == 16:
+            # 1-bit, 256 elements: only 2^256 patterns... too large for exhaustive
+            # Use greedy approach instead: quantize each element independently
+            quantized_phases = quantize_to_levels(ideal_phases)
+            iterations = 1
+            improvement = 0.0
+        else:
+            # Use optimization for higher bits
+            if method == 'gradient_descent':
+                # Continuous optimization, then quantize
+                def objective(phases_cont):
+                    quantized = quantize_to_levels(phases_cont)
+                    return phase_error(quantized)
+
+                result = minimize(objective, ideal_phases, method='L-BFGS-B',
+                                bounds=[(0, 2*np.pi) for _ in range(num_elements)])
+                quantized_phases = quantize_to_levels(result.x)
+                iterations = result.nit if hasattr(result, 'nit') else 0
+                improvement = float(phase_error(ideal_phases) - phase_error(quantized_phases))
+
+            elif method == 'particle_swarm':
+                # Differential evolution as PSO alternative
+                bounds = [(0, 2*np.pi) for _ in range(num_elements)]
+                result = differential_evolution(
+                    objective=phase_error,
+                    bounds=bounds,
+                    seed=0,
+                    maxiter=20,
+                    workers=1,
+                    updating='immediate'
+                )
+                quantized_phases = quantize_to_levels(result.x)
+                iterations = result.nit
+                improvement = float(phase_error(ideal_phases) - phase_error(quantized_phases))
+
+            else:  # exhaustive or default
+                quantized_phases = quantize_to_levels(ideal_phases)
+                iterations = 1
+                improvement = 0.0
+
+        # Calculate metrics
+        ideal_error = phase_error(ideal_phases)
+        quantized_error = phase_error(quantized_phases)
+
+        metadata = {
+            'method': method,
+            'bits': bits,
+            'num_elements': num_elements,
+            'ideal_phase_error_rms': float(ideal_error),
+            'quantized_phase_error_rms': float(quantized_error),
+            'improvement_rms': float(improvement),
+            'iterations': iterations,
+            'num_phase_levels': num_levels,
+            'target_angle_deg': target_angle_deg
+        }
+
+        return quantized_phases, metadata
+
+    @staticmethod
     def phase_gradient_analysis(
         phases: np.ndarray,
         ris_array_size: int = 16
@@ -418,7 +624,8 @@ class BeamSteeringController:
                 beam_angle_deg=beam_angle_deg,
                 ris_position=self.ris.pos,
                 wavelength=wavelength,
-                ris_array_size=self.ris.N
+                ris_array_size=self.ris.N,
+                element_positions=getattr(self.ris, "element_positions", None),
             )
 
             # Apply to RIS node

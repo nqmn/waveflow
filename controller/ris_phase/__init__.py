@@ -10,7 +10,7 @@ Comprehensive RIS phase management including:
 
 from .phase_steering import PhaseSteeringEngine, BeamSteeringController
 from .phase_quantization import (
-    PhaseQuantizer, UniformQuantizer, NonuniformQuantizer,
+    PhaseQuantizer, UniformQuantizer, NonuniformQuantizer, OptimizedQuantizer,
     QuantizationAnalyzer, QuantizationLookupTable, QuantizationController
 )
 from .phase_optimization import (
@@ -28,6 +28,7 @@ __all__ = [
     'PhaseQuantizer',
     'UniformQuantizer',
     'NonuniformQuantizer',
+    'OptimizedQuantizer',
     'QuantizationAnalyzer',
     'QuantizationLookupTable',
     'QuantizationController',

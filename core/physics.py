@@ -307,6 +307,141 @@ class Physics:
         return np.mod(ideal_phases, 2 * np.pi)
 
     @staticmethod
+    def compute_array_factor(phases, element_positions, target_angle_deg,
+                            frequency, weights=None, ris_position=None,
+                            ap_position=None, observation_type='far_field'):
+        """Calculate array factor (AF) magnitude for a 2D planar RIS array.
+
+        Array factor models how a phased array antenna radiates in different
+        directions. This is the fundamental physics that determines sidelobe
+        levels naturally without special-case logic.
+
+        Theory:
+            AF(θ, φ) = |∑_n w_n * e^(j*φ_n) * e^(j*k*r_n·θ̂)|
+            where:
+                w_n = amplitude weight for element n
+                φ_n = phase at element n (steering + quantization)
+                k = 2π/λ = wave number
+                r_n = position vector of element n
+                θ̂ = observation direction unit vector
+
+        The result naturally shows:
+            - Peak ~0 dB (or N dB if normalized to N) at steering direction
+            - Sidelobes at -13 to -30 dB for uniform weights
+            - Smooth transition (no artificial cutoff at beam_hits_ue)
+
+        Args:
+            phases: Ideal/quantized steering phases (N-element array, radians)
+            element_positions: Element positions (N×3 numpy array, meters)
+            target_angle_deg: Observation angle in degrees (azimuth in 2D, or elevation)
+            frequency: Operating frequency in Hz
+            weights: Optional amplitude weights (N-element array, default: ones)
+                    Use for tapering to reduce sidelobes (e.g., Hamming window)
+            ris_position: RIS center position (3D array, meters). If provided, converts
+                         target_angle to 3D observation direction.
+            ap_position: AP position (3D array, meters). If provided with ris_position,
+                        uses AP→RIS geometry for observation angle reference.
+            observation_type: 'far_field' (default) or 'near_field'
+                            'far_field': simple angular-based calculation
+                            'near_field': uses actual element-target geometry
+
+        Returns:
+            array_factor_magnitude_dB: Array factor in dB (normalized to peak)
+                                       At steering direction: ~0 dB
+                                       At sidelobes: -10 to -30 dB typical
+                                       At nulls: -∞ dB (clipped to -60 dB)
+        """
+        if phases is None or len(phases) == 0:
+            return 0.0
+
+        wavelength = C / frequency
+        k = 2 * np.pi / wavelength
+        num_elements = len(phases)
+
+        # Default weights (uniform, no tapering)
+        if weights is None:
+            weights = np.ones(num_elements)
+        else:
+            weights = np.array(weights)
+
+        # Normalize weights to unit energy
+        weights = weights / np.sqrt(np.sum(weights ** 2) + 1e-10)
+
+        # Convert target_angle_deg to observation direction vector
+        if observation_type == 'far_field':
+            # Far-field: use simple angular observation direction
+            if ris_position is not None and ap_position is not None:
+                # Reference direction: AP→RIS direction
+                ap_to_ris = ris_position - ap_position
+                ap_to_ris_angle_deg = np.degrees(np.arctan2(ap_to_ris[1], ap_to_ris[0]))
+                # Observation angle relative to AP→RIS direction
+                obs_angle_deg = ap_to_ris_angle_deg + target_angle_deg
+            else:
+                obs_angle_deg = target_angle_deg
+
+            # 2D observation direction (assuming elevation=0, azimuth only)
+            obs_angle_rad = np.radians(obs_angle_deg)
+            observation_dir = np.array([np.cos(obs_angle_rad), np.sin(obs_angle_rad), 0.0])
+        else:
+            # Near-field: observe from specific position (would be UE position)
+            if element_positions.shape[0] == 0:
+                return 0.0
+            observation_dir = None  # Will be computed per-element
+
+        # Compute array factor
+        af_complex = 0.0 + 0.0j
+
+        if observation_type == 'far_field':
+            # Far-field array factor: simple phase summation
+            for n in range(num_elements):
+                # Steering phase
+                phase_steering = phases[n]
+
+                # Spatial phase: k·r_n·θ̂
+                element_pos = element_positions[n] if isinstance(element_positions, np.ndarray) else element_positions[n]
+                if ris_position is not None:
+                    element_pos = element_pos - ris_position  # Relative to RIS center
+
+                # Project onto observation direction
+                spatial_phase = k * np.dot(element_pos[:2], observation_dir[:2])  # 2D projection
+
+                # Total phase for this element
+                total_phase = phase_steering + spatial_phase
+
+                # Contribution to array factor
+                af_complex += weights[n] * np.exp(1j * total_phase)
+
+        else:
+            # Near-field array factor (would require observation point)
+            # For now, fall back to far-field
+            for n in range(num_elements):
+                phase_steering = phases[n]
+                element_pos = element_positions[n]
+                if ris_position is not None:
+                    element_pos = element_pos - ris_position
+
+                # Approximate near-field using angular observation
+                obs_angle_rad = np.radians(target_angle_deg)
+                observation_dir = np.array([np.cos(obs_angle_rad), np.sin(obs_angle_rad), 0.0])
+                spatial_phase = k * np.dot(element_pos[:2], observation_dir[:2])
+
+                total_phase = phase_steering + spatial_phase
+                af_complex += weights[n] * np.exp(1j * total_phase)
+
+        # Array factor magnitude (normalized to number of elements for steered case)
+        af_magnitude_linear = np.abs(af_complex) / num_elements
+
+        # Convert to dB (normalized so peak at steering direction ≈ 0 dB)
+        # Clamp to avoid log(0)
+        af_magnitude_linear = np.clip(af_magnitude_linear, 1e-6, 1.0)
+        af_magnitude_dB = 20 * np.log10(af_magnitude_linear)
+
+        # Clamp sidelobe floor to -60 dB (represents far sidelobes)
+        af_magnitude_dB = np.clip(af_magnitude_dB, -60.0, 0.0)
+
+        return float(af_magnitude_dB)
+
+    @staticmethod
     def array_gain_dBi(N, amplifier_gain=1.0, insertion_loss_dB=0.5,
                        reflection_loss_dB=0.2, angle_loss_dB=0, frequency=5.8e9):
         """Calculate RIS array gain based on aperture directivity

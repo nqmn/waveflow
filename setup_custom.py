@@ -12,7 +12,9 @@ import shutil
 from pathlib import Path
 import platform
 import ctypes
-import winreg
+
+if platform.system() == "Windows":
+    import winreg
 
 
 class RISNetSetup:
@@ -392,7 +394,21 @@ class RISNetSetup:
         print("   python3 main.py add ris       # Add RIS surface")
         print("   python3 main.py add ue        # Add user equipment")
         print("   python3 main.py save network.json  # Save topology")
-        print("   python3 main.py --topology examples/json/example_1_simple.json list")
+        print("   python3 main.py --topology examples/json/example_1_simple.json list\n")
+
+        print("NEW: ARRAY FACTOR INTEGRATION (Physics-Based SNR):")
+        print("   Array factor model now replaces binary beam_hits_ue cutoff")
+        print("   SNR sweeps show realistic sidelobe patterns\n")
+        print("   Documentation:")
+        print("   - ARRAY_FACTOR_INTEGRATION.md   (comprehensive reference)")
+        print("   - ARRAY_FACTOR_QUICKSTART.md    (quick start guide)")
+        print("   - IMPLEMENTATION_SUMMARY.md     (technical details)\n")
+        print("   Test the new features:")
+        print("   python3 test_array_factor_integration.py\n")
+        print("   Apply tapering (optional):")
+        print("   from controller.ris_phase.phase_steering import PhaseSteeringEngine")
+        print("   weights = PhaseSteeringEngine.apply_tapering(16, 16, window='hamming')")
+        print("   ris.element_weights = weights.flatten()")
 
 
     def run(self):

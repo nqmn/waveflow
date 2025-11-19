@@ -522,7 +522,7 @@ class RISNetCLI(cmd.Cmd):
             for i in range(num_ris):
                 x, y = self.topology_helper.generate_position('ris')
                 name = self.topology_helper.generate_auto_name('ris')
-                self.net.add_ris(name, x, y, 0.0, N=16, bits=1)
+                self.net.add_ris(name, x, y, 0.0, N=16, bits=1, freq=5.8e9)
                 ris_positions.append((name, x, y))
                 print(f"✓ Added RIS {name} at ({x:.2f}, {y:.2f}) (N=16, bits=1)")
 
@@ -538,14 +538,14 @@ class RISNetCLI(cmd.Cmd):
                     x = ris_x + ap_distance * np.cos(ap_angle_rad)
                     y = ris_y + ap_distance * np.sin(ap_angle_rad)
                     name = self.topology_helper.generate_auto_name('ap')
-                    self.net.add_ap(name, x, y, 0.0)
+                    self.net.add_ap(name, x, y, 0.0, freq=5.8e9)
                     print(f"✓ Added AP {name} at ({x:.2f}, {y:.2f}) (RIS-aware, angle: {ap_angle_deg:.2f}°)")
             else:
                 # Fallback to random AP placement if no RIS
                 for i in range(num_ap):
                     x, y = self.topology_helper.generate_position('ap')
                     name = self.topology_helper.generate_auto_name('ap')
-                    self.net.add_ap(name, x, y, 0.0)
+                    self.net.add_ap(name, x, y, 0.0, freq=5.8e9)
                     print(f"✓ Added AP {name} at ({x:.2f}, {y:.2f})")
 
             # Add UE nodes with RIS-aware positioning
@@ -658,16 +658,13 @@ class RISNetCLI(cmd.Cmd):
                 print(f"      SNR:                            {link_info['snr_dB']:>8.2f} dB")
                 print(f"      Power:                          {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"      Gain:                           {link_info['gain_dBi']:>8.2f} dBi")
-                # Display angles with new format (Steering Angle with azimuths if available)
-                if link_info.get('deflection_angle_deg') is not None:
-                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
-                    if link_info.get('incident_azimuth_deg') is not None:
-                        print(f"      Incident Azimuth (AP→RIS):     {link_info['incident_azimuth_deg']:>8.2f}°")
-                    if link_info.get('reflected_azimuth_deg') is not None:
-                        print(f"      Reflected Azimuth (RIS→UE):    {link_info['reflected_azimuth_deg']:>8.2f}°")
-                elif 'beam_angle_local' in link_info:
-                    # Use beam_angle_local as steering angle when metadata unavailable
+                # Display steering angle - prioritize beam_angle_local (actual steering angle)
+                if 'beam_angle_local' in link_info:
+                    # Use beam_angle_local as steering angle (the actual beam angle used)
                     print(f"      Steering Angle (Deflection):    {link_info['beam_angle_local']:>8.2f}°")
+                elif link_info.get('deflection_angle_deg') is not None:
+                    # Fallback to deflection_angle_deg if beam_angle_local not available
+                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
                 print(f"      Quant Penalty:                  {penalty:>8.2f} dB")
@@ -1123,16 +1120,13 @@ class RISNetCLI(cmd.Cmd):
                 print(f"      SNR:                            {link_info['snr_dB']:>8.2f} dB")
                 print(f"      Power:                          {link_info['pwr_dBm']:>8.2f} dBm")
                 print(f"      Gain:                           {link_info['gain_dBi']:>8.2f} dBi")
-                # Display angles with new format (Steering Angle with azimuths if available)
-                if link_info.get('deflection_angle_deg') is not None:
-                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
-                    if link_info.get('incident_azimuth_deg') is not None:
-                        print(f"      Incident Azimuth (AP→RIS):     {link_info['incident_azimuth_deg']:>8.2f}°")
-                    if link_info.get('reflected_azimuth_deg') is not None:
-                        print(f"      Reflected Azimuth (RIS→UE):    {link_info['reflected_azimuth_deg']:>8.2f}°")
-                elif 'beam_angle_local' in link_info:
-                    # Use beam_angle_local as steering angle when metadata unavailable
+                # Display steering angle - prioritize beam_angle_local (actual steering angle)
+                if 'beam_angle_local' in link_info:
+                    # Use beam_angle_local as steering angle (the actual beam angle used)
                     print(f"      Steering Angle (Deflection):    {link_info['beam_angle_local']:>8.2f}°")
+                elif link_info.get('deflection_angle_deg') is not None:
+                    # Fallback to deflection_angle_deg if beam_angle_local not available
+                    print(f"      Steering Angle (Deflection):    {link_info['deflection_angle_deg']:>8.2f}°")
                 # Show as absolute penalty value (positive dB loss)
                 penalty = abs(link_info['quant_loss_dB'])
                 print(f"      Quant Penalty:                  {penalty:>8.2f} dB")
@@ -1228,9 +1222,11 @@ class RISNetCLI(cmd.Cmd):
         abs_diff_deg = math.degrees(abs(angle_diff))
         mid_ang = theta_in_rad + angle_diff / 2
 
-        stored_deflection = link_info.get('deflection_angle_deg')
+        # Use beam_angle_local (actual steering angle) preferentially for display
+        # Fall back to deflection_angle_deg (geometric property) if unavailable
+        stored_deflection = link_info.get('beam_angle_local')
         if stored_deflection is None:
-            stored_deflection = link_info.get('beam_angle_local')
+            stored_deflection = link_info.get('deflection_angle_deg')
         if stored_deflection is not None:
             try:
                 stored_deflection = float(stored_deflection)
@@ -1302,12 +1298,10 @@ class RISNetCLI(cmd.Cmd):
             except (TypeError, ValueError):
                 return str(value)
 
-        beam_angle_abs = link_info.get('beam_angle_absolute')
         stats = [
             f"SNR: {_fmt_number(link_info.get('snr_dB'))} dB",
             f"Power: {_fmt_number(link_info.get('pwr_dBm'))} dBm",
-            f"Deflection: {deflection_display:.2f}°",
-            f"Beam angle: {_fmt_number(beam_angle_abs)}°"
+            f"Deflection: {deflection_display:.2f}°"
         ]
         ax.text(
             0.02,

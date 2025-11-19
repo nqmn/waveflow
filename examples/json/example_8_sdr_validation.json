@@ -2,8 +2,9 @@
   "name": "Example 8: 5.8 GHz SDR Validation Topology",
   "description": "RIS-assisted HackRF testbed inspired by Fig. 12 and Table 2 of Design and SDR Validation of a 5.8 GHz 1-Bit RIS",
   "impairments": {
-    "extra_path_loss_dB": 40.74,
-    "direct_blockage_dB": 20.79
+    "extra_path_loss_dB": 0.0,
+    "direct_blockage_dB": 28.2,
+    "extra_path_loss_dB_ris": -24.4
   },
   "metadata": {
     "source": "Design_and_SDR_Validation_of_a_58_GHz_1-Bit_Reconf.pdf",
@@ -33,7 +34,7 @@
       "pos": [
         0.0,
         0.0,
-        0.0
+        0.5
       ],
       "power_dBm": 10.0,
       "freq": 5800000000.0,
@@ -53,15 +54,15 @@
       "freq": 5800000000.0,
       "max_angle_deg": 60,
       "active_mode": false,
-      "element_efficiency": 0.8,
+      "element_efficiency": 0.95,
       "K_db": 6.0
     },
     {
       "name": "UE_RX",
       "type": "UE",
       "pos": [
-        10.5355339059,
-        3.5355339059,
+        3.46,
+        3.54,
         0.0
       ],
       "antenna_gain_dBi": 8.0,

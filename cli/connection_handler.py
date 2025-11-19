@@ -155,7 +155,8 @@ class ConnectionHandler:
             'use_mock': False,  # Use mock camera (default: false for real camera)
             'mock_trajectory': 'circular',  # Mock camera trajectory type
             'r_cw': 'rotation.npy',  # Camera-to-world rotation matrix (default path)
-            't_cw': 'translation.npy'  # Camera-to-world translation vector (default path)
+            't_cw': 'translation.npy',  # Camera-to-world translation vector (default path)
+            'tapering': 'uniform'  # Tapering window (uniform, hamming, hann, blackman)
         }
 
         parts = list(parts)  # Make a copy
@@ -313,6 +314,13 @@ class ConnectionHandler:
                 result['t_cw'] = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
+        # Parse tapering window
+        if '--tapering' in parts:
+            idx = parts.index('--tapering')
+            if idx + 1 < len(parts):
+                result['tapering'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
         # Helper to check if token is a number
         def _is_number(token):
             try:
@@ -324,7 +332,7 @@ class ConnectionHandler:
         # Check for unknown flags
         unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
         if unknown_flags:
-            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --use-mock, --mock-trajectory, --r-cw, --t-cw, --no-waveform, --no-feedback"
+            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --use-mock, --mock-trajectory, --r-cw, --t-cw, --tapering, --no-waveform, --no-feedback"
             return result
 
         # Validate flag combinations
@@ -348,7 +356,7 @@ class ConnectionHandler:
 
         return result
 
-    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, print_func=print):
+    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering='uniform', print_func=print):
         """Execute single-angle connect measurement"""
         try:
             print_func(f"\n{'='*70}")
@@ -379,7 +387,8 @@ class ConnectionHandler:
             print_func(f"  Action: Controller queries UE for measured SNR...")
 
             res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
-                                  enable_feedback=enable_feedback, max_feedback_iterations=3)
+                                  enable_feedback=enable_feedback, max_feedback_iterations=3,
+                                  tapering=tapering)
 
             print_func(f"  ✓ SNR Result: {res['snr_dB']:.2f} dB")
 
@@ -512,11 +521,6 @@ class ConnectionHandler:
                     print_func(f"RIS deflection angle above {max_angle:.0f}° hardware FOV limit")
                 else:
                     print_func(f"Steering Angle (Local Deflection): {float(deflection_angle):>8.2f}°")
-
-                    if incident_azimuth is not None:
-                        print_func(f"Incident Azimuth (AP→RIS):     {float(incident_azimuth):>8.2f}°")
-                    if reflected_azimuth is not None:
-                        print_func(f"Reflected Azimuth (RIS→UE):    {float(reflected_azimuth):>8.2f}°")
             else:
                 local_deflection = float(res.get('local_deflection_deg', 0))
                 print_func(f"Steering Angle (Local Deflection): {local_deflection:>8.2f}°")
@@ -558,7 +562,7 @@ class ConnectionHandler:
             'metrics': res
         }
 
-    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None, print_func=print):
+    def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None, tapering='uniform', print_func=print):
         """Execute multi-angle sweep"""
         try:
             algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
@@ -594,8 +598,10 @@ class ConnectionHandler:
                 'step': step,
                 'enable_feedback': enable_feedback,
                 'max_feedback_iterations': 3,
-                'metric': metric,  # Beam selection metric string
-                'metric_selector': metric_selector  # Standardized metric selector object
+                'metric': metric,  # Beam selection metric string (for reference)
+                # NOTE: metric_selector NOT passed to algorithm
+                # Post-processing (line 740+) handles metric-based selection after CSI/RSSI computed
+                'tapering': tapering
             }
             if algo_name.lower() in ['ml', 'ml-guided']:
                 kwargs['ml_predictor'] = ml_predictor
@@ -1049,10 +1055,48 @@ class ConnectionHandler:
                     metric_display_label = 'Expected CSI Quality'
                     metric_display_unit = 'bps/Hz'
 
+        # Compute actual deflection angle from geometry (AP→RIS vs RIS→UE)
+        # This should match the deflection angle reported by connect command
+        deflection_angle_deg = None
+        incident_azimuth_deg = None
+        reflected_azimuth_deg = None
+        try:
+            # Quick geometry calculation to get the actual deflection angle
+            import math
+            ap_node = self.net.get(ap)
+            ris_node = self.net.get(ris)
+            ue_node = self.net.get(ue)
+
+            if ap_node and ris_node and ue_node:
+                ap_vec = ap_node.pos - ris_node.pos
+                ue_vec = ue_node.pos - ris_node.pos
+                theta_in_rad = math.atan2(ap_vec[1], ap_vec[0])
+                theta_out_rad = math.atan2(ue_vec[1], ue_vec[0])
+
+                angle_diff = theta_out_rad - theta_in_rad
+                while angle_diff > math.pi:
+                    angle_diff -= 2 * math.pi
+                while angle_diff < -math.pi:
+                    angle_diff += 2 * math.pi
+
+                deflection_angle_deg = abs(math.degrees(angle_diff))
+                incident_azimuth_deg = math.degrees(theta_in_rad)
+                reflected_azimuth_deg = math.degrees(theta_out_rad)
+
+                # Normalize angles to [0, 360) for cleaner display
+                if incident_azimuth_deg < 0:
+                    incident_azimuth_deg += 360
+                if reflected_azimuth_deg < 0:
+                    reflected_azimuth_deg += 360
+        except Exception:
+            pass  # If computation fails, skip displaying deflection angle
+
         print_func('RECOMMENDATION TO SEND TO RIS:')
         print_func('-'*70)
-        print_func(f'Steering Angle (Local Deflection): {best_final_local:.2f}°  (relative to RIS normal)')
-        print_func(f'{metric_display_label:<34} {best_final_metric:.4f} {metric_display_unit}')
+
+        # Display the best local sweep angle (relative to RIS normal)
+        print_func(f'Steering Angle (Local Deflection): {best_final_local:.2f}°')
+        print_func(f'{metric_display_label:<34} {best_final_metric:.2f} {metric_display_unit}')
         print_func()
 
         return {
@@ -1060,7 +1104,8 @@ class ConnectionHandler:
             'best_final_snr': best_final_snr,
             'best_final_abs': best_final_abs,
             'specular_angle': specular_angle,
-            'algo_name_clean': algo_name_clean
+            'algo_name_clean': algo_name_clean,
+            'deflection_angle_deg': deflection_angle_deg
         }
 
     def create_sweep_record_and_link(self, ap, ris, ue, out, best_angles_info, fov, step, algo_name, use_waveform, modulation):
@@ -1081,6 +1126,26 @@ class ConnectionHandler:
 
         link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect Sweep - {algo_name_clean})"
 
+        # Get the actual deflection angle from the best sweep result by calling connect
+        # This ensures we have the correct deflection_angle_deg from phase metadata
+        deflection_angle_deg = None
+        incident_azimuth_deg = None
+        reflected_azimuth_deg = None
+        try:
+            final_result = self.net.connect(ap, ris, ue, beam_angle_deg=best_final_abs,
+                                           compute_phases=True, store_in_active_links=False)
+            deflection_angle_deg = final_result.get('deflection_angle_deg')
+            incident_azimuth_deg = final_result.get('incident_azimuth_deg')
+            reflected_azimuth_deg = final_result.get('reflected_azimuth_deg')
+
+            # Normalize angles to [0, 360) for cleaner display
+            if incident_azimuth_deg is not None and incident_azimuth_deg < 0:
+                incident_azimuth_deg += 360
+            if reflected_azimuth_deg is not None and reflected_azimuth_deg < 0:
+                reflected_azimuth_deg += 360
+        except Exception as e:
+            pass  # Fallback: use best_final_local if connect fails
+
         # Retrieve phase data from RIS node if available
         phase_data = {}
         ris_node_ref = self.net.get(ris)
@@ -1091,7 +1156,7 @@ class ConnectionHandler:
             if hasattr(ris_node_ref, 'phase_states') and ris_node_ref.phase_states is not None:
                 phase_data['phase_states'] = ris_node_ref.phase_states.tolist() if hasattr(ris_node_ref.phase_states, 'tolist') else ris_node_ref.phase_states
 
-        self.net.active_links[link_key] = {
+        link_data = {
             'ap': ap_key,
             'ris': ris_key,
             'ue': ue_key,
@@ -1107,11 +1172,25 @@ class ConnectionHandler:
             **phase_data
         }
 
+        # Add deflection angle metadata if available
+        if deflection_angle_deg is not None:
+            link_data['deflection_angle_deg'] = float(deflection_angle_deg)
+        if incident_azimuth_deg is not None:
+            link_data['incident_azimuth_deg'] = float(incident_azimuth_deg)
+        if reflected_azimuth_deg is not None:
+            link_data['reflected_azimuth_deg'] = float(reflected_azimuth_deg)
+
+        self.net.active_links[link_key] = link_data
+
         # Update RIS node's beam angle attributes
         if ris_node:
             ris_node.specular_angle_deg = float(specular_angle)
             ris_node.abs_beam_angle_deg = float(best_final_abs)
-            ris_node.local_beam_deflection_deg = float(best_final_local)
+            # Use the computed deflection angle if available, otherwise fallback to best_final_local
+            if deflection_angle_deg is not None:
+                ris_node.local_beam_deflection_deg = float(deflection_angle_deg)
+            else:
+                ris_node.local_beam_deflection_deg = float(best_final_local)
 
         sweep_record = {
             'type': 'connect_sweep',

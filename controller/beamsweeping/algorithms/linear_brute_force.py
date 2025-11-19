@@ -122,6 +122,7 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
             if snr_values[idx] is not None:
                 return
             abs_a = abs_angles[idx]
+            tapering = kwargs.get('tapering', 'uniform')
             with self._ap_state_guard(ap):
                 res = self.network.connect(
                     ap_name, ris_name, ue_name,
@@ -129,7 +130,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     enable_feedback=enable_feedback,
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False,  # Don't store intermediate measurements
-                    use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
+                    use_get_snr=self._should_use_get_snr(),  # Use get_snr() if enabled
+                    tapering=tapering
                 )
 
             snr_val, ser_val = apply_waveform_realism(
@@ -156,11 +158,11 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         for idx in range(len(angles)):
             measure_index(idx)
 
-        # Find best angle using metric selector (if provided, otherwise default to SNR)
-        if metric_selector is not None:
-            best_idx = metric_selector.find_best_index(snr_values)
-        else:
-            best_idx = int(np.argmax(snr_values))
+        # Find best angle using SNR
+        # NOTE: metric_selector is no longer passed to sweep algorithms
+        # Post-processing in connection_handler will override using correct metric
+        # (after CSI/RSSI values are computed)
+        best_idx = int(np.argmax(snr_values))
 
         best_angle = angles[best_idx]
         best_snr = snr_values[best_idx]

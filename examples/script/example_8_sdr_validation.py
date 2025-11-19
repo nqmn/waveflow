@@ -136,7 +136,7 @@ def run(topology: Path) -> None:
 
     print("\nLoaded nodes:")
     for name, node in net.nodes.items():
-        print(f"  {name:<12} → {type(node).__name__} @ {node.pos.tolist()}")
+        print(f"  {name:<12} - {type(node).__name__} @ {node.pos.tolist()}")
 
     # 1) Topology + physics validation
     print("\n--- Validation ---")
@@ -146,13 +146,15 @@ def run(topology: Path) -> None:
           f"(APs={topo_result['num_aps']}, RIS={topo_result['num_ris']}, UEs={topo_result['num_ues']})")
     physics = validator.validate_basic_physics(ap_name, ris_name, ue_name)
     print(f"Physics valid : {physics['physics_valid']}")
-    print(f"Distances     : AP→RIS={physics['distances']['ap_to_ris_m']:.2f} m, "
-          f"RIS→UE={physics['distances']['ris_to_ue_m']:.2f} m")
+    print(f"Distances     : AP-RIS={physics['distances']['ap_to_ris_m']:.2f} m, "
+          f"RIS-UE={physics['distances']['ris_to_ue_m']:.2f} m")
 
     # 2) Connect budget
-    print("\n--- AP→RIS→UE Connect ---")
+    print("\n--- AP-RIS-UE Connect ---")
     link = net.connect(ap_name, ris_name, ue_name, seed=0)
-    print(f"Beam angle    : {link['beam_angle']:.2f}°")
+    print(f"Beam angle    : {link['beam_angle']:.2f} deg")
+    deflection = link.get('deflection_angle_deg', link.get('local_deflection_deg', 0.0))
+    print(f"Deflection    : {deflection:.2f} deg")
     print(f"SNR           : {link['snr_dB']:.2f} dB")
     print(f"Rx power      : {link['pwr_dBm']:.2f} dBm")
     print(f"RIS gain      : {link['gain_dBi']:.2f} dBi")
@@ -172,13 +174,13 @@ def run(topology: Path) -> None:
 
     print(f"Direct path   : SNR={direct['snr_dB']:.2f} dB, "
           f"RSSI={rssi_direct:.2f} dBm, "
-          f"EVM≈{direct_evm:.2f}%")
+          f"EVM~{direct_evm:.2f}%")
     print(f"RIS assisted  : SNR={link['snr_dB']:.2f} dB, "
           f"RSSI={rssi_ris:.2f} dBm, "
-          f"EVM≈{ris_evm:.2f}%")
-    print(f"Improvements  : ΔSNR={snr_gain:.2f} dB, "
-          f"ΔRSSI={rssi_ris - rssi_direct:.2f} dB, "
-          f"EVM ratio≈{direct_evm/ris_evm if ris_evm else float('inf'):.2f}×")
+          f"EVM~{ris_evm:.2f}%")
+    print(f"Improvements  : delta_SNR={snr_gain:.2f} dB, "
+          f"delta_RSSI={rssi_ris - rssi_direct:.2f} dB, "
+          f"EVM ratio~{direct_evm/ris_evm if ris_evm else float('inf'):.2f}x")
 
     if reported:
         print("\n--- Reported (Paper) Metrics ---")
@@ -186,13 +188,13 @@ def run(topology: Path) -> None:
         ris_rep = reported.get("ris", {})
         print(f"Direct (paper): SNR={direct_rep.get('snr_dB', 'n/a')} dB, "
               f"RSSI={direct_rep.get('rssi_dBm', 'n/a')} dBm, "
-              f"EVM≈{direct_rep.get('evm_percent', 'n/a')}%")
+              f"EVM~{direct_rep.get('evm_percent', 'n/a')}%")
         print(f"RIS (paper)   : SNR={ris_rep.get('snr_dB', 'n/a')} dB, "
               f"RSSI={ris_rep.get('rssi_dBm', 'n/a')} dBm, "
-              f"EVM≈{ris_rep.get('evm_percent', 'n/a')}%")
+              f"EVM~{ris_rep.get('evm_percent', 'n/a')}%")
         if {'snr_dB', 'rssi_dBm'} <= direct_rep.keys() and {'snr_dB', 'rssi_dBm'} <= ris_rep.keys():
-            print(f"Paper ΔSNR    : {ris_rep['snr_dB'] - direct_rep['snr_dB']:.2f} dB "
-                  f"(ΔRSSI {ris_rep['rssi_dBm'] - direct_rep['rssi_dBm']:.2f} dB)")
+            print(f"Paper delta_SNR: {ris_rep['snr_dB'] - direct_rep['snr_dB']:.2f} dB "
+                  f"(delta_RSSI {ris_rep['rssi_dBm'] - direct_rep['rssi_dBm']:.2f} dB)")
 
     # 3) System vs waveform comparison
     print("\n--- System vs Waveform ---")
@@ -201,7 +203,7 @@ def run(topology: Path) -> None:
     print(f"System SNR    : {comparison['system_level']['snr_dB']:.2f} dB")
     print(f"Waveform SNR  : {comparison['waveform_level']['snr_dB']:.2f} dB")
     print(f"Effective SNR : {comparison['waveform_level']['snr_effective_dB']:.2f} dB")
-    print(f"Waveform Δ    : {comparison['difference']['snr_diff_dB']:.2f} dB "
+    print(f"Waveform diff : {comparison['difference']['snr_diff_dB']:.2f} dB "
           f"(penalty {comparison['difference']['waveform_penalty_dB']:.2f} dB)")
 
 

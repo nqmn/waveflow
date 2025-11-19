@@ -5,7 +5,7 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional
 from .nodes import AccessPoint, RIS, UE
-from .physics import Physics
+from .physics import Physics, C
 from .environment import Environment
 from .angle_utils import (
     normalize_angle_to_pm180,
@@ -17,6 +17,7 @@ from .angle_utils import (
 )
 from .feedback_channel import FeedbackChannelManager, FeedbackChannel
 from .snr_messaging import SNRMessagingSystem
+from controller.ris_phase.phase_steering import PhaseSteeringEngine
 from utils.rssi import compute_rssi_dBm
 
 
@@ -209,7 +210,8 @@ class RISNetwork:
     # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
-                use_isolated_copy=True, store_in_active_links=True, use_get_snr=True):
+                use_isolated_copy=True, store_in_active_links=True, use_get_snr=True,
+                tapering='uniform'):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -229,6 +231,8 @@ class RISNetwork:
             use_get_snr: If True (DEFAULT), retrieve SNR via messaging system instead of computing.
                         This queries UE for measured SNR through control channel (realistic behavior).
                         If False, compute SNR using physics models.
+            tapering: Window function for side lobe suppression ('uniform', 'hamming', 'hann', 'blackman').
+                     Default: 'uniform' (no tapering).
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -260,8 +264,20 @@ class RISNetwork:
         else:
             ap, ris, ue = ap_node, ris_node, ue_node
 
+        # Apply tapering if requested (calculate weights)
+        if tapering != 'uniform':
+            # Calculate weights using PhaseSteeringEngine
+            # Assuming square array for now (N x N)
+            weights_2d = PhaseSteeringEngine.apply_tapering(ris.N, ris.N, window=tapering)
+            ris.element_weights = weights_2d.flatten()
+        else:
+            # Reset to uniform if explicitly requested or default
+            ris.element_weights = np.ones(ris.N * ris.N)
+
         # Auto-compute beam angle if not provided
         if beam_angle_deg is None:
+            # Use the absolute angle from RIS to UE as the beam target direction
+            # This will be converted to local deflection later via compute_offset_from_normal()
             vec_tgt = ue.pos - ris.pos
             beam_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
 
@@ -271,9 +287,57 @@ class RISNetwork:
         ue_key = ue.name if ue else ue_name
 
         # Compute RIS phase configuration
+        phase_metadata = {}
         if compute_phases:
-            ris.compute_phases(ap.pos, ue.pos)
+            # FIX FOR SNR DISCREPANCY: Use linear steering phases instead of path-optimized phases
+            # The paper uses simple beam steering, not complex path-optimized phases.
+            # Linear steering produces phases compatible with array factor calculation.
+            from controller.ris_phase.phase_steering import PhaseSteeringEngine
+
+            wavelength = C / ris.freq
+            # Use linear steering phases for proper array gain at beam direction
+            phases_linear = PhaseSteeringEngine.linear_steering_phases(
+                beam_angle_deg=beam_angle_deg,
+                ris_position=ris.pos,
+                wavelength=wavelength,
+                ris_array_size=ris.N,
+                element_positions=getattr(ris, "element_positions", None),
+            )
+            ris.current_phases = phases_linear
             ris.quantize_phases()
+
+            # Compute deflection angle for metadata (for consistency with formula doc)
+            # Extract 2D projections for deflection calculation
+            ap_2d = ap.pos[:2]
+            ris_2d = ris.pos[:2]
+            ue_2d = ue.pos[:2]
+
+            # Calculate incident and reflected azimuth angles
+            theta_in_rad = np.arctan2(ap_2d[1] - ris_2d[1], ap_2d[0] - ris_2d[0])
+            theta_out_rad = np.arctan2(ue_2d[1] - ris_2d[1], ue_2d[0] - ris_2d[0])
+
+            # Calculate angle difference and deflection
+            angle_diff = theta_out_rad - theta_in_rad
+            while angle_diff > np.pi:
+                angle_diff -= 2 * np.pi
+            while angle_diff < -np.pi:
+                angle_diff += 2 * np.pi
+
+            deflection_angle_deg = abs(np.degrees(angle_diff))
+            deflection_angle_rad = abs(angle_diff)
+
+            # Store metadata for result dictionary
+            phase_metadata = {
+                'deflection_angle_deg': deflection_angle_deg,
+                'deflection_angle_clamped_deg': deflection_angle_deg,  # Not clamped in this path
+                'fov_clamped': False,
+                'incident_azimuth_deg': np.degrees(theta_in_rad),
+                'reflected_azimuth_deg': np.degrees(theta_out_rad),
+                'angle_diff_deg': np.degrees(angle_diff),
+            }
+
+            # Store phase metadata on RIS node so it can be picked up later
+            ris.phase_metadata = phase_metadata
 
         # Calculate link SNR using physics models
         if bandwidth_MHz is None:
@@ -365,9 +429,14 @@ class RISNetwork:
         if not is_within_fov(beam_offset_to_ue, ue_max_angle):
             beam_hits_ue = False
 
-        # CRITICAL: Check if RIS beam actually points toward UE location
-        # If beam is too far from where UE is, SNR should be None (no UE to measure)
-        # This handles the case: only one physical UE in network, other angles have no receiver
+        # NOTE: With array factor integration, beam_hits_ue is now computed implicitly
+        # via Physics.compute_array_factor(). The array factor naturally models
+        # main lobe (~0 dB at steering direction) and sidelobes (~-10 to -30 dB).
+        # This provides physically-accurate SNR across all angles without artificial cutoff.
+        #
+        # The old binary beam_hits_ue check is retained here for backward compatibility
+        # and logging, but the SNR calculation in the array factor section replaces
+        # the hard floor logic that was previously applied below.
         angle_to_ue = target_angle  # Where the UE actually is
         angular_distance_to_ue = abs((beam_angle_requested_deg - angle_to_ue + 180) % 360 - 180)  # Shortest angle
 
@@ -380,10 +449,19 @@ class RISNetwork:
         try:
             ris.specular_angle_deg = float(target_angle)
             ris.abs_beam_angle_deg = float(beam_angle_deg)
-            ris.local_beam_deflection_deg = float(beam_angle_deg - target_angle)
+            # Use the deflection angle from phase metadata if available, otherwise compute it
+            if phase_metadata and 'deflection_angle_deg' in phase_metadata:
+                ris.local_beam_deflection_deg = float(phase_metadata['deflection_angle_deg'])
+            else:
+                # Fallback: compute as the difference between incident and reflected angles
+                ris.local_beam_deflection_deg = float(abs(beam_angle_deg - target_angle) if beam_angle_deg is not None else 0.0)
         except Exception:
             pass
-        gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=angle_loss, frequency=ris.freq)
+        # Calculate max array gain (at peak)
+        # We pass angle_loss_dB=0 here because we will apply the full directional loss
+        # via the Array Factor (af_dB) later.
+        # If we passed angle_loss here, we would double-count the penalty.
+        gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=0.0, frequency=ris.freq)
 
         # Quantization loss (negative dB = loss)
         quant_loss_dB = Physics.quantization_loss_dB(
@@ -399,7 +477,12 @@ class RISNetwork:
         # Received power calculation (coherent link)
         # Pr = Pt + G_AP + G_UE + G_RIS - PL_AP_RIS - PL_RIS_UE - |quant_loss|
         # NOTE: quant_loss_dB is NEGATIVE (e.g., -1.67 dB), so we subtract it (subtract negative = add less)
-        extra_loss = float(self.impairments.get('extra_path_loss_dB', 0.0))
+        extra_loss = 0.0
+        impairments = self.impairments or {}
+        if 'extra_path_loss_dB_ris' in impairments:
+            extra_loss = float(impairments.get('extra_path_loss_dB_ris', 0.0))
+        elif impairments.get('apply_extra_path_loss_to_ris', False):
+            extra_loss = float(impairments.get('extra_path_loss_dB', 0.0))
         pwr_dBm = (ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi -
                    pl_ap_ris - pl_ris_ue - extra_loss + quant_loss_dB)
 
@@ -426,15 +509,52 @@ class RISNetwork:
 
         snr_dB = snr_computed_dB
 
-        if not beam_hits_ue:
-            noise_floor_dbm = -174 + 10 * np.log10(bandwidth_MHz * 1e6) + noise_figure_dB
-            pwr_dBm = float(noise_floor_dbm)
-            snr_computed_dB = getattr(self, 'no_ue_snr_floor_dB', 0.0)
-            snr_dB = snr_computed_dB
-            gain_dBi = 0.0
-            quant_loss_dB = 0.0
-            total_gain_dBi = ap_antenna_gain_dBi + ue_antenna_gain_dBi
-            gain_linear = 0.0
+        # ARRAY FACTOR INTEGRATION: Replace beam_hits_ue cutoff with physics-based array factor
+        # Array factor naturally models sidelobe response without artificial binary cutoff
+        if ris.current_phases is not None and len(ris.current_phases) > 0:
+            # Compute array factor for actual beam position
+            # This determines gain reduction due to sidelobe pattern
+            af_dB = Physics.compute_array_factor(
+                phases=ris.current_phases,
+                element_positions=ris.element_positions,
+                target_angle_deg=target_angle,  # Evaluate AF at UE location, not beam direction
+                frequency=ris.freq,
+                weights=getattr(ris, 'element_weights', None),
+                ris_position=ris.pos,
+                ap_position=ap.pos if ap is not None else None
+            )
+
+            # Apply array factor to gain
+            # af_dB is normalized so peak (steering direction) = 0 dB
+            # Sidelobes naturally show -10 to -30 dB depending on distance from steering dir
+            # Apply array factor to gain
+            # af_dB is normalized so peak (steering direction) = 0 dB
+            # Sidelobes naturally show -10 to -30 dB depending on distance from steering dir
+            # Since we set angle_loss_dB=0 in array_gain_dBi, this af_dB provides the
+            # sole directional penalty, avoiding double-counting.
+            total_gain_dBi_with_af = total_gain_dBi + af_dB
+
+            # Recompute SNR with array factor included
+            snr_computed_dB_with_af = Physics.compute_snr_dB(
+                tx_power_dBm=ap.power_dBm,
+                total_loss_dB=total_loss_dB,
+                gain_dBi=total_gain_dBi_with_af,
+                bandwidth_MHz=bandwidth_MHz,
+                noise_figure_dB=noise_figure_dB
+            )
+
+            # Apply fading if not deterministic
+            if seed is None:
+                fading_coeff = Physics.rician_fading(ris.K_db)
+                if fading_coeff < 1.0:
+                    snr_computed_dB_with_af += 20 * np.log10(fading_coeff)
+
+            snr_dB = snr_computed_dB_with_af
+            gain_dBi = total_gain_dBi_with_af
+        else:
+            # No current phases available - use computed value as-is
+            # This handles initialization before phase computation
+            pass
 
         gain_linear = 10 ** (gain_dBi / 10)
 

@@ -282,6 +282,7 @@ class RIS(Node):
 
         # Physical properties
         self.element_positions = None
+        self.element_weights = None  # Amplitude weights for array tapering (default: uniform)
         self.phase_rms = phase_error_std_deg  # Phase error RMS (degrees)
         self.amp_std = amp_std  # Amplitude variation std dev
         self.coupling_enabled = coupling_enabled
@@ -316,8 +317,10 @@ class RIS(Node):
         """Update element positions based on RIS position and spacing
 
         Creates a 2D grid of elements in the XY plane
+        Initializes element weights to uniform (no tapering)
         """
         self.element_positions = np.zeros((self.N * self.N, 3))
+        self.element_weights = np.ones(self.N * self.N)  # Default: uniform weights
         idx = 0
         for i in range(self.N):
             for j in range(self.N):
@@ -330,6 +333,28 @@ class RIS(Node):
     def set_bits(self, bits):
         """Update phase quantization bits"""
         self.bits = int(bits)
+
+    def enable_optimized_quantization(self, method: str = 'gradient_descent') -> Dict:
+        """
+        Enable quantization-aware phase optimization for this RIS.
+
+        Instead of simply quantizing ideal phases to nearest discrete level,
+        this finds optimal 1-bit phases that maximize array gain for the
+        target steering angle.
+
+        Args:
+            method: Optimization method ('gradient_descent', 'particle_swarm', 'exhaustive')
+
+        Returns:
+            Status dictionary with result
+        """
+        phase_manager = self._get_phase_manager()
+        return phase_manager.enable_optimized_quantization(method)
+
+    def disable_optimized_quantization(self) -> Dict:
+        """Disable optimized quantization, return to standard uniform quantization"""
+        phase_manager = self._get_phase_manager()
+        return phase_manager.disable_optimized_quantization()
 
     def set_beam_config(self, beam_angle, phases=None):
         """Set current beam configuration
@@ -467,6 +492,7 @@ class RIS(Node):
             'element_pattern_gain_dBi': self.element_pattern_gain_dBi,
             'other_loss_dB': self.other_loss_dB,
             'noise_rise_dB': self.noise_rise_dB,
+            'element_weights': self.element_weights.tolist() if self.element_weights is not None else None,
         })
         return d
 

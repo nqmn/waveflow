@@ -99,56 +99,67 @@ INDEX_HTML = r"""<!DOCTYPE html>
           </div>
         </div>
 
-        <!-- Add Node Panel - Icon Drag & Drop -->
+        <!-- Add Node Panel -->
         <div class="bg-white rounded-lg shadow-lg p-4 mb-4">
-          <h3 class="font-bold text-gray-800 mb-3">Add Nodes</h3>
-          <p class="text-xs text-gray-600 mb-3">Drag icons to canvas or click to add:</p>
-          <div class="flex gap-3 justify-around mb-4 p-3 bg-gray-50 rounded-lg">
-            <!-- AP Icon -->
-            <div draggable="true" ondragstart="dragStart(event, 'ap')" class="cursor-move p-3 bg-blue-100 rounded-lg hover:bg-blue-200 transition text-center" title="Drag to add Access Point">
-              <div class="text-3xl">📡</div>
-              <div class="text-xs font-medium text-gray-700 mt-1">AP</div>
-            </div>
-            <!-- RIS Icon -->
-            <div draggable="true" ondragstart="dragStart(event, 'ris')" class="cursor-move p-3 bg-purple-100 rounded-lg hover:bg-purple-200 transition text-center" title="Drag to add RIS">
-              <div class="text-3xl">🔷</div>
-              <div class="text-xs font-medium text-gray-700 mt-1">RIS</div>
-            </div>
-            <!-- UE Icon -->
-            <div draggable="true" ondragstart="dragStart(event, 'ue')" class="cursor-move p-3 bg-green-100 rounded-lg hover:bg-green-200 transition text-center" title="Drag to add User Equipment">
-              <div class="text-3xl">📱</div>
-              <div class="text-xs font-medium text-gray-700 mt-1">UE</div>
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="font-bold text-gray-800">Add Nodes</h3>
+            <div class="flex bg-gray-100 rounded-lg p-1">
+               <button onclick="switchTab('visual')" id="tab-visual" class="px-3 py-1 text-xs font-medium rounded-md bg-white shadow text-gray-800 transition">Visual</button>
+               <button onclick="switchTab('manual')" id="tab-manual" class="px-3 py-1 text-xs font-medium rounded-md text-gray-500 hover:text-gray-700 transition">Manual</button>
             </div>
           </div>
 
-          <!-- Quick Add Panel -->
-          <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
-            <div class="text-xs font-medium text-gray-700 mb-2">Quick Add:</div>
-            <div class="space-y-2">
-              <div>
-                <label class="text-xs text-gray-600">Name (auto: ap1, ris1, ue1...)</label>
-                <input id="quick_add_name" placeholder="Leave blank for auto" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+          <!-- Visual Tab (Drag & Drop) -->
+          <div id="content-visual">
+            <p class="text-xs text-gray-600 mb-3">Drag icons to canvas:</p>
+            <div class="flex gap-3 justify-around mb-2 p-3 bg-gray-50 rounded-lg">
+              <!-- AP Icon -->
+              <div draggable="true" ondragstart="dragStart(event, 'ap')" class="cursor-move p-3 bg-blue-100 rounded-lg hover:bg-blue-200 transition text-center" title="Drag to add Access Point">
+                <div class="text-3xl">📡</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">AP</div>
               </div>
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="text-xs text-gray-600">X (m)</label>
-                  <input id="quick_add_x" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
-                </div>
-                <div>
-                  <label class="text-xs text-gray-600">Y (m)</label>
-                  <input id="quick_add_y" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
-                </div>
+              <!-- RIS Icon -->
+              <div draggable="true" ondragstart="dragStart(event, 'ris')" class="cursor-move p-3 bg-purple-100 rounded-lg hover:bg-purple-200 transition text-center" title="Drag to add RIS">
+                <div class="text-3xl">🔷</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">RIS</div>
               </div>
-              <div class="grid grid-cols-3 gap-2">
-                <button type="button" onclick="quickAddNode('ap')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium py-1 px-2 rounded">
-                  + AP
-                </button>
-                <button type="button" onclick="quickAddNode('ris')" class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-2 rounded">
-                  + RIS
-                </button>
-                <button type="button" onclick="quickAddNode('ue')" class="text-sm bg-green-600 hover:bg-green-700 text-white font-medium py-1 px-2 rounded">
-                  + UE
-                </button>
+              <!-- UE Icon -->
+              <div draggable="true" ondragstart="dragStart(event, 'ue')" class="cursor-move p-3 bg-green-100 rounded-lg hover:bg-green-200 transition text-center" title="Drag to add User Equipment">
+                <div class="text-3xl">📱</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">UE</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Manual Tab (Form) -->
+          <div id="content-manual" class="hidden">
+            <div class="bg-gray-50 rounded-lg p-3 border border-gray-200">
+              <div class="space-y-2">
+                <div>
+                  <label class="text-xs text-gray-600">Name (auto if empty)</label>
+                  <input id="quick_add_name" placeholder="e.g. ap1" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label class="text-xs text-gray-600">X (m)</label>
+                    <input id="quick_add_x" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+                  </div>
+                  <div>
+                    <label class="text-xs text-gray-600">Y (m)</label>
+                    <input id="quick_add_y" type="number" placeholder="0" class="w-full px-2 py-1 border border-gray-300 rounded text-sm" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 pt-1">
+                  <button type="button" onclick="quickAddNode('ap')" class="text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium py-1 px-2 rounded">
+                    + AP
+                  </button>
+                  <button type="button" onclick="quickAddNode('ris')" class="text-sm bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-2 rounded">
+                    + RIS
+                  </button>
+                  <button type="button" onclick="quickAddNode('ue')" class="text-sm bg-green-600 hover:bg-green-700 text-white font-medium py-1 px-2 rounded">
+                    + UE
+                  </button>
+                </div>
               </div>
             </div>
           </div>

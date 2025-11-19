@@ -11,7 +11,7 @@ import logging
 
 from .phase_steering import PhaseSteeringEngine, BeamSteeringController
 from .phase_quantization import (
-    UniformQuantizer, QuantizationAnalyzer, QuantizationController
+    UniformQuantizer, OptimizedQuantizer, QuantizationAnalyzer, QuantizationController
 )
 from .phase_optimization import (
     GradientPhaseOptimizer, ExhaustivePhaseOptimizer,
@@ -48,6 +48,50 @@ class RISPhaseManager:
         # Optimization state
         self.optimizer = None
         self.snr_function = None
+        self.use_optimized_quantization = False
+        self.optimization_method = 'gradient_descent'
+
+    # =========================================================================
+    # Quantization Configuration
+    # =========================================================================
+
+    def enable_optimized_quantization(self, method: str = 'gradient_descent') -> Dict:
+        """
+        Enable optimized quantization for this RIS.
+
+        Uses optimization to find best quantized phases that maximize array gain
+        for the target steering angle, rather than simple nearest-level quantization.
+
+        Args:
+            method: Optimization method ('gradient_descent', 'particle_swarm', 'exhaustive')
+
+        Returns:
+            Status dictionary
+        """
+        try:
+            self.use_optimized_quantization = True
+            self.optimization_method = method
+            self.quantizer = QuantizationController(
+                self.ris,
+                quantizer_type='optimized',
+                optimization_method=method
+            )
+            logger.info(f"Enabled optimized quantization with {method} method")
+            return {'status': 'success', 'method': method}
+        except Exception as e:
+            logger.error(f"Failed to enable optimized quantization: {e}")
+            return {'status': 'failed', 'error': str(e)}
+
+    def disable_optimized_quantization(self) -> Dict:
+        """Disable optimized quantization, return to uniform quantization"""
+        try:
+            self.use_optimized_quantization = False
+            self.quantizer = QuantizationController(self.ris, quantizer_type='uniform')
+            logger.info("Disabled optimized quantization")
+            return {'status': 'success'}
+        except Exception as e:
+            logger.error(f"Failed to disable optimized quantization: {e}")
+            return {'status': 'failed', 'error': str(e)}
 
     # =========================================================================
     # Phase Steering Operations

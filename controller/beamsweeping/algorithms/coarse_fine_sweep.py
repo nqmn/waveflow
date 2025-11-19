@@ -178,11 +178,10 @@ class CoarseFineSweep(SweepAlgorithmBase):
         snr_coarse = snr_array.tolist()
         pwr_coarse = pwr_array.tolist()
 
-        # Find best coarse angle using metric selector (if provided, otherwise default to SNR)
-        if metric_selector is not None:
-            best_idx = metric_selector.find_best_index(snr_array.tolist())
-        else:
-            best_idx = int(np.argmax(snr_array))
+        # Find best coarse angle using SNR
+        # NOTE: metric_selector is no longer passed to sweep algorithms
+        # Post-processing in connection_handler will override using correct metric
+        best_idx = int(np.argmax(snr_array))
         best_local = local_coarse[best_idx]
 
         # Phase 2: Fine sweep (constrained within original FOV and RIS constraint)
@@ -232,11 +231,10 @@ class CoarseFineSweep(SweepAlgorithmBase):
             if enable_feedback and 'feedback_info' in r:
                 feedback_collector.add(float(abs_a), float(local_fine[i]), r['feedback_info'], phase='fine')
 
-        # Find best fine angle using metric selector (if provided, otherwise default to SNR)
-        if metric_selector is not None:
-            best_fine_idx = metric_selector.find_best_index(snr_fine)
-        else:
-            best_fine_idx = int(np.argmax(snr_fine))
+        # Find best fine angle using SNR
+        # NOTE: metric_selector is no longer passed to sweep algorithms
+        # Post-processing in connection_handler will override using correct metric
+        best_fine_idx = int(np.argmax(snr_fine))
         best_local_fine = local_fine[best_fine_idx]
 
         result = {
