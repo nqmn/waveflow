@@ -212,12 +212,31 @@ Let:
 L = 2^{n_{\text{bit}}}
 \]
 
+### Standard Method: Rounding
 Quantized phase:
 \[
 \phi_q(i,j)
 = 360^\circ \cdot
 \frac{\mathrm{round}\left(\frac{\phi(i,j)}{360^\circ}(L-1)\right)}{(L-1)}
 \]
+
+Maps each phase value to the nearest quantization level.
+
+### Alternative Method: Uniform Binning (Digitize)
+For hardware implementation, equal intervals in the full [0, 2π] range:
+\[
+\text{intervals} = \{0, \frac{2\pi}{L}, \frac{4\pi}{L}, \ldots, 2\pi\}
+\]
+\[
+\text{level} = \mathrm{digitize}(\phi(i,j), \text{intervals}) - 1
+\]
+\[
+\phi_q(i,j) = 360^\circ \cdot \frac{\text{level}}{L-1}
+\]
+
+**Difference for 1-bit:** Rounding creates asymmetric boundaries (0-90° → 0°, 90-270° → 180°, 270-360° → 0°), while digitize creates symmetric bins at 180° (0-180° → 0°, 180-360° → 180°).
+
+Both methods are valid. Use **rounding** for mathematical precision; use **digitize** for hardware-friendly uniform angular binning.
 
 ---
 
@@ -281,22 +300,27 @@ This unified formulation allows the RIS to operate in multiple modes:
 ## 13. Implementation Approaches
 
 ### Approach A: Mode-based Control (pattern_gen_hybrid.py)
-Uses high-level `mode` parameter with intelligent automatic selection.
+Uses high-level mode parameters with intelligent automatic selection for both TX and RX.
 
 **Advantages:**
-- Simple API: single `mode` parameter for RX selection
-- Automatic mode selection via Fraunhofer boundary
-- Cleaner for users (fewer parameters)
+- Simple API: both TX and RX auto-select based on Fraunhofer boundary
+- Automatic mode selection via Fraunhofer boundary for both transmitter and receiver
+- Cleaner for users (fewer parameters to manage)
 - Explicit hybrid near-field/far-field switching
 
 **Parameters:**
 ```
-plane_tx = False/True    # TX wave type
-mode = 'auto'/'steer'/'focus'    # RX mode with auto-selection
+plane_tx = 'auto'/False/True     # TX: auto-select, spherical, or plane wave
+mode = 'auto'/'steer'/'focus'    # RX: auto-select, beam steering, or point focusing
 ```
 
+**Auto-Selection Logic:**
+- Compute Fraunhofer boundary: `r_boundary = 2D²/λ` where D = (N-1)·d
+- TX: if `plane_tx='auto'`: spherical TX if `dist_AP_to_RIS < r_boundary`, else plane TX
+- RX: if `mode='auto'`: focusing RX if `dist_RIS_to_UE < r_boundary`, else steering RX
+
 **Implementation:**
-- TX: `incident_phase(plane_tx=...)`
+- TX: `incident_phase(plane_tx=sel_plane_tx)` [spherical or plane based on auto-selection]
 - RX: `steering_phase()` (plane) OR `focusing_phase()` (spherical)
 
 ### Approach B: Flag-based Control (pattern_hybrid_sap.txt)

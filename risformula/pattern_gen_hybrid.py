@@ -87,20 +87,22 @@ def focusing_phase(k, target, ris_center, x_rel, y_rel, z_rel):
 
 def quantize_phase_deg(phase_rad, n_bit):
     """Quantize phase (radians) to n_bit levels and return degrees matrix.
-    Uses digitize method to match pattern_hybrid_sap.py quantization.
+
+    Uses digitize method (matching pattern_hybrid_sap.py) which creates equal
+    intervals in the full 2π range rather than rounding to nearest level.
+
+    For 1-bit: intervals [0, π, 2π] with levels 0 (0-180°) and 1 (180-360°)
     """
     phase_deg = np.degrees(phase_rad) % 360.0
     L = 2 ** n_bit
     if L <= 1:
         return phase_deg, phase_deg  # no quantization
 
-    # Quantize using digitize on radian intervals (0 to 2π)
-    # Create interval boundaries in radians
+    # Create equal intervals in radians [0, 2π] and bin phase values
     intervals = np.linspace(0, 2 * np.pi, L + 1, endpoint=True)
     levels = np.digitize(phase_rad, intervals) - 1
 
-    # Convert levels back to phase degrees
-    # Level k maps to (k / (L-1)) * 360 degrees
+    # Map levels back to phase degrees
     phase_q_deg = (levels / (L - 1)) * 360.0
 
     return phase_q_deg, phase_deg
@@ -118,12 +120,12 @@ def wrap_to_pi(angle):
     return a
 
 def generate_phase_map(f, source, ris_center, target, N=16, n_bit=1, mode='auto',
-                       plane_tx=False, export_csv=False, plot_components=False):
+                       plane_tx='auto', export_csv=False, plot_components=False):
     """Generate hybrid RIS phase map and produce plots/files.
 
     Args:
-        mode: 'auto', 'steer', or 'focus'
-        plane_tx: If True, use plane wave for TX (far-field). If False, spherical (near-field, default).
+        mode: 'auto', 'steer', or 'focus' - controls RX wave type (auto selects based on target distance)
+        plane_tx: True (plane wave TX), False (spherical TX), or 'auto' (auto-select based on source distance)
     """
     wavelength = c / f
     global k
@@ -137,6 +139,7 @@ def generate_phase_map(f, source, ris_center, target, N=16, n_bit=1, mode='auto'
     vec_in = source - ris_center      # AP -> RIS vector (from RIS center perspective)
     vec_out = target - ris_center    # UE -> RIS vector (from RIS center perspective)
     dist_ris_to_ue = np.linalg.norm(vec_out)
+    dist_ris_to_ap = np.linalg.norm(vec_in)
 
     # geometry angles (always computed)
     theta_in = math.atan2(source[1] - ris_center[1], source[0] - ris_center[0])
@@ -152,14 +155,21 @@ def generate_phase_map(f, source, ris_center, target, N=16, n_bit=1, mode='auto'
     elevation_out = math.atan2(target[2] - ris_center[2], r_horizontal_target) if r_horizontal_target > 1e-9 else (math.copysign(math.pi/2, target[2]-ris_center[2]) if target[2]!=ris_center[2] else 0.0)
     elevation_deflection = elevation_out - elevation_in
 
-    # decide mode
+    # decide mode based on Fraunhofer boundary
     r_boundary = fraunhofer_boundary(N, d, wavelength)
+
+    # Auto-select RX mode based on target distance
     sel_mode = mode
     if mode == 'auto':
         sel_mode = 'steer' if dist_ris_to_ue > r_boundary else 'focus'
 
+    # Auto-select TX wave type based on source distance
+    sel_plane_tx = plane_tx
+    if plane_tx == 'auto':
+        sel_plane_tx = dist_ris_to_ap > r_boundary
+
     # compute incident (TX phase)
-    phi_incident_rad, r_src = incident_phase(k, source, ris_center, x_rel, y_rel, plane_tx=plane_tx)
+    phi_incident_rad, r_src = incident_phase(k, source, ris_center, x_rel, y_rel, plane_tx=sel_plane_tx)
 
     # compute reflect component based on selected mode
     if sel_mode == 'steer':
@@ -181,9 +191,11 @@ def generate_phase_map(f, source, ris_center, target, N=16, n_bit=1, mode='auto'
         'phase_deg': phase_deg,
         'phase_quant_deg': phase_quant_deg,
         'mode': sel_mode,
-        'plane_tx': plane_tx,
+        'plane_tx': sel_plane_tx,
+        'plane_tx_requested': plane_tx,
         'r_boundary': r_boundary,
         'dist_ris_to_ue': dist_ris_to_ue,
+        'dist_ris_to_ap': dist_ris_to_ap,
         'azimuth_in_rad': theta_in,
         'azimuth_out_rad': theta_out,
         'azimuth_deflection_rad': azimuth_deflection,
@@ -324,12 +336,16 @@ if __name__ == '__main__':
 
     N = 16
     n_bit = 1
-    mode = 'auto'           # 'auto', 'steer', or 'focus'
-    plane_tx = False        # False: spherical TX (near-field, default), True: plane TX (far-field)
+    mode = 'auto'           # 'auto' (RX), 'steer', or 'focus'
+    plane_tx = 'auto'       # 'auto' (TX), False: spherical TX (near-field), True: plane TX (far-field)
     export_csv = False
     plot_components = False
 
     out = generate_phase_map(f, source, ris_center, target, N=N, n_bit=n_bit, mode=mode,
                              plane_tx=plane_tx, export_csv=export_csv, plot_components=plot_components)
 
-    print("Completed. Mode selected:", out['mode'])
+    print("Completed. RX Mode selected:", out['mode'])
+    print("TX Mode selected:", "Plane" if out['plane_tx'] else "Spherical")
+    print(f"Fraunhofer boundary: {out['r_boundary']:.3f} m")
+    print(f"Source distance: {out['dist_ris_to_ap']:.3f} m -> {('Plane' if out['dist_ris_to_ap'] > out['r_boundary'] else 'Spherical')} TX")
+    print(f"Target distance: {out['dist_ris_to_ue']:.3f} m -> {('Steer' if out['dist_ris_to_ue'] > out['r_boundary'] else 'Focus')} RX")
