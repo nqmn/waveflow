@@ -13,6 +13,7 @@ from .ml_guided_sweep import MLGuidedSweep
 from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
+from .hog_sweep import HOGHumanDetectionSweep
 from utils import aruco_utils
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "HierarchicalSweep",
     "AdaptiveDirectionalSweep",
     "OpenCVVisionSweep",
+    "HOGHumanDetectionSweep",
     "aruco_utils",
     "register_algorithm",
     "get_algorithm_class",

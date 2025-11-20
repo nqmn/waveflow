@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RIS Phase Pattern Generator - Interactive</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        canvas { touch-action: none; } /* Prevent scrolling while dragging on touch */
+    </style>
+</head>
+<body class="h-screen flex flex-col lg:flex-row overflow-hidden text-slate-800">
+
+    <!-- LEFT PANEL: Canvases -->
+    <div class="flex-1 flex flex-col h-full p-4 space-y-4 overflow-y-auto lg:overflow-hidden">
+        
+        <!-- Top View Canvas Container -->
+        <div class="bg-white rounded-xl shadow-lg p-2 flex-1 relative border border-gray-200 flex flex-col min-h-[300px]">
+            <div class="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur px-3 py-1 rounded-md shadow text-xs font-bold text-gray-600 pointer-events-none border border-gray-100">
+                TOP VIEW (X-Y Plane)
+                <div class="text-[9px] font-normal text-gray-400 mt-0.5">Drag icons to move • Size = Altitude</div>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="w-2 h-2 rounded-full bg-teal-500/20 border border-teal-600 inline-block"></span><span class="text-[9px] text-teal-600">Steer Cone</span>
+                    <span class="w-2 h-2 rounded-full bg-purple-500/20 border border-purple-600 inline-block"></span><span class="text-[9px] text-purple-600">Focus Triangle</span>
+                </div>
+            </div>
+            <canvas id="topCanvas" class="w-full h-full cursor-crosshair bg-slate-50 rounded-lg border border-slate-100"></canvas>
+        </div>
+
+        <!-- Bottom Area: Side View & Heatmap -->
+        <div class="h-64 flex flex-col lg:flex-row gap-4 shrink-0">
+            
+            <!-- Side View -->
+            <div class="bg-white rounded-xl shadow-lg p-2 flex-1 relative border border-gray-200 min-h-[200px]">
+                <div class="absolute top-2 left-2 z-10 bg-white/90 backdrop-blur px-2 py-0.5 rounded shadow text-[10px] font-bold text-gray-600 pointer-events-none">
+                    SIDE VIEW (Range vs Z)
+                    <div class="text-[9px] font-normal text-gray-400 mt-0.5">Drag to adjust Height/Dist</div>
+                </div>
+                <canvas id="sideCanvas" class="w-full h-full bg-slate-50 rounded-lg cursor-crosshair"></canvas>
+            </div>
+
+            <!-- Heatmap -->
+            <div class="bg-white rounded-xl shadow-lg p-2 w-full lg:w-64 flex flex-col items-center border border-gray-200 shrink-0">
+                <div class="w-full flex justify-between items-center mb-2 px-2">
+                    <span class="text-xs font-bold text-gray-600">PHASE MAP</span>
+                    <span id="heatmapInfo" class="text-[10px] text-gray-400">16x16</span>
+                </div>
+                <canvas id="heatmapCanvas" width="256" height="256" class="w-48 h-48 image-pixelated border border-gray-300 shadow-inner bg-gray-100"></canvas>
+                
+                <!-- Legend -->
+                <div class="w-48 h-4 mt-2 rounded flex overflow-hidden text-[8px] text-white font-bold text-center leading-4">
+                    <div class="flex-1 bg-blue-600">0°</div>
+                    <div class="flex-1 bg-white text-gray-800">180°</div>
+                    <div class="flex-1 bg-red-600">360°</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- RIGHT PANEL: Controls -->
+    <div class="w-full lg:w-80 bg-white shadow-xl p-6 overflow-y-auto border-l border-gray-200 z-20 shrink-0">
+        <h1 class="text-xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            <i data-lucide="settings-2" class="w-5 h-5"></i>
+            RIS Config
+        </h1>
+
+        <!-- Parameters -->
+        <div class="space-y-6">
+            
+            <!-- Geometry Z-Controls -->
+            <div class="space-y-4 border-b border-gray-100 pb-6">
+                <h2 class="text-xs uppercase tracking-wider text-gray-500 font-bold flex justify-between">
+                    Altitudes (Z-Axis)
+                    <span class="text-[10px] text-blue-500 font-normal normal-case self-center bg-blue-50 px-2 py-0.5 rounded">Affects Side View</span>
+                </h2>
+                
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span class="text-green-600 font-semibold flex items-center gap-1"><i data-lucide="move-vertical" class="w-3 h-3"></i> AP Height</span>
+                        <span id="val-ap-z" class="font-mono text-gray-600 bg-gray-100 px-1 rounded">0.5m</span>
+                    </div>
+                    <input type="range" min="-5" max="5" step="0.1" id="input-ap-z" class="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-green-600">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span class="text-orange-500 font-semibold flex items-center gap-1"><i data-lucide="move-vertical" class="w-3 h-3"></i> RIS Height</span>
+                        <span id="val-ris-z" class="font-mono text-gray-600 bg-gray-100 px-1 rounded">0.0m</span>
+                    </div>
+                    <input type="range" min="-5" max="5" step="0.1" id="input-ris-z" class="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-orange-500">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-sm mb-1">
+                        <span class="text-red-500 font-semibold flex items-center gap-1"><i data-lucide="move-vertical" class="w-3 h-3"></i> UE Height</span>
+                        <span id="val-ue-z" class="font-mono text-gray-600 bg-gray-100 px-1 rounded">0.5m</span>
+                    </div>
+                    <input type="range" min="-5" max="5" step="0.1" id="input-ue-z" class="w-full h-2 bg-gray-200 rounded-lg cursor-pointer accent-red-500">
+                </div>
+            </div>
+
+            <!-- System Params -->
+            <div class="space-y-4 border-b border-gray-100 pb-6">
+                <h2 class="text-xs uppercase tracking-wider text-gray-500 font-bold">System Parameters</h2>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Freq (GHz)</label>
+                        <input type="number" id="input-freq" value="5.8" step="0.1" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Elements (N)</label>
+                        <input type="number" id="input-N" value="16" step="2" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Quantization (Bits)</label>
+                    <select id="input-bits" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="1">1-bit (2 levels)</option>
+                        <option value="2">2-bit (4 levels)</option>
+                        <option value="3">3-bit (8 levels)</option>
+                        <option value="0">Continuous</option>
+                    </select>
+                </div>
+
+                 <div>
+                    <label class="block text-xs text-gray-500 mb-1">RX Mode</label>
+                    <select id="input-mode" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="auto">Auto (Fraunhofer)</option>
+                        <option value="steer">Beam Steering (Plane RX)</option>
+                        <option value="focus">Beam Focusing (Spherical RX)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">TX Wave Type</label>
+                    <select id="input-plane-tx" class="w-full bg-gray-50 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="auto">Auto (Fraunhofer)</option>
+                        <option value="false">Spherical (Near-field)</option>
+                        <option value="true">Plane Wave (Far-field)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Live Stats -->
+            <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <h2 class="text-xs uppercase tracking-wider text-gray-500 font-bold mb-2">Realtime Metrics</h2>
+                <div class="space-y-1 text-xs font-mono">
+                    <div class="flex justify-between"><span>Dist(AP-RIS):</span><span id="stat-d-ap">--</span></div>
+                    <div class="flex justify-between"><span>Dist(RIS-UE):</span><span id="stat-d-ue">--</span></div>
+                    <div class="flex justify-between"><span>Azimuth Defl:</span><span id="stat-az" class="text-purple-600 font-bold">--</span></div>
+                    <div class="flex justify-between"><span>Elev Defl:</span><span id="stat-el" class="text-teal-600 font-bold">--</span></div>
+                    <div class="flex justify-between"><span>Mode Used:</span><span id="stat-mode" class="text-blue-600 font-bold">--</span></div>
+                </div>
+            </div>
+            
+            <button id="resetBtn" class="w-full py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-medium rounded transition active:bg-gray-400">
+                Reset Positions
+            </button>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            // --- Constants & State ---
+            const C = 299792458;
+            
+            // Physics State
+            const state = {
+                f: 5.8e9,
+                N: 16,
+                bits: 1,
+                mode: 'auto',
+                plane_tx: 'auto',  // 'auto', true (plane wave), or false (spherical wave)
+                // Updated defaults: AP at 5m (y-axis), UE at 5m (x-axis)
+                ap:  { x: 0.0, y: 5.0, z: 0.5 },
+                ris: { x: 0.0, y: 0.0, z: 0.0 },
+                ue:  { x: 5.0, y: 0.0, z: 0.5 },
+                // Computed
+                wavelength: 0, d: 0, k: 0, phaseMatrix: [], metrics: {}
+            };
+
+            // UI State
+            let dragging = null; 
+            let activeCanvasId = null; // 'topCanvas' or 'sideCanvas'
+            
+            // Elements
+            const topCanvas = document.getElementById('topCanvas');
+            const sideCanvas = document.getElementById('sideCanvas');
+            const heatCanvas = document.getElementById('heatmapCanvas');
+            const ctxTop = topCanvas.getContext('2d');
+            const ctxSide = sideCanvas.getContext('2d');
+            const ctxHeat = heatCanvas.getContext('2d');
+
+            // --- Initialization ---
+            function init() {
+                if(window.lucide) lucide.createIcons();
+
+                resizeCanvases();
+                window.addEventListener('resize', () => {
+                    resizeCanvases();
+                    requestAnimationFrame(draw);
+                });
+
+                // Physics Params Listeners
+                const bindEvent = (id, type, handler) => {
+                    const el = document.getElementById(id);
+                    if(el) el.addEventListener(type, handler);
+                };
+
+                bindEvent('input-freq', 'input', (e) => { state.f = parseFloat(e.target.value) * 1e9; updatePhysics(); });
+                bindEvent('input-N', 'input', (e) => { state.N = parseInt(e.target.value); updatePhysics(); });
+                bindEvent('input-bits', 'change', (e) => { state.bits = parseInt(e.target.value); updatePhysics(); });
+                bindEvent('input-mode', 'change', (e) => { state.mode = e.target.value; updatePhysics(); });
+                bindEvent('input-plane-tx', 'change', (e) => { state.plane_tx = e.target.value; updatePhysics(); });
+
+                // Bind Slider Events
+                bindSlider('input-ap-z', 'val-ap-z', (v) => { state.ap.z = v; });
+                bindSlider('input-ris-z', 'val-ris-z', (v) => { state.ris.z = v; });
+                bindSlider('input-ue-z', 'val-ue-z', (v) => { state.ue.z = v; });
+
+                // Reset
+                const resetBtn = document.getElementById('resetBtn');
+                if(resetBtn) {
+                    resetBtn.addEventListener('click', () => {
+                        // Updated reset positions to match 5m default
+                        state.ap = { x: 0.0, y: 5.0, z: 0.5 };
+                        state.ris = { x: 0.0, y: 0.0, z: 0.0 };
+                        state.ue = { x: 5.0, y: 0.0, z: 0.5 };
+                        updateInputs();
+                        updatePhysics();
+                    });
+                }
+
+                setupDragInteraction(topCanvas);
+                setupSideDragInteraction(sideCanvas);
+                updatePhysics();
+            }
+
+            function bindSlider(id, labelId, callback) {
+                const el = document.getElementById(id);
+                const label = document.getElementById(labelId);
+                if(!el || !label) return;
+
+                // Set initial visual
+                el.value = (id === 'input-ap-z') ? state.ap.z : (id === 'input-ris-z') ? state.ris.z : state.ue.z;
+                label.textContent = parseFloat(el.value).toFixed(1) + 'm';
+
+                const handler = (e) => {
+                    const val = parseFloat(e.target.value);
+                    label.textContent = val.toFixed(1) + 'm';
+                    callback(val);
+                    updatePhysics();
+                };
+                el.addEventListener('input', handler);
+                el.addEventListener('change', handler); 
+            }
+
+            function updateInputs() {
+                const setVal = (id, val, labelId) => {
+                    const el = document.getElementById(id);
+                    const lb = document.getElementById(labelId);
+                    if(el) el.value = val;
+                    if(lb) lb.textContent = val.toFixed(1) + 'm';
+                }
+                setVal('input-ap-z', state.ap.z, 'val-ap-z');
+                setVal('input-ris-z', state.ris.z, 'val-ris-z');
+                setVal('input-ue-z', state.ue.z, 'val-ue-z');
+            }
+
+            function resizeCanvases() {
+                const setSize = (cvs) => {
+                    if(!cvs || !cvs.parentElement) return;
+                    const rect = cvs.parentElement.getBoundingClientRect();
+                    if (rect.width === 0 || rect.height === 0) return;
+                    cvs.width = rect.width * window.devicePixelRatio;
+                    cvs.height = rect.height * window.devicePixelRatio;
+                    cvs.style.width = rect.width + 'px';
+                    cvs.style.height = rect.height + 'px';
+                    const ctx = cvs.getContext('2d');
+                    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                };
+                setSize(topCanvas);
+                setSize(sideCanvas);
+            }
+
+            // --- HELPER FUNCTIONS (Hoisted) ---
+            
+            function wrapToPi(angle) {
+                angle = (angle + Math.PI) % (2 * Math.PI) - Math.PI;
+                return angle;
+            }
+
+            function isCounterClockwise(start, end) {
+                let diff = end - start;
+                while (diff <= -Math.PI) diff += 2*Math.PI;
+                while (diff > Math.PI) diff -= 2*Math.PI;
+                return diff < 0;
+            }
+
+            // --- Physics Engine ---
+
+            function updatePhysics() {
+                state.wavelength = C / state.f;
+                state.k = 2 * Math.PI / state.wavelength;
+                state.d = state.wavelength / 2.0;
+
+                const { ap, ris, ue, N, d, k, wavelength, mode, bits, plane_tx } = state;
+
+                // Vectors
+                const vec_in = { x: ap.x - ris.x, y: ap.y - ris.y, z: ap.z - ris.z };
+                const vec_out = { x: ue.x - ris.x, y: ue.y - ris.y, z: ue.z - ris.z };
+
+                const dist_ris_ue = Math.sqrt(vec_out.x**2 + vec_out.y**2 + vec_out.z**2);
+                const dist_ris_ap = Math.sqrt(vec_in.x**2 + vec_in.y**2 + vec_in.z**2);
+
+                // Angles
+                const theta_in = Math.atan2(vec_in.y, vec_in.x);
+                const theta_out = Math.atan2(vec_out.y, vec_out.x);
+                let az_deflection = Math.abs(wrapToPi(theta_out - theta_in));
+
+                const r_h_ap = Math.hypot(vec_in.x, vec_in.y);
+                const r_h_ue = Math.hypot(vec_out.x, vec_out.y);
+
+                const el_in = r_h_ap > 1e-9 ? Math.atan2(vec_in.z, r_h_ap) : (vec_in.z !== 0 ? Math.PI/2 * Math.sign(vec_in.z) : 0);
+                const el_out = r_h_ue > 1e-9 ? Math.atan2(vec_out.z, r_h_ue) : (vec_out.z !== 0 ? Math.PI/2 * Math.sign(vec_out.z) : 0);
+                let el_deflection = Math.abs(el_out - el_in);
+
+                // Mode Selection (Fraunhofer boundary)
+                const D_aperture = (N - 1) * d;
+                const r_boundary = 2 * (D_aperture**2) / wavelength;
+
+                // Auto-select RX mode
+                let effectiveMode = mode;
+                if (mode === 'auto') {
+                    effectiveMode = dist_ris_ue > r_boundary ? 'steer' : 'focus';
+                }
+
+                // Auto-select TX wave type
+                let effectivePlane_tx = plane_tx;
+                if (plane_tx === 'auto') {
+                    effectivePlane_tx = dist_ris_ap > r_boundary;
+                } else {
+                    effectivePlane_tx = plane_tx === 'true' || plane_tx === true;
+                }
+
+                // Metrics
+                state.metrics = {
+                    d_ap: dist_ris_ap, d_ue: dist_ris_ue,
+                    az_rad: az_deflection, el_rad: el_deflection,
+                    mode: effectiveMode,
+                    plane_tx: effectivePlane_tx,
+                    theta_in, theta_out, el_in, el_out, r_h_ap, r_h_ue,
+                    r_boundary: r_boundary
+                };
+
+                const setTxt = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt; }
+                setTxt('stat-d-ap', dist_ris_ap.toFixed(2) + ' m');
+                setTxt('stat-d-ue', dist_ris_ue.toFixed(2) + ' m');
+                setTxt('stat-az', (az_deflection * 180/Math.PI).toFixed(1) + '°');
+                setTxt('stat-el', (el_deflection * 180/Math.PI).toFixed(1) + '°');
+                const tx_type = effectivePlane_tx ? 'PLANE' : 'SPHER';
+                const rx_type = effectiveMode === 'steer' ? 'PLANE' : 'SPHER';
+                setTxt('stat-mode', tx_type + ' TX / ' + rx_type + ' RX');
+
+                // --- Phase Map Calculation (Matching ris_simulator_hybrid.v2.html) ---
+                const lim_x = (N - 1) / 2 * d;
+                const lim_y = (N - 1) / 2 * d;
+                const grid = [];
+
+                for (let row = 0; row < N; row++) {
+                    const gridRow = [];
+                    for (let col = 0; col < N; col++) {
+                        // Element position relative to RIS center (using linspace approach)
+                        const x_i = -lim_x + (col / (N - 1)) * (2 * lim_x);
+                        const y_i = -lim_y + (row / (N - 1)) * (2 * lim_y);
+                        const r_elem_vec = [x_i, y_i, 0];
+
+                        let phase_tx_rad, phase_rx_rad;
+
+                        // ===== TX PHASE CALCULATION =====
+                        if (effectivePlane_tx) {
+                            // Plane wave TX (far-field)
+                            // φ_tx = -k * (u_s · [x_i, y_i, 0])
+                            const norm_src = Math.sqrt(vec_in.x**2 + vec_in.y**2 + vec_in.z**2);
+                            const u_s_x = norm_src > 1e-9 ? vec_in.x / norm_src : 0.0;
+                            const u_s_y = norm_src > 1e-9 ? vec_in.y / norm_src : 0.0;
+                            const dotProduct = r_elem_vec[0] * u_s_x + r_elem_vec[1] * u_s_y;
+                            phase_tx_rad = -k * dotProduct;
+                        } else {
+                            // Spherical wave TX (near-field)
+                            // φ_tx = k * r_src where r_src = √((Δx_s - x_i)² + (Δy_s - y_i)² + Δz_s²)
+                            const delta_x_s = ap.x - ris.x;
+                            const delta_y_s = ap.y - ris.y;
+                            const delta_z_s = ap.z - ris.z;
+                            const r_src = Math.sqrt((delta_x_s - x_i)**2 + (delta_y_s - y_i)**2 + delta_z_s**2);
+                            phase_tx_rad = k * r_src;
+                        }
+
+                        // ===== RX PHASE CALCULATION =====
+                        if (effectiveMode === 'steer') {
+                            // Plane wave RX (far-field, beam-steering)
+                            // φ_rx = -k * (u · [x_i, y_i, 0])
+                            // where u = sph2cart(1, theta_polar, phi_az)
+                            // theta_polar = acos(normalized_z), phi_az = atan2(y, x)
+                            const norm_out = Math.sqrt(vec_out.x**2 + vec_out.y**2 + vec_out.z**2);
+                            const phi_az = Math.atan2(vec_out.y, vec_out.x);
+                            const theta_polar = norm_out > 1e-9 ? Math.acos(vec_out.z / norm_out) : 0;
+
+                            // sph2cart: u.x = sin(theta)*cos(phi), u.y = sin(theta)*sin(phi), u.z = cos(theta)
+                            const sin_theta = Math.sin(theta_polar);
+                            const cos_theta = Math.cos(theta_polar);
+                            const u_x = sin_theta * Math.cos(phi_az);
+                            const u_y = sin_theta * Math.sin(phi_az);
+
+                            const dotProduct = r_elem_vec[0] * u_x + r_elem_vec[1] * u_y;
+                            phase_rx_rad = -k * dotProduct;
+                        } else {
+                            // Spherical wave RX (near-field, point-focusing)
+                            // φ_rx = k * r_rcv where r_rcv = √((x_t - x_i)² + (y_t - y_i)² + (z_t - z_i)²)
+                            // Using targetRelRIS = target - ris
+                            const dx_elem = vec_out.x - x_i;
+                            const dy_elem = vec_out.y - y_i;
+                            const r_rcv = Math.sqrt(dx_elem**2 + dy_elem**2 + vec_out.z**2);
+                            phase_rx_rad = k * r_rcv;
+                        }
+
+                        // ===== TOTAL PHASE COMBINATION =====
+                        let phase_rad = (phase_tx_rad + phase_rx_rad) % (2 * Math.PI);
+                        if (phase_rad < 0) phase_rad += 2 * Math.PI;
+
+                        let phase_deg = (phase_rad * 180 / Math.PI);
+
+                        // ===== QUANTIZATION =====
+                        let quantizedDeg = phase_deg;
+                        if (bits > 0) {
+                            const L = Math.pow(2, bits);
+                            const intervals = [];
+                            for (let b = 0; b <= L; b++) {
+                                intervals.push((b / L) * 2 * Math.PI);
+                            }
+                            // Digitize: find which interval phase_rad falls into
+                            let quantizedIndex = 0;
+                            for (let b = 0; b < intervals.length - 1; b++) {
+                                if (phase_rad >= intervals[b] && phase_rad < intervals[b + 1]) {
+                                    quantizedIndex = b;
+                                    break;
+                                }
+                            }
+                            if (phase_rad >= intervals[intervals.length - 1]) {
+                                quantizedIndex = L - 1;
+                            }
+                            quantizedDeg = (quantizedIndex / (L - 1)) * 360;
+                        }
+
+                        gridRow.push(quantizedDeg);
+                    }
+                    grid.push(gridRow);
+                }
+                state.phaseMatrix = grid;
+
+                draw();
+                drawHeatmap();
+            }
+
+            // --- Rendering ---
+
+            function drawHeatmap() {
+                if(!ctxHeat) return;
+                const N = state.N;
+                const w = heatCanvas.width / N;
+                const h = heatCanvas.height / N;
+                ctxHeat.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+
+                for(let y=0; y<N; y++) {
+                    for(let x=0; x<N; x++) {
+                        const val = state.phaseMatrix[y][x];
+                        ctxHeat.fillStyle = getHeatmapColor(val);
+                        const drawY = heatCanvas.height - (y + 1) * h; 
+                        ctxHeat.fillRect(x * w, drawY, w, h);
+                    }
+                }
+            }
+
+            function getHeatmapColor(deg) {
+                const t = deg / 360;
+                let r, g, b;
+                if(t < 0.5) {
+                    const p = t * 2;
+                    r = Math.floor(255 * p); g = Math.floor(255 * p); b = 255;
+                } else {
+                    const p = (t - 0.5) * 2;
+                    r = 255; g = Math.floor(255 * (1 - p)); b = Math.floor(255 * (1 - p));
+                }
+                return `rgb(${r},${g},${b})`;
+            }
+
+            function draw() {
+                drawTopView();
+                drawSideView();
+            }
+
+            function drawBeamCone(ctx, s) {
+                const { theta_out, mode, d_ue } = state.metrics;
+                const { N, d } = state; // Get N and d from state directly
+                
+                // Physics Angle theta_out is standard math (CCW from X).
+                // Canvas Angle is -theta_out because Y is flipped.
+                const angle = -theta_out;
+                const distPixel = state.metrics.r_h_ue * s;
+                
+                // N=16 -> narrower beam. Adjusted from 600 -> 200 for tighter visualization
+                const beamWidthDeg = 200 / (N + 10); 
+                const halfRad = (beamWidthDeg * Math.PI / 180);
+
+                const risX = state.ris.x * s;
+                const risY = -state.ris.y * s;
+
+                ctx.beginPath();
+
+                if (mode === 'focus') {
+                    // FOCUS MODE: Converging Triangle
+                    // Removed * 2 to make base smaller visually
+                    const baseW = (N * d) * s; 
+                    
+                    const pX = Math.sin(angle) * (baseW/2);
+                    const pY = -Math.cos(angle) * (baseW/2);
+                    
+                    const c1x = risX - pX; 
+                    const c1y = risY - pY;
+                    const c2x = risX + pX;
+                    const c2y = risY + pY;
+                    
+                    const tipX = risX + distPixel * Math.cos(angle);
+                    const tipY = risY + distPixel * Math.sin(angle);
+
+                    ctx.moveTo(c1x, c1y);
+                    ctx.lineTo(tipX, tipY);
+                    ctx.lineTo(c2x, c2y);
+                    ctx.closePath();
+
+                    ctx.fillStyle = 'rgba(168, 85, 247, 0.15)'; // Purple fill (More transparent)
+                    ctx.strokeStyle = 'rgba(147, 51, 234, 0.8)'; // Purple border
+                    
+                } else {
+                    // STEER MODE: Diverging Sector
+                    ctx.moveTo(risX, risY);
+                    ctx.arc(risX, risY, distPixel, angle - halfRad, angle + halfRad);
+                    ctx.lineTo(risX, risY);
+                    ctx.closePath();
+
+                    ctx.fillStyle = 'rgba(45, 212, 191, 0.15)'; // Teal-400 (More transparent)
+                    ctx.strokeStyle = 'rgba(13, 148, 136, 0.8)'; // Teal-600
+                }
+
+                ctx.lineWidth = 2;
+                ctx.fill();
+                ctx.setLineDash([2, 3]); // Smaller dash (2px dash, 3px gap)
+                ctx.stroke();
+                ctx.setLineDash([]); 
+            }
+
+            function drawTopView() {
+                if(!ctxTop) return;
+                const ctx = ctxTop;
+                const w = topCanvas.width / window.devicePixelRatio;
+                const h = topCanvas.height / window.devicePixelRatio;
+                
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                ctx.clearRect(0, 0, w, h);
+
+                const cx = w / 2;
+                const cy = h / 2;
+                
+                // 1. Calculate Scale for 20x20m view
+                const minDim = Math.min(w, h);
+                const VIEW_SIZE_M = 20; 
+                const s = minDim / VIEW_SIZE_M; 
+
+                ctx.translate(cx, cy);
+                
+                // Grid
+                ctx.strokeStyle = '#f1f5f9';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                const gridCount = Math.ceil(VIEW_SIZE_M / 2) + 1; 
+                for(let i = -gridCount; i <= gridCount; i++) {
+                    const pos = i * s;
+                    ctx.moveTo(pos, -h/2 - cy); ctx.lineTo(pos, h/2 + cy);
+                    ctx.moveTo(-w/2 - cx, pos); ctx.lineTo(w/2 + cx, pos);
+                }
+                ctx.stroke();
+
+                // Axes
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(-w, 0); ctx.lineTo(w, 0);
+                ctx.moveTo(0, -h); ctx.lineTo(0, h);
+                ctx.stroke();
+
+                state.topViewScale = s; 
+
+                // NEW: Geometric Beam Cone (Replaces Radiation Pattern)
+                drawBeamCone(ctx, s);
+
+                drawAzimuthArc(ctx, s);
+
+                // Links
+                drawLink(ctx, state.ris, state.ap, '#22c55e', s);
+                drawLink(ctx, state.ris, state.ue, '#ef4444', s);
+
+                // Draw objects
+                const scaleZ = (z) => Math.max(0.5, 1 + z * 0.2);
+                drawObject(ctx, state.ap.x * s, -state.ap.y * s, '#22c55e', 'AP', 'rect', scaleZ(state.ap.z));
+                drawObject(ctx, state.ue.x * s, -state.ue.y * s, '#ef4444', 'UE', 'circle', scaleZ(state.ue.z));
+                drawObject(ctx, state.ris.x * s, -state.ris.y * s, '#f97316', 'RIS', 'triangle', scaleZ(state.ris.z));
+                
+                // Add View Label
+                ctx.resetTransform();
+                ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.fillText("View: 20x20m", w - 10, h - 10);
+            }
+
+            function drawAzimuthArc(ctx, s) {
+                const { theta_in, theta_out, az_rad } = state.metrics;
+                // const s = passed in now
+                const r = 60; // Visual radius in pixels
+                const startAngle = -theta_in;
+                const endAngle = -theta_out;
+                
+                ctx.beginPath();
+                ctx.arc(state.ris.x * s, -state.ris.y * s, r, startAngle, endAngle, isCounterClockwise(startAngle, endAngle));
+                ctx.strokeStyle = '#9333ea';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // Label
+                ctx.fillStyle = '#9333ea';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                let diff = endAngle - startAngle;
+                while (diff <= -Math.PI) diff += 2*Math.PI;
+                while (diff > Math.PI) diff -= 2*Math.PI;
+                const midAngle = startAngle + diff / 2;
+                const labelR = r + 25;
+                const lx = state.ris.x * s + labelR * Math.cos(midAngle);
+                const ly = -state.ris.y * s + labelR * Math.sin(midAngle);
+                ctx.fillText((az_rad * 180/Math.PI).toFixed(1) + '°', lx, ly);
+                ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+            }
+            
+            // Helper to get Side View Parameters (Shared between draw and interaction)
+            function getSideViewParams(canvas) {
+                const w = canvas.width / window.devicePixelRatio;
+                const h = canvas.height / window.devicePixelRatio;
+                
+                const padding = 30;
+                const drawW = w - padding * 2;
+                const drawH = h - padding * 2;
+
+                // Target: 20m Range x 20m Vertical (Updated from 5x5)
+                const RANGE_MAX = 20;
+                const Z_SPAN = 20; // -10 to +10
+                
+                const scaleR = drawW / RANGE_MAX;
+                const scaleZpx = drawH / Z_SPAN;
+
+                const cX = padding;
+                const cY = h / 2; // Center vertical at 0m Z
+
+                return { w, h, cX, cY, scaleZpx, scaleR, padding, RANGE_MAX, Z_SPAN };
+            }
+
+            function drawSideView() {
+                if(!ctxSide) return;
+                const ctx = ctxSide;
+                const p = getSideViewParams(sideCanvas); 
+                
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                ctx.clearRect(0, 0, p.w, p.h);
+
+                const getX = (r) => p.cX + r * p.scaleR;
+                const getY = (z) => p.cY - z * p.scaleZpx;
+
+                // Axis
+                ctx.strokeStyle = '#94a3b8';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(p.cX, p.padding); ctx.lineTo(p.cX, p.h - p.padding); // Z axis
+                ctx.moveTo(p.cX, getY(0)); ctx.lineTo(p.w - p.padding, getY(0)); // Range axis (Ground)
+                ctx.stroke();
+
+                // Grid lines (every 2m for cleaner view at 20m scale)
+                ctx.strokeStyle = '#e2e8f0';
+                ctx.setLineDash([1, 2]);
+                ctx.beginPath();
+                
+                // Horizontal Grid (Z steps)
+                const zLimit = p.Z_SPAN / 2;
+                for(let z = -zLimit; z <= zLimit; z += 2) {
+                    if(z === 0) continue;
+                    const y = getY(z);
+                    ctx.moveTo(p.cX, y); ctx.lineTo(p.w - p.padding, y);
+                }
+                
+                // Vertical Grid (Range steps)
+                for(let r = 2; r <= p.RANGE_MAX; r += 2) {
+                    const x = getX(r);
+                    ctx.moveTo(x, p.padding); ctx.lineTo(x, p.h - p.padding);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Objects
+                const risPix = { x: getX(0), y: getY(state.ris.z) };
+                const apPix = { x: getX(state.metrics.r_h_ap), y: getY(state.ap.z) };
+                const uePix = { x: getX(state.metrics.r_h_ue), y: getY(state.ue.z) };
+
+                // Vertical Drop Lines (Altitude Indicators) & Labels
+                ctx.setLineDash([2, 2]);
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = '#cbd5e1'; // Subtle gray
+                
+                // AP Drop Line
+                ctx.beginPath();
+                ctx.moveTo(apPix.x, getY(0)); 
+                ctx.lineTo(apPix.x, apPix.y); 
+                ctx.stroke();
+
+                // AP Height Label
+                ctx.fillStyle = '#22c55e'; 
+                ctx.font = '10px sans-serif';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'middle';
+                // Show absolute height distance or Z value
+                ctx.fillText(Math.abs(state.ap.z).toFixed(1) + 'm', apPix.x - 4, (getY(0) + apPix.y) / 2);
+
+                // UE Drop Line
+                ctx.beginPath();
+                ctx.moveTo(uePix.x, getY(0)); 
+                ctx.lineTo(uePix.x, uePix.y); 
+                ctx.stroke();
+
+                // UE Height Label
+                ctx.fillStyle = '#ef4444'; 
+                ctx.textAlign = 'left';
+                ctx.fillText(Math.abs(state.ue.z).toFixed(1) + 'm', uePix.x + 4, (getY(0) + uePix.y) / 2);
+
+                ctx.setLineDash([]);
+
+                drawObjectSimple(ctx, risPix.x, risPix.y, '#f97316');
+                drawObjectSimple(ctx, apPix.x, apPix.y, '#22c55e');
+                drawObjectSimple(ctx, uePix.x, uePix.y, '#ef4444');
+
+                // Links
+                ctx.setLineDash([4, 4]);
+                
+                // AP Link (Green)
+                ctx.beginPath(); 
+                ctx.strokeStyle = '#22c55e'; 
+                ctx.moveTo(risPix.x, risPix.y); 
+                ctx.lineTo(apPix.x, apPix.y); 
+                ctx.stroke();
+                
+                // AP Distance Label
+                ctx.fillStyle = '#22c55e'; 
+                ctx.font = 'bold 10px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                const midX_ap = (risPix.x + apPix.x) / 2;
+                const midY_ap = (risPix.y + apPix.y) / 2;
+                ctx.fillText(state.metrics.d_ap.toFixed(2) + 'm', midX_ap, midY_ap - 4);
+
+                // UE Link (Red)
+                ctx.beginPath(); 
+                ctx.strokeStyle = '#ef4444'; 
+                ctx.moveTo(risPix.x, risPix.y); 
+                ctx.lineTo(uePix.x, uePix.y); 
+                ctx.stroke();
+
+                // UE Distance Label
+                ctx.fillStyle = '#ef4444'; 
+                const midX_ue = (risPix.x + uePix.x) / 2;
+                const midY_ue = (risPix.y + uePix.y) / 2;
+                ctx.fillText(state.metrics.d_ue.toFixed(2) + 'm', midX_ue, midY_ue - 4);
+                
+                ctx.setLineDash([]);
+                ctx.textAlign = 'start'; 
+                ctx.textBaseline = 'alphabetic';
+
+                // Arc
+                const dx_ap = apPix.x - risPix.x;
+                const dy_ap = apPix.y - risPix.y;
+                const ang1_visual = Math.atan2(dy_ap, dx_ap);
+                const dx_ue = uePix.x - risPix.x;
+                const dy_ue = uePix.y - risPix.y;
+                const ang2_visual = Math.atan2(dy_ue, dx_ue);
+
+                const arcR = 50;
+                ctx.beginPath();
+                ctx.arc(risPix.x, risPix.y, arcR, ang1_visual, ang2_visual, isCounterClockwise(ang1_visual, ang2_visual));
+                ctx.strokeStyle = '#0d9488'; ctx.lineWidth = 3; ctx.stroke();
+
+                // Labels
+                ctx.fillStyle = '#475569';
+                ctx.font = '10px sans-serif';
+                ctx.fillText(`Z (±${p.Z_SPAN/2}m)`, p.cX + 5, p.padding + 10);
+                ctx.fillText(`Range (${p.RANGE_MAX}m)`, p.w - 60, getY(0) + 15);
+
+                // Arc Label
+                let diff = ang2_visual - ang1_visual;
+                while (diff <= -Math.PI) diff += 2*Math.PI;
+                while (diff > Math.PI) diff -= 2*Math.PI;
+                const midAng = ang1_visual + diff/2;
+                const labelX = risPix.x + (arcR + 15) * Math.cos(midAng);
+                const labelY = risPix.y + (arcR + 15) * Math.sin(midAng);
+
+                ctx.fillStyle = '#0d9488';
+                ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                ctx.fillText((state.metrics.el_rad * 180/Math.PI).toFixed(1) + '°', labelX, labelY);
+                ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+            }
+
+            function drawObject(ctx, x, y, color, label, shape, scale = 1.0) {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                const size = 8 * scale;
+                if(shape === 'rect') ctx.rect(x-size, y-size, size*2, size*2);
+                else if(shape === 'circle') ctx.arc(x, y, size, 0, Math.PI*2);
+                else if(shape === 'triangle') {
+                    ctx.moveTo(x, y-size); ctx.lineTo(x+size, y+size); ctx.lineTo(x-size, y+size); ctx.closePath();
+                }
+                ctx.fill();
+                
+                ctx.fillStyle = '#1e293b';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(label, x + 12, y + 4);
+            }
+
+            function drawObjectSimple(ctx, x, y, color) {
+                ctx.fillStyle = color;
+                ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+            }
+
+            function drawLink(ctx, p1, p2, color, s) {
+                // s is now passed in
+                ctx.beginPath();
+                ctx.moveTo(p1.x * s, -p1.y * s);
+                ctx.lineTo(p2.x * s, -p2.y * s);
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                const midX = (p1.x + p2.x)/2 * s;
+                const midY = -(p1.y + p2.y)/2 * s;
+                const dist = Math.sqrt((p1.x-p2.x)**2 + (p1.y-p2.y)**2 + (p1.z-p2.z)**2);
+                ctx.fillStyle = '#475569'; ctx.font = '10px sans-serif';
+                ctx.fillText(dist.toFixed(2) + 'm', midX + 5, midY);
+            }
+
+            // --- Interaction: Top View ---
+            function setupDragInteraction(canvas) {
+                const getPos = (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+                    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+                    return { x: x / window.devicePixelRatio, y: y / window.devicePixelRatio };
+                };
+
+                const toWorld = (px, py) => {
+                    const w = canvas.width / window.devicePixelRatio;
+                    const h = canvas.height / window.devicePixelRatio;
+                    let x = px - w/2;
+                    let y = py - h/2;
+                    // Use dynamic scale stored in state
+                    const s = state.topViewScale || 20; // fallback
+                    return { x: x / s, y: -y / s };
+                };
+                
+                const hitTest = (pos) => {
+                    const w = canvas.width / window.devicePixelRatio;
+                    const h = canvas.height / window.devicePixelRatio;
+                    const s = state.topViewScale || 20;
+                    const check = (obj) => {
+                        const ox = w/2 + obj.x * s;
+                        const oy = h/2 - obj.y * s;
+                        return Math.hypot(pos.x - ox, pos.y - oy) < 25;
+                    };
+                    if(check(state.ue)) return 'ue';
+                    if(check(state.ap)) return 'ap';
+                    if(check(state.ris)) return 'ris';
+                    return null;
+                };
+                
+                const handleDown = (x, y) => {
+                    const target = hitTest({x, y});
+                    if(target) {
+                        dragging = target;
+                        activeCanvasId = 'topCanvas';
+                        canvas.style.cursor = 'grabbing';
+                    }
+                };
+
+                const handleMove = (x, y) => {
+                    if(!dragging || activeCanvasId !== 'topCanvas') {
+                        canvas.style.cursor = hitTest({x,y}) ? 'grab' : 'crosshair';
+                        return;
+                    }
+                    const world = toWorld(x, y);
+                    state[dragging].x = world.x;
+                    state[dragging].y = world.y;
+                    updateInputs();
+                    updatePhysics();
+                };
+
+                const handleUp = () => {
+                    dragging = null;
+                    activeCanvasId = null;
+                    canvas.style.cursor = 'crosshair';
+                };
+
+                canvas.addEventListener('mousedown', e => handleDown(getPos(e).x, getPos(e).y));
+                canvas.addEventListener('mousemove', e => handleMove(getPos(e).x, getPos(e).y));
+                window.addEventListener('mouseup', handleUp);
+                
+                 canvas.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    const t = e.touches[0];
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (t.clientX - rect.left) * (canvas.width / rect.width) / window.devicePixelRatio;
+                    const y = (t.clientY - rect.top) * (canvas.height / rect.height) / window.devicePixelRatio;
+                    handleDown(x, y);
+                }, {passive: false});
+                
+                canvas.addEventListener('touchmove', e => {
+                    e.preventDefault();
+                    if(!dragging) return;
+                    const t = e.touches[0];
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (t.clientX - rect.left) * (canvas.width / rect.width) / window.devicePixelRatio;
+                    const y = (t.clientY - rect.top) * (canvas.height / rect.height) / window.devicePixelRatio;
+                    handleMove(x, y);
+                }, {passive: false});
+                
+                window.addEventListener('touchend', handleUp);
+            }
+
+            // --- Interaction: Side View ---
+            function setupSideDragInteraction(canvas) {
+                if(!canvas) return;
+                
+                const getPos = (e) => {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (e.clientX - rect.left) * (canvas.width / rect.width);
+                    const y = (e.clientY - rect.top) * (canvas.height / rect.height);
+                    return { x: x / window.devicePixelRatio, y: y / window.devicePixelRatio };
+                };
+
+                const hitTest = (pos) => {
+                    const p = getSideViewParams(canvas);
+                    const check = (obj, r_h) => {
+                         const sx = p.cX + r_h * p.scaleR;
+                         const sy = p.cY - obj.z * p.scaleZpx;
+                         return Math.hypot(pos.x - sx, pos.y - sy) < 20;
+                    };
+                    if(check(state.ue, state.metrics.r_h_ue)) return 'ue';
+                    if(check(state.ap, state.metrics.r_h_ap)) return 'ap';
+                    if(check(state.ris, 0)) return 'ris';
+                    return null;
+                };
+
+                const handleDown = (x, y) => {
+                    const target = hitTest({x, y});
+                    if(target) {
+                        dragging = target;
+                        activeCanvasId = 'sideCanvas';
+                        canvas.style.cursor = 'grabbing';
+                    }
+                };
+
+                const handleMove = (x, y) => {
+                    if(!dragging || activeCanvasId !== 'sideCanvas') {
+                        canvas.style.cursor = hitTest({x,y}) ? 'grab' : 'crosshair';
+                        return;
+                    }
+                    
+                    const p = getSideViewParams(canvas);
+                    
+                    // 1. Calc new Z
+                    let newZ = (p.cY - y) / p.scaleZpx;
+                    state[dragging].z = newZ;
+
+                    // 2. Calc new Horizontal Range (except for RIS which is origin)
+                    if(dragging !== 'ris') {
+                        let newR = (x - p.cX) / p.scaleR;
+                        if(newR < 0) newR = 0; // Clamp
+
+                        // 3. Project back to World X/Y
+                        // Preserve current angle theta
+                        const dx = state[dragging].x - state.ris.x;
+                        const dy = state[dragging].y - state.ris.y;
+                        const theta = Math.atan2(dy, dx);
+                        
+                        state[dragging].x = state.ris.x + newR * Math.cos(theta);
+                        state[dragging].y = state.ris.y + newR * Math.sin(theta);
+                    }
+
+                    updateInputs();
+                    updatePhysics();
+                };
+
+                const handleUp = () => {
+                    dragging = null;
+                    activeCanvasId = null;
+                    canvas.style.cursor = 'crosshair';
+                };
+
+                canvas.addEventListener('mousedown', e => handleDown(getPos(e).x, getPos(e).y));
+                canvas.addEventListener('mousemove', e => handleMove(getPos(e).x, getPos(e).y));
+                
+                canvas.addEventListener('touchstart', e => {
+                    e.preventDefault();
+                    const t = e.touches[0];
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (t.clientX - rect.left) * (canvas.width / rect.width) / window.devicePixelRatio;
+                    const y = (t.clientY - rect.top) * (canvas.height / rect.height) / window.devicePixelRatio;
+                    handleDown(x, y);
+                }, {passive: false});
+                
+                canvas.addEventListener('touchmove', e => {
+                    e.preventDefault();
+                    if(!dragging) return;
+                    const t = e.touches[0];
+                    const rect = canvas.getBoundingClientRect();
+                    const x = (t.clientX - rect.left) * (canvas.width / rect.width) / window.devicePixelRatio;
+                    const y = (t.clientY - rect.top) * (canvas.height / rect.height) / window.devicePixelRatio;
+                    handleMove(x, y);
+                }, {passive: false});
+            }
+            
+            // Trigger Init
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                init();
+            } else {
+                window.addEventListener('DOMContentLoaded', init);
+            }
+        })();
+    </script>
+</body>
+</html>
