@@ -370,14 +370,8 @@ class Physics:
         # Convert target_angle_deg to observation direction vector
         if observation_type == 'far_field':
             # Far-field: use simple angular observation direction
-            if ris_position is not None and ap_position is not None:
-                # Reference direction: AP→RIS direction
-                ap_to_ris = ris_position - ap_position
-                ap_to_ris_angle_deg = np.degrees(np.arctan2(ap_to_ris[1], ap_to_ris[0]))
-                # Observation angle relative to AP→RIS direction
-                obs_angle_deg = ap_to_ris_angle_deg + target_angle_deg
-            else:
-                obs_angle_deg = target_angle_deg
+            # target_angle_deg is already in absolute world coordinates
+            obs_angle_deg = target_angle_deg
 
             # 2D observation direction (assuming elevation=0, azimuth only)
             obs_angle_rad = np.radians(obs_angle_deg)
@@ -428,13 +422,23 @@ class Physics:
                 total_phase = phase_steering + spatial_phase
                 af_complex += weights[n] * np.exp(1j * total_phase)
 
-        # Array factor magnitude (normalized to number of elements for steered case)
-        af_magnitude_linear = np.abs(af_complex) / num_elements
+        # Array factor magnitude
+        # For a phased array with N elements and weights normalized to unit energy:
+        # - Each weight w_n ≈ 1/sqrt(N) (for uniform weights)
+        # - Maximum coherent sum: |sum(w_n * exp(jφ_n))| = sqrt(N) when all phases align
+        # - To normalize to 0 dB at peak, divide by sqrt(N)
+        #
+        # Since weights were normalized: sum(w_n^2) = 1, so sum(w_n) = sqrt(N) for uniform
+        af_magnitude_linear = np.abs(af_complex)
 
-        # Convert to dB (normalized so peak at steering direction ≈ 0 dB)
+        # Normalize to peak = 1.0 (0 dB)
+        # Maximum possible magnitude is sqrt(num_elements) for unit-energy normalized weights
+        af_magnitude_normalized = af_magnitude_linear / np.sqrt(num_elements)
+
+        # Convert to dB (normalized so peak at steering direction = 0 dB)
         # Clamp to avoid log(0)
-        af_magnitude_linear = np.clip(af_magnitude_linear, 1e-6, 1.0)
-        af_magnitude_dB = 20 * np.log10(af_magnitude_linear)
+        af_magnitude_normalized = np.clip(af_magnitude_normalized, 1e-6, 10.0)
+        af_magnitude_dB = 20 * np.log10(af_magnitude_normalized)
 
         # Clamp sidelobe floor to -60 dB (represents far sidelobes)
         af_magnitude_dB = np.clip(af_magnitude_dB, -60.0, 0.0)

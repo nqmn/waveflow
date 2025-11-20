@@ -356,8 +356,22 @@ class ConnectionHandler:
 
         return result
 
-    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering='uniform', print_func=print):
-        """Execute single-angle connect measurement"""
+    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering='uniform', metric='snr', print_func=print):
+        """Execute single-angle connect measurement
+
+        Args:
+            ap: Access Point name
+            ris: RIS name
+            ue: UE name
+            angle: Beam angle in degrees (None for auto-compute)
+            enable_feedback: Enable CSI feedback
+            use_waveform: Enable signal-level simulation
+            modulation: Modulation type (QPSK, 16QAM, etc.)
+            seed: Random seed for reproducibility
+            tapering: Tapering window type (uniform, hamming, hann, blackman)
+            metric: Beam selection metric (snr, rssi, csi) - for future RSSI/CSI support
+            print_func: Function for output printing
+        """
         try:
             print_func(f"\n{'='*70}")
             print_func(f"CONNECTION PROCESS: {ap} → {ris} → {ue}")
@@ -593,15 +607,23 @@ class ConnectionHandler:
             from utils import create_metric_selector
             metric_selector = create_metric_selector(metric)
 
+            # CRITICAL FIX: Disable feedback during sweep
+            # Feedback modifies UE state across measurements, causing incorrect results
+            # Example: connect shows 44.92°, but sweep showed 20° because feedback was
+            # interfering with independent angle measurements
+            # Sweep needs clean physics-based measurements for each angle
+            sweep_enable_feedback = False
+
             kwargs = {
                 'fov': fov,
                 'step': step,
-                'enable_feedback': enable_feedback,
+                'enable_feedback': sweep_enable_feedback,  # Always False for sweep
                 'max_feedback_iterations': 3,
                 'metric': metric,  # Beam selection metric string (for reference)
                 # NOTE: metric_selector NOT passed to algorithm
                 # Post-processing (line 740+) handles metric-based selection after CSI/RSSI computed
-                'tapering': tapering
+                'tapering': tapering,
+                'seed': seed  # Pass seed to algorithm for reproducibility
             }
             if algo_name.lower() in ['ml', 'ml-guided']:
                 kwargs['ml_predictor'] = ml_predictor

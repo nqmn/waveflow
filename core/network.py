@@ -211,7 +211,7 @@ class RISNetwork:
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
                 use_isolated_copy=True, store_in_active_links=True, use_get_snr=True,
-                tapering='uniform'):
+                tapering='uniform', fixed_ris_normal=None):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -233,6 +233,8 @@ class RISNetwork:
                         If False, compute SNR using physics models.
             tapering: Window function for side lobe suppression ('uniform', 'hamming', 'hann', 'blackman').
                      Default: 'uniform' (no tapering).
+            fixed_ris_normal: If provided, use this RIS normal angle instead of auto-calculating.
+                             For beam sweep testing to keep RIS normal consistent. Default: None
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -361,7 +363,11 @@ class RISNetwork:
 
         # Determine RIS normal angle
         max_angle = getattr(ris, 'max_angle_deg', 60.0)
-        ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
+        if fixed_ris_normal is not None:
+            # Use provided fixed RIS normal for consistent sweep measurements
+            ris_normal = fixed_ris_normal
+        else:
+            ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
 
         # Compute angles from RIS perspective for FOV checking
         ap_to_ris_vec = ap.pos - ris.pos  # Vector from RIS toward AP

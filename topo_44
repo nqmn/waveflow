@@ -24,7 +24,7 @@
       ],
       "N": 16,
       "bits": 1,
-      "freq": 10000000000.0,
+      "freq": 5800000000.0,
       "max_angle_deg": 60,
       "normal_angle_deg": 0.0,
       "current_beam_angle": null,

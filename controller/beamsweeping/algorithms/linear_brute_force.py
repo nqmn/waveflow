@@ -92,23 +92,34 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         # Also set base_angle for compatibility (incident direction)
         base_angle = ap_angle
 
-        # Generate deflection angles to test (centered around base deflection)
-        # Test from 0 to fov degrees with specified step
+        # CRITICAL FIX: Calculate optimal RIS normal ONCE for sweep consistency
+        # This ensures all beam angle measurements use the same RIS normal reference
+        from core.angle_utils import compute_optimal_ris_normal
+        fixed_ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
+
+        # Generate GEOMETRIC DEFLECTION angles to test (the codebook)
+        # These are the deflection magnitudes between incident and reflected rays
         angles, num_angles = generate_codebook(fov, step)
 
         # Clamp deflection angles to RIS FOV constraint
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
         clamped_angles = clamp_local_deflection_to_ris_fov(angles, ris_max_angle)
 
-        # Convert deflection angles to absolute beam angles
-        # Deflection angle means steering from incident direction toward target
-        # So absolute angle = incident angle + deflection (accounting for direction)
-        if angle_diff > 0:
-            # UE is counterclockwise from AP, so add deflection to AP angle
-            abs_angles = ap_angle + clamped_angles
-        else:
-            # UE is clockwise from AP, so subtract deflection from AP angle
-            abs_angles = ap_angle - clamped_angles
+        # Convert GEOMETRIC DEFLECTION angles to absolute beam angles
+        # The codebook contains deflection angles from the incident direction (AP).
+        # For deflection θ:
+        #   - θ < 0: beam deflects clockwise from incident direction
+        #   - θ > 0: beam deflects counter-clockwise from incident direction
+        #   - Absolute beam angle = incident_angle + θ
+        #
+        # This ensures codebook angle directly represents the deflection magnitude.
+        # For example, 44.92° deflection → codebook ≈ ±45° (rounded to step size)
+        abs_angles = ap_angle + clamped_angles  # Add deflection to incident direction
+        
+        print(f"DEBUG: AP Angle: {ap_angle}")
+        print(f"DEBUG: UE Angle: {ue_angle}")
+        print(f"DEBUG: Fixed RIS Normal: {fixed_ris_normal}")
+        print(f"DEBUG: Abs Angles: {abs_angles}")
 
         snr_values = [None] * num_angles
         power_values = [None] * num_angles
@@ -131,7 +142,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
                     max_feedback_iterations=max_feedback_iterations,
                     store_in_active_links=False,  # Don't store intermediate measurements
                     use_get_snr=self._should_use_get_snr(),  # Use get_snr() if enabled
-                    tapering=tapering
+                    tapering=tapering,
+                    fixed_ris_normal=fixed_ris_normal  # Critical: use same RIS normal for all measurements
                 )
 
             snr_val, ser_val = apply_waveform_realism(

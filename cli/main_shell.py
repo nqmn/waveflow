@@ -1503,6 +1503,7 @@ class RISNetCLI(cmd.Cmd):
         mock_trajectory = flags_result.get('mock_trajectory', 'circular')
         r_cw = flags_result.get('r_cw', None)
         t_cw = flags_result.get('t_cw', None)
+        tapering = flags_result.get('tapering', 'uniform')
 
         # Determine mode: single-angle vs sweep
         if fov is not None:
@@ -1512,15 +1513,15 @@ class RISNetCLI(cmd.Cmd):
                                          metric, enable_codebook_validation, codebook_increment,
                                          codebook_neighbors, include_predicted_angle,
                                          codebook_start, codebook_end, codebook_step, use_mock, mock_trajectory,
-                                         r_cw, t_cw)
+                                         r_cw, t_cw, tapering)
         else:
             # Single-angle connect mode
             return self._do_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform,
-                                          modulation, seed)
+                                          modulation, seed, metric, tapering)
 
-    def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed):
+    def _do_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, metric='snr', tapering='uniform'):
         """Execute single-angle connect measurement"""
-        res = self.connection_handler.execute_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed)
+        res = self.connection_handler.execute_single_connect(ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering=tapering)
         if res is None:
             return
 
@@ -1531,10 +1532,10 @@ class RISNetCLI(cmd.Cmd):
         connection_record = self.connection_handler.create_connection_record(ap, ris, ue, res, angle, seed, enable_feedback, use_waveform, modulation)
         self.net.last_connect_result = sanitize_for_json(connection_record)
 
-    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None):
+    def _do_connect_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None, tapering='uniform'):
         """Execute multi-angle sweep within unified connect command"""
         # Execute sweep using connection handler
-        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric=metric, enable_codebook_validation=enable_codebook_validation, codebook_increment=codebook_increment, codebook_neighbors=codebook_neighbors, include_predicted_angle=include_predicted_angle, codebook_start=codebook_start, codebook_end=codebook_end, codebook_step=codebook_step, use_mock=use_mock, mock_trajectory=mock_trajectory, r_cw=r_cw, t_cw=t_cw)
+        out = self.connection_handler.execute_sweep(ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric=metric, enable_codebook_validation=enable_codebook_validation, codebook_increment=codebook_increment, codebook_neighbors=codebook_neighbors, include_predicted_angle=include_predicted_angle, codebook_start=codebook_start, codebook_end=codebook_end, codebook_step=codebook_step, use_mock=use_mock, mock_trajectory=mock_trajectory, r_cw=r_cw, t_cw=t_cw, tapering=tapering)
         if out is None:
             return
 
