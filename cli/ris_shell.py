@@ -17,8 +17,9 @@ class RISNodeShell(cmd.Cmd):
         self.intro = f"\n{'='*60}\nRIS Node Shell: {ris_node.name}\n{'='*60}\n"
         self.last_connect_result = None  # Store phase data from connect() command
         self._print_status()
-        print("\nAvailable commands: help, status, config, info, phases, exit")
+        print("\nAvailable commands: help, status, config, info, phases, wave_mode, exit")
         print("Phase formats: compact, grid, stats, plot, codebook, transmit, export")
+        print("Wave modes: set_tx_mode, set_rx_mode, wave_mode")
         print("Type 'help' for more information\n")
 
     def do_help(self, arg):
@@ -33,6 +34,9 @@ RIS Node Commands:
   info                    - Show detailed RIS information
   config [set]            - Show or modify RIS configuration
   phases [format]         - Display phase element values
+  wave_mode [info]        - Show wave mode configuration
+  set_tx_mode <mode>      - Set TX wave type (auto/plane/spherical)
+  set_rx_mode <mode>      - Set RX wave type (auto/plane/focus)
   exit                    - Exit RIS shell
 
 Phase Formats (use: phases <format>):
@@ -43,6 +47,15 @@ Phase Formats (use: phases <format>):
   codebook                - Phase state codebook (0, 1, 2, ... for each element)
   transmit                - RIS transmission-ready format (hex, UART, checksum)
   export <file> <fmt>     - Export codebook (hex, binary, csv, json)
+
+Wave Mode Control:
+  set_tx_mode auto        - Auto-select TX wave type (Fraunhofer boundary)
+  set_tx_mode plane       - Use plane wave TX (far-field)
+  set_tx_mode spherical   - Use spherical wave TX (near-field)
+  set_rx_mode auto        - Auto-select RX wave type (Fraunhofer boundary)
+  set_rx_mode plane       - Use plane wave RX (beam steering)
+  set_rx_mode focus       - Use spherical wave RX (point focusing)
+  wave_mode               - Show current TX/RX mode configuration
         """
         print(help_text)
 
@@ -219,6 +232,100 @@ Phase Formats (use: phases <format>):
         else:  # invalid format, default to compact
             print(f"Unknown format: {format_type}. Using 'compact'.")
             self._print_phase_compact()
+
+    def do_set_tx_mode(self, arg):
+        """set_tx_mode <mode> - Set TX wave type (auto|plane|spherical)
+
+        Modes:
+          auto       - Automatic selection based on Fraunhofer boundary
+          plane      - Plane wave (far-field TX)
+          spherical  - Spherical wave (near-field TX)
+
+        Examples:
+          set_tx_mode auto
+          set_tx_mode plane
+          set_tx_mode spherical
+        """
+        if not arg:
+            print("Usage: set_tx_mode <auto|plane|spherical>")
+            return
+
+        mode = arg.strip().lower()
+        result = self.ris_node.set_tx_mode(mode)
+
+        if result['status'] == 'success':
+            print(f"✓ TX mode set to: {mode}")
+            print(f"  plane_tx = {result['plane_tx']}")
+        else:
+            print(f"✗ Error: {result.get('message', 'Unknown error')}")
+
+    def do_set_rx_mode(self, arg):
+        """set_rx_mode <mode> - Set RX wave type (auto|plane|steer|spherical|focus)
+
+        Modes:
+          auto       - Automatic selection based on Fraunhofer boundary
+          plane      - Plane wave, beam steering (far-field RX)
+          steer      - Alias for 'plane'
+          spherical  - Spherical wave, point focusing (near-field RX)
+          focus      - Alias for 'spherical'
+
+        Examples:
+          set_rx_mode auto
+          set_rx_mode plane
+          set_rx_mode focus
+        """
+        if not arg:
+            print("Usage: set_rx_mode <auto|plane|steer|spherical|focus>")
+            return
+
+        mode = arg.strip().lower()
+        result = self.ris_node.set_rx_mode(mode)
+
+        if result['status'] == 'success':
+            print(f"✓ RX mode set to: {mode}")
+            print(f"  plane_rx = {result['plane_rx']}")
+        else:
+            print(f"✗ Error: {result.get('message', 'Unknown error')}")
+
+    def do_wave_mode(self, arg):
+        """wave_mode [info] - Show current wave mode configuration
+
+        Display TX/RX wave types and Fraunhofer boundary information.
+        Shows auto-selection results from last phase computation.
+
+        Example:
+          wave_mode
+          wave_mode info
+        """
+        info = self.ris_node.get_hybrid_mode_info()
+
+        print(f"\n{self.ris_node.name} Wave Mode Configuration:")
+        print(f"  Hybrid Engine:  {'Enabled' if info['use_hybrid_engine'] else 'Disabled (Legacy)'}")
+        print(f"  TX Mode:        {info['tx_mode']}")
+        print(f"  RX Mode:        {info['rx_mode']}")
+
+        if 'fraunhofer_boundary_m' in info:
+            print(f"\nFraunhofer Boundary: {info['fraunhofer_boundary_m']:.3f} m")
+
+        if 'dist_ap_to_ris_m' in info:
+            print(f"  AP to RIS:      {info['dist_ap_to_ris_m']:.3f} m")
+
+        if 'dist_ris_to_ue_m' in info:
+            print(f"  RIS to UE:      {info['dist_ris_to_ue_m']:.3f} m")
+
+        if 'last_tx_mode_used' in info:
+            print(f"\nLast Phase Computation:")
+            print(f"  TX Used:        {info['last_tx_mode_used']}")
+            print(f"  RX Used:        {info['last_rx_mode_used']}")
+
+            # Show mode description
+            from controller.ris_phase.phase_hybrid import HybridPhaseEngine
+            plane_tx_used = (info['last_tx_mode_used'] == 'plane')
+            plane_rx_used = (info['last_rx_mode_used'] == 'plane')
+            desc = HybridPhaseEngine.get_mode_description(plane_tx_used, plane_rx_used)
+            print(f"  Description:    {desc}")
+
+        print()
 
     def do_exit(self, arg):
         """exit - Exit RIS shell"""

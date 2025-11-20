@@ -14,6 +14,7 @@ from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
 from .hog_sweep import HOGHumanDetectionSweep
+from .anm_localization_sweep import ANMLocalizationSweep
 from utils import aruco_utils
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "AdaptiveDirectionalSweep",
     "OpenCVVisionSweep",
     "HOGHumanDetectionSweep",
+    "ANMLocalizationSweep",
     "aruco_utils",
     "register_algorithm",
     "get_algorithm_class",

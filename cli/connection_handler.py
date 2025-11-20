@@ -814,12 +814,78 @@ class ConnectionHandler:
 
         algo_name_clean = algo_display_name.replace('Sweep', '').strip()
         suppress_ml_details = algo_name.lower() in ('ml', 'ml-guided', 'gmf') or algo_display_name.lower().startswith('ml')
+        if out.get('suppress_tables'):
+            suppress_ml_details = True
 
         has_fine_phase = 'local_fine' in out and len(out.get('local_fine', [])) > 0
 
         if not suppress_ml_details:
             print_func(f'\n[ALGORITHM: {algo_display_name}]')
             print_func('-'*70)
+
+        # Show ANM-specific summary if present
+        if 'mode' in out:
+            loc = out.get('location', {}) or {}
+            meta = out.get('metadata', {}) or {}
+            print_func('ANM SUMMARY:')
+            print_func('-'*70)
+            print_func(f"Mode: {out.get('mode')}")
+            mode_note = meta.get('mode_note')
+            if mode_note:
+                print_func(f"Note: {mode_note}")
+            if loc:
+                if loc.get('type') == 'direction-only':
+                    az = loc.get('azimuth')
+                    el = loc.get('elevation')
+                    if az is not None and el is not None:
+                        print_func(f"Direction: az={az:.2f}°, el={el:.2f}°")
+                    elif az is not None:
+                        print_func(f"Direction: az={az:.2f}°")
+                else:
+                    print_func(
+                        "Position: x={:.2f} m, y={:.2f} m, z={:.2f} m".format(
+                            loc.get('x', float('nan')),
+                            loc.get('y', float('nan')),
+                            loc.get('z', float('nan')),
+                        )
+                    )
+            curvature = out.get('curvature')
+            thresh = out.get('curvature_threshold')
+            print_func(f"Curvature: {curvature:.4f} (threshold {thresh})")
+            confidence = out.get('confidence')
+            if confidence is not None:
+                print_func(f"Confidence: {confidence:.3f}")
+            solver_status = meta.get('solver_status')
+            solver_time = meta.get('solver_time_sec')
+            if solver_status or solver_time:
+                status_str = solver_status or 'unknown'
+                time_str = f"{solver_time:.3f}s" if solver_time is not None else "n/a"
+                print_func(f"Solver: {status_str} in {time_str}")
+            # Step-by-step trace
+            print_func("Process:")
+            ris_normal = meta.get('ris_normal_deg')
+            ap_angle = meta.get('ap_angle_deg')
+            ue_angle = meta.get('ue_angle_deg')
+            if ris_normal is not None and ap_angle is not None and ue_angle is not None:
+                print_func(f"  Step 1: Geometry — AP={ap_angle:.2f}°, UE={ue_angle:.2f}°, RIS normal={ris_normal:.2f}°")
+            fov = meta.get('fov_deg')
+            step = meta.get('step_deg')
+            if fov is not None and step is not None:
+                angle_count = meta.get('angles_tested_count', len(out.get('local_coarse', [])))
+                print_func(f"  Step 2: Sweep — fov=±{fov:.1f}°, step={step:.1f}°, angles tested={angle_count}")
+            prelim = meta.get('mode_decision')
+            if prelim:
+                nf_flag = "near-field" if prelim == "near-field" else "far-field"
+                print_func(f"  Step 3: Curvature → mode decision: {nf_flag}")
+            anm_az = meta.get('anm_estimated_az_deg')
+            if anm_az is not None:
+                print_func(f"  Step 4: ANM azimuth estimate: {anm_az:.2f}°")
+            rec_loc = meta.get('recommended_local_angle')
+            rec_abs = meta.get('recommended_abs_angle')
+            src = meta.get('angle_recommendation_source', 'unknown')
+            if rec_loc is not None and rec_abs is not None:
+                print_func(f"  Step 5: Steering recommendation ({src}): local={rec_loc:.2f}°, abs={rec_abs:.2f}°")
+            print_func()
 
         local_coarse = out.get('local_coarse', [])
         snr_coarse = out.get('snr_coarse', [])
@@ -1012,34 +1078,53 @@ class ConnectionHandler:
         if specular_angle is None:
             specular_angle = out.get('base_angle', 0.0)
 
-        if has_fine_phase and local_fine and snr_fine:
-            if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
-                if ser_vals_idx:
-                    best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
-                    best_final_local = local_fine[best_ser_idx]
-                    best_final_snr = snr_fine[best_ser_idx]
+        # If tables are suppressed (e.g., ANM), prefer recommended angles from metadata
+        best_final_local = None
+        best_final_snr = None
+        meta_recommended_local = meta.get('recommended_local_angle')
+        meta_recommended_abs = meta.get('recommended_abs_angle')
+        meta_meas_best_snr = None
+        meas = out.get('measurements', {})
+        if meas:
+            meta_meas_best_snr = meas.get('best_snr_dB')
+        use_metadata_angles = out.get('suppress_tables') and meta_recommended_local is not None
+        if use_metadata_angles:
+            best_final_local = float(meta_recommended_local)
+            best_final_abs = float(meta_recommended_abs) if meta_recommended_abs is not None else float(specular_angle + best_final_local)
+            best_final_snr = float(meta_meas_best_snr) if meta_meas_best_snr is not None else None
+        else:
+            if has_fine_phase and local_fine and snr_fine:
+                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
+                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
+                    if ser_vals_idx:
+                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
+                        best_final_local = local_fine[best_ser_idx]
+                        best_final_snr = snr_fine[best_ser_idx]
+                    else:
+                        best_final_local = local_fine[int(np.argmax(snr_fine))]
+                        best_final_snr = float(np.max(snr_fine))
                 else:
                     best_final_local = local_fine[int(np.argmax(snr_fine))]
                     best_final_snr = float(np.max(snr_fine))
             else:
-                best_final_local = local_fine[int(np.argmax(snr_fine))]
-                best_final_snr = float(np.max(snr_fine))
-        else:
-            if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
-                if ser_vals_idx:
-                    best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
-                    best_final_local = local_coarse[best_ser_idx]
-                    best_final_snr = snr_coarse[best_ser_idx]
+                if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
+                    ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
+                    if ser_vals_idx:
+                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
+                        best_final_local = local_coarse[best_ser_idx]
+                        best_final_snr = snr_coarse[best_ser_idx]
+                    else:
+                        best_final_local = local_coarse[int(np.argmax(snr_coarse))]
+                        best_final_snr = float(np.max(snr_coarse))
                 else:
                     best_final_local = local_coarse[int(np.argmax(snr_coarse))]
                     best_final_snr = float(np.max(snr_coarse))
-            else:
-                best_final_local = local_coarse[int(np.argmax(snr_coarse))]
-                best_final_snr = float(np.max(snr_coarse))
 
-        best_final_abs = specular_angle + best_final_local
+            best_final_abs = specular_angle + best_final_local
+
+            # Fallback if SNR from metadata not available
+            if best_final_snr is None and meta_meas_best_snr is not None:
+                best_final_snr = float(meta_meas_best_snr)
 
         # Get the metric-specific expected value at best angle
         best_final_metric = best_final_snr  # Default

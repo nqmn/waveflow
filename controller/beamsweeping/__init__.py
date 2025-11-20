@@ -10,6 +10,7 @@ from .algorithms import (
     DirectionalExhaustiveSweep,
     LinearBruteForceSweep,
     MLGuidedSweep,
+    ANMLocalizationSweep,
     get_algorithm_class,
     list_registered_algorithms,
 )
@@ -87,6 +88,7 @@ __all__ = [
     'CoarseFineSweep',
     'MLGuidedSweep',
     'DirectionalExhaustiveSweep',
+    'ANMLocalizationSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',
     'MLPredictorLoader',

@@ -308,6 +308,11 @@ class RIS(Node):
         self.local_beam_deflection_deg = None
         self.phase_metadata = None  # Metadata from phase computation (deflection angles, etc.)
 
+        # Hybrid mode configuration (Approach B from formula_hybrid.md)
+        self.plane_tx = None  # TX wave type: None (auto), True (plane), False (spherical)
+        self.plane_rx = None  # RX wave type: None (auto), True (plane), False (spherical)
+        self.use_hybrid_engine = True  # Use new hybrid phase engine
+
         # Phase manager (lazy-loaded on demand)
         self._phase_manager = None
 
@@ -374,11 +379,10 @@ class RIS(Node):
     def compute_phases(self, ap_pos, ue_pos):
         """Compute ideal RIS phases for AP->RIS->UE beamforming
 
-        Implements the algorithm from risformula/formula.md:
-        - Calculates deflection angle from 3D node coordinates
-        - Computes incident phase (spherical wavefront compensation)
-        - Computes steering phase (linear array steering)
-        - Combines both components for the final phase pattern
+        Implements the algorithm from risformula/formula_hybrid.md:
+        - Flexible TX/RX wave type selection (spherical/plane)
+        - Automatic Fraunhofer boundary selection when mode is None
+        - All 4 combinations available: spherical/plane TX × spherical/plane RX
 
         Args:
             ap_pos: Access Point position [x_s, y_s, z_s] (3D array)
@@ -387,22 +391,36 @@ class RIS(Node):
         Returns:
             phase_array: Ideal phases in radians (N×N grid, flattened)
         """
-        from controller.ris_phase.phase_steering import PhaseSteeringEngine
+        if self.use_hybrid_engine:
+            # Use new hybrid phase engine (Approach B - flag-based control)
+            from controller.ris_phase.phase_hybrid import HybridPhaseEngine
 
-        wavelength = C / self.freq
+            phases, metadata = HybridPhaseEngine.compute_hybrid_pattern(
+                source_pos=ap_pos,
+                ris_center_pos=self.pos,
+                target_pos=ue_pos,
+                frequency=self.freq,
+                array_size=self.N,
+                plane_tx=self.plane_tx,  # None (auto), True (plane), False (spherical)
+                plane_rx=self.plane_rx,  # None (auto), True (plane), False (spherical)
+                max_angle_deg=self.max_angle_deg,
+                ris_normal_deg=self.normal_angle_deg
+            )
+        else:
+            # Legacy: Use original deflection-based calculation (formula.md algorithm)
+            from controller.ris_phase.phase_steering import PhaseSteeringEngine
 
-        # Use new deflection-based phase calculation (formula.md algorithm)
-        # This includes both incident spherical wave and steering components
-        # IMPORTANT: Pass max_angle_deg to enforce hardware FOV constraint
-        phases, metadata = PhaseSteeringEngine.phase_pattern_from_deflection(
-            source_pos=ap_pos,
-            ris_center_pos=self.pos,
-            target_pos=ue_pos,
-            wavelength=wavelength,
-            ris_array_size=self.N,
-            max_angle_deg=self.max_angle_deg,  # Native hardware constraint
-            ris_normal_deg=self.normal_angle_deg
-        )
+            wavelength = C / self.freq
+
+            phases, metadata = PhaseSteeringEngine.phase_pattern_from_deflection(
+                source_pos=ap_pos,
+                ris_center_pos=self.pos,
+                target_pos=ue_pos,
+                wavelength=wavelength,
+                ris_array_size=self.N,
+                max_angle_deg=self.max_angle_deg,
+                ris_normal_deg=self.normal_angle_deg
+            )
 
         # Store ideal phases
         self.current_phases = phases
@@ -411,6 +429,81 @@ class RIS(Node):
         self.phase_metadata = metadata
 
         return phases
+
+    def set_tx_mode(self, mode: Optional[str]) -> Dict:
+        """
+        Set TX wave type for hybrid phase computation.
+
+        Args:
+            mode: 'auto' (Fraunhofer auto-select), 'plane' (far-field), 'spherical' (near-field)
+
+        Returns:
+            Status dictionary
+        """
+        if mode == 'auto':
+            self.plane_tx = None
+        elif mode == 'plane':
+            self.plane_tx = True
+        elif mode == 'spherical':
+            self.plane_tx = False
+        else:
+            return {'status': 'error', 'message': f"Invalid TX mode: {mode}. Use 'auto', 'plane', or 'spherical'."}
+
+        return {'status': 'success', 'tx_mode': mode, 'plane_tx': self.plane_tx}
+
+    def set_rx_mode(self, mode: Optional[str]) -> Dict:
+        """
+        Set RX wave type for hybrid phase computation.
+
+        Args:
+            mode: 'auto' (Fraunhofer auto-select), 'plane' (steering), 'spherical' (focusing)
+
+        Returns:
+            Status dictionary
+        """
+        if mode == 'auto':
+            self.plane_rx = None
+        elif mode == 'plane' or mode == 'steer':
+            self.plane_rx = True
+        elif mode == 'spherical' or mode == 'focus':
+            self.plane_rx = False
+        else:
+            return {'status': 'error', 'message': f"Invalid RX mode: {mode}. Use 'auto', 'plane'/'steer', or 'spherical'/'focus'."}
+
+        return {'status': 'success', 'rx_mode': mode, 'plane_rx': self.plane_rx}
+
+    def get_hybrid_mode_info(self) -> Dict:
+        """
+        Get current hybrid mode configuration and status.
+
+        Returns:
+            Dictionary with mode information
+        """
+        tx_mode_str = 'auto' if self.plane_tx is None else ('plane' if self.plane_tx else 'spherical')
+        rx_mode_str = 'auto' if self.plane_rx is None else ('plane' if self.plane_rx else 'spherical')
+
+        info = {
+            'use_hybrid_engine': self.use_hybrid_engine,
+            'tx_mode': tx_mode_str,
+            'rx_mode': rx_mode_str,
+            'plane_tx': self.plane_tx,
+            'plane_rx': self.plane_rx,
+        }
+
+        # Add metadata from last phase computation if available
+        if self.phase_metadata is not None:
+            if 'tx_mode' in self.phase_metadata:
+                info['last_tx_mode_used'] = self.phase_metadata['tx_mode']
+            if 'rx_mode' in self.phase_metadata:
+                info['last_rx_mode_used'] = self.phase_metadata['rx_mode']
+            if 'fraunhofer_boundary_m' in self.phase_metadata:
+                info['fraunhofer_boundary_m'] = self.phase_metadata['fraunhofer_boundary_m']
+            if 'dist_ap_to_ris_m' in self.phase_metadata:
+                info['dist_ap_to_ris_m'] = self.phase_metadata['dist_ap_to_ris_m']
+            if 'dist_ris_to_ue_m' in self.phase_metadata:
+                info['dist_ris_to_ue_m'] = self.phase_metadata['dist_ris_to_ue_m']
+
+        return info
 
     def _get_phase_manager(self):
         """Lazy-load phase manager from controller module"""

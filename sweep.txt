@@ -1,0 +1,30 @@
+# `connect --sweep` flow
+
+- Entry point lives in `cli/main_shell.py#do_connect`. Parsed args go to `cli/connection_handler.ConnectionHandler`.
+- `parse_connect_arguments` resolves AP/RIS/UE (auto-fills when unambiguous). `parse_flags` sets defaults: FOV=60°, step=10°, `algo=linear`, `ml_predictor=gmf`, waveform+feedback enabled unless flags disable them.
+- If `--sweep` is present, `_do_connect_sweep` calls `ConnectionHandler.execute_sweep`.
+
+## `execute_sweep`
+- Loads sweep algorithm via `SweepAlgorithmLoader.get_algorithm(name, net)`; validates required nodes (OpenCV sweep can create UE, others require AP/RIS/UE to exist).
+- Builds kwargs for the algorithm:
+  - Core: `fov`, `step`, `seed`, `tapering`, `metric` label, `enable_feedback=False` (critical so per-angle measurements stay independent; feedback would otherwise mutate UE state).
+  - ML extras (when `algo` is `ml/ml-guided`): predictor name, codebook validation knobs (`enable_codebook_validation`, increment/neighbor counts, include-predicted flag, codebook range/step).
+  - Waveform extras when `--modulation`/default waveform enabled: `use_waveform=True`, modulation, symbol count for SER simulation.
+  - OpenCV vision extras: mock/live camera toggles, trajectory, viewer flag, plus optional `r_cw`/`t_cw` numpy loads (mock defaults to identity/zeros, real camera warns if missing).
+- Runs `algo.sweep(ap, ris, ue, **kwargs)` and post-processes results:
+  - Derives RSSI or CSI quality arrays if `--metric` requests them.
+  - If waveform is on and SER arrays are absent, simulates SER per measured SNR using `SignalLevelLink`.
+  - If metric != SNR, reselects best angle based on the derived metric, updating `best_angle`/`best_snr` style fields.
+
+## Printing and selection
+- `print_sweep_results` (still in `ConnectionHandler`) formats ML suggestions, coarse/fine phases, and SER/SNR/metric tables.
+- Chooses the final beam:
+  - Prefers fine-phase results when present; uses SER minima if available, else SNR/metric maxima.
+  - Computes absolute beam angle by adding local offset to the specular/base angle and reports the metric value at that angle.
+  - Returns a small summary (`best_final_local`, `best_final_abs`, `best_final_snr`, etc.).
+
+## Persisting the result
+- `create_sweep_record_and_link` consumes the summary:
+  - Calls `net.connect(..., beam_angle_deg=best_final_abs, compute_phases=True, store_in_active_links=False)` to recover deflection/phase metadata.
+  - Stores/reregisters an active link keyed as `ap→ris→ue (Connect Sweep - <algo>)`, including phase data if present on the RIS node.
+  - Updates RIS attributes (`specular_angle_deg`, absolute/local beam angles), saves a sweep record to `net.last_sweep_result` (later used by `plot`/`save`), and writes basic sweep parameters (FOV, step, algo, waveform settings).
