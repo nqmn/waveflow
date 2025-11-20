@@ -364,8 +364,9 @@ class Physics:
         else:
             weights = np.array(weights)
 
-        # Normalize weights to unit energy
-        weights = weights / np.sqrt(np.sum(weights ** 2) + 1e-10)
+        # Normalize weights to unit sum (standard for array factor)
+        # This ensures peak AF = 1.0 (0 dB) when all elements add coherently
+        weights = weights / (np.sum(weights) + 1e-10)
 
         # Convert target_angle_deg to observation direction vector
         if observation_type == 'far_field':
@@ -423,22 +424,18 @@ class Physics:
                 af_complex += weights[n] * np.exp(1j * total_phase)
 
         # Array factor magnitude
-        # For a phased array with N elements and weights normalized to unit energy:
-        # - Each weight w_n ≈ 1/sqrt(N) (for uniform weights)
-        # - Maximum coherent sum: |sum(w_n * exp(jφ_n))| = sqrt(N) when all phases align
-        # - To normalize to 0 dB at peak, divide by sqrt(N)
+        # For a phased array with N elements and weights normalized to unit sum:
+        # - Each weight w_n = 1/N (for uniform weights)
+        # - Maximum coherent sum: |sum(w_n * exp(jφ_n))| = 1.0 when all phases align
+        # - Peak AF magnitude = 1.0 → 0 dB
         #
-        # Since weights were normalized: sum(w_n^2) = 1, so sum(w_n) = sqrt(N) for uniform
+        # Since weights were normalized: sum(w_n) = 1, peak is already at 1.0
         af_magnitude_linear = np.abs(af_complex)
-
-        # Normalize to peak = 1.0 (0 dB)
-        # Maximum possible magnitude is sqrt(num_elements) for unit-energy normalized weights
-        af_magnitude_normalized = af_magnitude_linear / np.sqrt(num_elements)
 
         # Convert to dB (normalized so peak at steering direction = 0 dB)
         # Clamp to avoid log(0)
-        af_magnitude_normalized = np.clip(af_magnitude_normalized, 1e-6, 10.0)
-        af_magnitude_dB = 20 * np.log10(af_magnitude_normalized)
+        af_magnitude_linear = np.clip(af_magnitude_linear, 1e-6, 10.0)
+        af_magnitude_dB = 20 * np.log10(af_magnitude_linear)
 
         # Clamp sidelobe floor to -60 dB (represents far sidelobes)
         af_magnitude_dB = np.clip(af_magnitude_dB, -60.0, 0.0)
