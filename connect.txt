@@ -1,122 +1,238 @@
   Step-by-Step: What Happens During connect Command
 
-  Phase 1: RIS Computation (Lines 178-181)
-
-  RIS computes optimal phase configuration:
-    ris.compute_phases(ap_position, ue_position)  ← Calculates phases to steer beam from AP→RIS→UE
-    ris.quantize_phases()  ← Rounds to discrete levels (4-bit, 2-bit, etc.)
-  The RIS calculates what phase shifts each element needs to create constructive interference toward UE and
-  destructive interference away from UE.
+  [STEP 1] Retrieve Node References
+  - Fetch AP, RIS, and UE objects from network
+  - Display node positions (x, y, z coordinates)
+  - Show RIS normal angle (reference direction for deflection angles)
 
   ---
-  Phase 2: AP Transmits Signal (Lines 191-193)
+  [STEP 2] Compute Geometry & FOV Validation
 
-  AP → RIS path loss:
-    Distance: d_ap_ris = ||RIS_position - AP_position||
-    Path Loss = -20*log10(4πd/λ) dB  ← Free space path loss formula
+  Distance Calculations:
+    d_ap_ris = √[(RIS_x - AP_x)² + (RIS_y - AP_y)² + (RIS_z - AP_z)²]
+    d_ris_ue = √[(UE_x - RIS_x)² + (UE_y - RIS_y)² + (UE_z - RIS_z)²]
 
-  Example: If 100m away at 5.8 GHz = ~80 dB loss
-  The AP broadcasts at 20 dBm (100 mW) - this signal travels through air to RIS.
+  Angle Calculations:
+    target_angle = atan2(UE_y - RIS_y, UE_x - RIS_x)  [Absolute angle to UE]
+    ap_angle = atan2(AP_y - RIS_y, AP_x - RIS_x)  [Absolute angle to AP]
 
-  ---
-  Phase 3: RIS Reflects Signal (Lines 195-220)
+  FOV Validation:
+    fov_limit = RIS.max_steering_angle (typically ±60°)
+    Check if target_angle is within [RIS.normal_angle - fov_limit, RIS.normal_angle + fov_limit]
 
-  RIS receives AP's signal and COHERENTLY reflects with computed phases:
-
-  1. Each element multiplies incoming signal by e^(j*phase_element)
-     - This shifts the phase of that element's reflection
-
-  2. Total RIS gain depends on:
-     - Array size: N×N elements (32×32 = 1024 elements = 30 dB gain)
-     - Phase accuracy: 2-bit, 4-bit, 8-bit quantization
-     - Beam steering efficiency: How well phases align toward UE
-
-  3. Example calculation:
-     - Array gain: 30 dBi
-     - Quantization loss: -1.67 dB (for 4-bit)
-     - Angle loss: -0.5 dB (if beam slightly misaligned)
-     - Net RIS gain: ~28 dBi toward UE
-
-  Critical: The RIS doesn't amplify - it just phases and redirects the signal. Gain comes from coherent array
-  interference.
+  Example distances shown:
+    AP→RIS: 3.61 m
+    RIS→UE: 10.44 m
 
   ---
-  Phase 4: RIS → UE Path Loss (Lines 196-197)
+  [STEP 3] Calculate RIS Phase Configuration & Path Loss & Array Gain
 
-  RIS → UE path loss:
-    Distance: d_ris_ue = ||UE_position - RIS_position||
-    Path Loss = -20*log10(4πd/λ) dB
+  A) Phase Configuration:
 
-  Example: If 50m away at 5.8 GHz = ~74 dB loss
+     Angle Calculations:
+       incident_azimuth = atan2(AP_y - RIS_y, AP_x - RIS_x)  [Angle AP arrives at RIS]
+       reflected_azimuth = atan2(UE_y - RIS_y, UE_x - RIS_x)  [Angle toward UE]
+       local_deflection = reflected_azimuth - RIS.normal_angle  [Deflection from normal]
+
+     Phase Computation (for N×N elements):
+     For each RIS element at position (x_m, y_n):
+       distance_to_ap = ||element_pos - AP_pos||
+       distance_to_ue = ||element_pos - UE_pos||
+       ideal_phase[m,n] = (2π/λ) × (distance_to_ap - distance_to_ue)
+
+     Each element applies phase: e^(j*ideal_phase[m,n])
+
+     Quantization (to B bits):
+       phase_state = round(ideal_phase / (2π/2^B)) × (2π/2^B)
+       quantized_phase = phase_state
+
+       Common: 2-bit (4 levels), 4-bit (16 levels), 8-bit (256 levels)
+
+  B) Path Loss Calculation:
+
+     Free space path loss formula:
+       PL(dB) = 20*log10(4πd/λ) dB
+
+     Where:
+       d = distance (meters)
+       λ = wavelength = c/f = 3×10⁸/f
+       f = frequency (Hz)
+
+     Simplification for common frequencies:
+       PL(dB) = 32.4 + 20*log10(d_km) + 20*log10(f_GHz)
+
+     Example:
+       AP→RIS: d=3.61m, f=28GHz
+         PL = 32.4 + 20*log10(0.00361) + 20*log10(28) = 58.85 dB
+       RIS→UE: d=10.44m, f=28GHz
+         PL = 32.4 + 20*log10(0.01044) + 20*log10(28) = 68.08 dB
+
+  C) Array Gain & Quantization Loss:
+
+     Array Gain (ideal, without quantization):
+       G_array = 10*log10(N²) dB  [N = elements per side]
+
+       Example: 8×8 = 64 elements → G = 10*log10(64) = 18.06 dBi
+                32×32 = 1024 elements → G = 10*log10(1024) = 30.10 dBi
+
+     Steering Efficiency:
+       G_steering = max_directivity_to_target (depends on beam direction vs normal)
+
+       Perfect alignment (beam toward normal): G_steering ≈ G_array
+       Off-axis steering: G_steering < G_array
+
+     Quantization Loss (depends on bits and phase distribution):
+       Loss_quantization = f(B, steering_angle)
+
+       Example: 4-bit quantization (16 levels) → ~1.67 dB loss
+                2-bit quantization (4 levels) → ~3-4 dB loss
+                8-bit quantization (256 levels) → ~0.2 dB loss
+
+     Net RIS Gain:
+       G_ris = G_array + G_steering - Loss_quantization - L_angle_inefficiency
+
+       In output: Shown as "RIS array gain + antenna gains"
 
   ---
-  Phase 5: Received Power at UE (Lines 237-238)
+  [STEP 4] Query SNR from UE (via Control Channel)
 
-  Received Power (dBm) = TX_Power + AP_Gain + UE_Gain + RIS_Gain - PL_AP_RIS - PL_RIS_UE
+  A) Received Power Calculation:
 
-  Example:
-    = 20 dBm (TX) + 3 dBi (AP) + 3 dBi (UE) + 28 dBi (RIS)
-      - 80 dB (path loss AP→RIS) - 74 dB (path loss RIS→UE)
-    = 20 + 3 + 3 + 28 - 80 - 74
-    = -100 dBm  ← Received power at UE antenna
+     P_rx (dBm) = P_tx + G_ap + G_ue + G_ris - PL_ap_ris - PL_ris_ue
 
-  SNR = Received_Power - Noise_Floor
-      = -100 dBm - (-174 + 10*log10(20MHz) + 6dB NF)
-      = -100 - (-143)
-      = 43 dB SNR  ← Very good!
+     Where:
+       P_tx = AP transmit power (dBm)
+       G_ap = AP antenna gain (dBi)
+       G_ue = UE antenna gain (dBi)
+       G_ris = RIS array gain (dBi)
+       PL_ap_ris = Path loss AP→RIS (dB)
+       PL_ris_ue = Path loss RIS→UE (dB)
+
+     Example calculation:
+       P_rx = 20 dBm (TX) + 3 dBi (AP) + 3 dBi (UE) + 32.68 dBi (RIS)
+              - 58.85 dB (PL_AP_RIS) - 68.08 dB (PL_RIS_UE)
+            = 20 + 3 + 3 + 32.68 - 58.85 - 68.08
+            = -68.25 dBm  ← Received power at UE
+
+  B) Noise Floor Calculation:
+
+     N_floor = N_0 + NF + 10*log10(BW)
+
+     Where:
+       N_0 = Thermal noise floor ≈ -174 dBm/Hz
+       NF = Noise Figure of UE receiver (typically 5-7 dB for good receiver, 10+ for noisy)
+       BW = Bandwidth (Hz)
+
+     Example (20 MHz BW, 6 dB NF):
+       N_floor = -174 + 6 + 10*log10(20×10⁶)
+               = -174 + 6 + 73.01
+               = -94.99 dBm
+
+  C) SNR Calculation:
+
+     SNR (dB) = P_rx - N_floor
+
+     Example:
+       SNR = -68.25 dBm - (-94.99 dBm)
+           = 26.74 dB
+
+     Alternative (linear):
+       SNR_linear = 10^(SNR_dB / 10)
+
+  D) Modulation Selection Based on SNR:
+
+     SNR > 20 dB  → Can use 64QAM (6 bits/symbol, requires ~20.7 dB)
+     SNR > 10 dB  → Can use 16QAM (4 bits/symbol, requires ~14.5 dB)
+     SNR > 5 dB   → Can use QPSK (2 bits/symbol, requires ~9.6 dB)
+     SNR < 5 dB   → Link fails (cannot decode)
 
   ---
-  Phase 6: UE Receives & Measures SNR (Lines 246-252)
-
-  UE measures the received signal quality:
-    SNR = Signal_Power / Noise_Power
-
-  Then evaluates channel quality:
-    SNR > 20 dB  → Can use 64QAM (6 bits/symbol)
-    SNR > 10 dB  → Can use 16QAM (4 bits/symbol)
-    SNR > 5 dB   → Can use QPSK (2 bits/symbol)
-    SNR < 5 dB   → Link fails
+  [STEP 5] Store Link Metadata on UE
+  - Save connection info: (AP, RIS) → SNR, power, gain, phases
+  - Key: (AP_name, RIS_name)
+  - Allows UE to recall this link configuration later
 
   ---
-  Phase 7: CSI Feedback Loop (If Enabled) (Lines 298-302)
+  [STEP 6] Create & Activate Link
+  - Link established and ready for data transmission
+  - Final status: ESTABLISHED
 
-  UE sends feedback back to AP:
-    UE → AP: "I measured SNR = 43 dB, can use 64QAM"
+  ---
+  CSI Feedback Loop (If Enabled)
 
-  AP adapts:
-    - Increases transmit power from 20 dBm → 23 dBm (uses more power)
-    - OR
-    - Uses higher modulation (QPSK → 16QAM → 64QAM)
+  If enable_feedback=True, additional adaptive iterations occur:
+  - UE sends feedback back to AP: "I measured SNR = X dB"
+  - AP adapts:
+    * Increases transmit power (if low SNR)
+    * OR uses higher modulation (QPSK → 16QAM → 64QAM)
 
   Loop repeats (max 3 iterations):
-    Iteration 0: AP at 20 dBm, QPSK
-    Iteration 1: SNR measured, UE sends "try 16QAM"
-    Iteration 2: AP increases power slightly, retransmits with 16QAM
+    Iteration 0: AP at baseline power, QPSK
+    Iteration 1: SNR measured, UE suggests modulation
+    Iteration 2: AP adapts, SNR remeasured
 
   Converges when SNR stable or target modulation achieved
 
   ---
-  Timeline Diagram
+  Output Summary
 
-  TIME →
+  After connection, displayed metrics include:
+  - SNR (dB): Signal-to-noise ratio
+  - Power (dBm): Received power at UE
+  - Gain (dBi): Total RIS array gain
+  - Beam Angle (deg): Absolute steering angle
+  - Quantization Penalty (dB): Loss from phase quantization
+  - EVM (%): Error Vector Magnitude (modulation quality)
+  - SER (%): Symbol Error Rate
 
-  AP (5.8 GHz):                  [Transmit 20 dBm signal]
-                                          ↓
-                                 (80 dB path loss)
-                                          ↓
-  RIS (32×32 elements):  [Compute phases for UE direction]
-                         [Reflect with 28 dBi gain] → ← [Quantize to 4-bit]
-                                          ↓
-                                 (74 dB path loss)
-                                          ↓
-  UE receiver:            [Receive -100 dBm signal]
-                          [Measure SNR = 43 dB]
-                          [Calculate: "can use 64QAM"]
-                                          ↓
-  UE → AP feedback:       [Send CSI: "SNR=43dB, try 64QAM"]
-                                          ↓
-  (Feedback loop repeats if enabled)
-                                          ↓
-  Display results:        SNR, Power, Gain, Modulation, SER
+  Recommendation to send to RIS:
+  - Steering Angle (Local Deflection): The angle to tell RIS hardware to steer to
+  - Expected SNR: Predicted link quality
+
+  ---
+  FORMULA REFERENCE SUMMARY
+
+  Geometry:
+    d = √[(x₁-x₂)² + (y₁-y₂)² + (z₁-z₂)²]                    [Euclidean distance]
+    θ = atan2(Δy, Δx)                                           [Azimuth angle]
+
+  Path Loss:
+    PL(dB) = 20·log₁₀(4πd/λ)                                  [Free space path loss]
+    PL(dB) = 32.4 + 20·log₁₀(d_km) + 20·log₁₀(f_GHz)          [Simplified]
+
+  RIS Phase Configuration:
+    φ_ideal[m,n] = (2π/λ) × (d_AP→element - d_element→UE)     [Ideal phase]
+    φ_quantized = round(φ_ideal / Δφ) × Δφ, where Δφ = 2π/2^B [Quantized phase]
+
+  Array Gain:
+    G_array = 10·log₁₀(N²)                                     [N = elements per side]
+
+  Received Power:
+    P_rx(dBm) = P_tx + G_ap + G_ue + G_ris - PL_AP_RIS - PL_RIS_UE
+
+  Noise Floor:
+    N_floor = N_0 + NF + 10·log₁₀(BW)                          [N_0 ≈ -174 dBm/Hz]
+
+  Signal-to-Noise Ratio:
+    SNR(dB) = P_rx - N_floor                                   [In dB]
+    SNR_linear = 10^(SNR_dB/10)                                [In linear scale]
+
+  Quantization Loss (4-bit example):
+    Loss_quant ≈ 1.67 dB for 4-bit                            [Typical values]
+    Loss_quant ≈ 3-4 dB for 2-bit
+    Loss_quant ≈ 0.2 dB for 8-bit
+
+  Modulation Coding (approximate SNR thresholds):
+    BPSK: SNR > 4 dB
+    QPSK: SNR > 9.6 dB
+    16QAM: SNR > 14.5 dB
+    64QAM: SNR > 20.7 dB
+
+  EVM (Error Vector Magnitude):
+    EVM(%) = (RMS_error / RMS_reference) × 100%               [Quality metric]
+
+  Symbol Error Rate (approximate):
+    SER ≈ Q(√(2·SNR·log₂(M)))                                 [M = constellation size]
+    where Q(x) = complementary error function
 
   ---
