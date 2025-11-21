@@ -115,11 +115,6 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         # This ensures codebook angle directly represents the deflection magnitude.
         # For example, 44.92° deflection → codebook ≈ ±45° (rounded to step size)
         abs_angles = ap_angle + clamped_angles  # Add deflection to incident direction
-        
-        print(f"DEBUG: AP Angle: {ap_angle}")
-        print(f"DEBUG: UE Angle: {ue_angle}")
-        print(f"DEBUG: Fixed RIS Normal: {fixed_ris_normal}")
-        print(f"DEBUG: Abs Angles: {abs_angles}")
 
         snr_values = [None] * num_angles
         power_values = [None] * num_angles
