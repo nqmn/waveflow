@@ -73,6 +73,13 @@ def get_algorithm_class(name: str) -> Type[SweepAlgorithmBase]:
     """Return the algorithm class for the provided name or alias."""
     key = name.lower()
     if key not in _name_lookup:
+        if key == "anm" or key == "anm-localization" or key == "atomic-norm":
+            try:
+                from .algorithms.anm_localization_sweep import ANMLocalizationSweep
+                if key in _name_lookup:
+                    return _name_lookup[key]
+            except ImportError:
+                pass
         available = ", ".join(list_available_names())
         raise ValueError(
             f"Unknown sweep algorithm '{name}'. "

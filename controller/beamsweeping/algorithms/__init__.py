@@ -14,8 +14,16 @@ from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
 from .hog_sweep import HOGHumanDetectionSweep
-from .anm_localization_sweep import ANMLocalizationSweep
 from utils import aruco_utils
+
+
+def __getattr__(name):
+    """Lazy load algorithms on demand."""
+    if name == "ANMLocalizationSweep":
+        from .anm_localization_sweep import ANMLocalizationSweep
+        return ANMLocalizationSweep
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "LinearBruteForceSweep",

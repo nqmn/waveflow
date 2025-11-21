@@ -10,12 +10,19 @@ from .algorithms import (
     EdgeCenterSweep,
     LinearBruteForceSweep,
     MLGuidedSweep,
-    ANMLocalizationSweep,
     get_algorithm_class,
     list_registered_algorithms,
 )
 from utils.snr import compute_snr
 from .ml import MLPredictorLoader, SweepMLPredictor
+
+
+def __getattr__(name):
+    """Lazy load ANMLocalizationSweep on demand."""
+    if name == "ANMLocalizationSweep":
+        from .algorithms import ANMLocalizationSweep
+        return ANMLocalizationSweep
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class SweepAlgorithmLoader:

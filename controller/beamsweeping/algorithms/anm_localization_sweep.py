@@ -14,7 +14,6 @@ import time
 from typing import Dict, Tuple, Optional
 
 import numpy as np
-import cvxpy as cp
 
 from ..base import SweepAlgorithmBase
 from ..common import (
@@ -60,6 +59,8 @@ def _build_plane_steering(rel_positions: np.ndarray, angles_rad: np.ndarray, wav
 
 def _solve_sparse_recovery(design: np.ndarray, y: np.ndarray, lambda_reg: float) -> Tuple[Optional[np.ndarray], str, float]:
     """L1-regularized least squares via CVXPY; returns (weights, status, solve_time)."""
+    import cvxpy as cp
+
     if design.shape[0] == 0 or design.shape[1] == 0:
         return None, "empty_design", 0.0
 
