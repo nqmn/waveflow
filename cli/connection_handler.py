@@ -377,39 +377,86 @@ class ConnectionHandler:
             print_func(f"{'='*70}")
 
             print_func(f"\n[STEP 1] Retrieve Node References")
-            print_func(f"  ✓ AP (Access Point):  {ap}")
-            print_func(f"  ✓ RIS (Reflector):    {ris}")
-            print_func(f"  ✓ UE (Device):        {ue}")
+            try:
+                ap_node = self.net.nodes.get(ap)
+                ris_node = self.net.nodes.get(ris)
+                ue_node = self.net.nodes.get(ue)
+
+                print_func(f"  ✓ AP (Access Point):  {ap}")
+                if ap_node and hasattr(ap_node, 'pos'):
+                    print_func(f"    Position: x={ap_node.pos[0]:.2f}, y={ap_node.pos[1]:.2f}, z={ap_node.pos[2]:.2f}")
+
+                print_func(f"  ✓ RIS (Reflector):    {ris}")
+                if ris_node and hasattr(ris_node, 'pos'):
+                    print_func(f"    Position: x={ris_node.pos[0]:.2f}, y={ris_node.pos[1]:.2f}, z={ris_node.pos[2]:.2f}")
+                    if hasattr(ris_node, 'normal_angle_deg'):
+                        print_func(f"    Normal Angle: {ris_node.normal_angle_deg:.1f}°")
+
+                print_func(f"  ✓ UE (Device):        {ue}")
+                if ue_node and hasattr(ue_node, 'pos'):
+                    print_func(f"    Position: x={ue_node.pos[0]:.2f}, y={ue_node.pos[1]:.2f}, z={ue_node.pos[2]:.2f}")
+            except Exception as e:
+                print_func(f"  (Position data unavailable: {e})")
 
             print_func(f"\n[STEP 2] Compute Geometry & FOV Validation")
             print_func(f"  Computing: distances, beam angles, field-of-view...")
+            try:
+                if ap_node and ris_node and ue_node:
+                    d_ap_ris = np.linalg.norm(ris_node.pos - ap_node.pos)
+                    d_ris_ue = np.linalg.norm(ue_node.pos - ris_node.pos)
+                    print_func(f"    AP→RIS distance: {d_ap_ris:.2f} m")
+                    print_func(f"    RIS→UE distance: {d_ris_ue:.2f} m")
+            except Exception:
+                pass
 
-            print_func(f"\n[STEP 3] Calculate RIS Phase Configuration")
-            print_func(f"  Computing: optimal phase steering, quantization...")
-            if angle is not None:
-                print_func(f"  Using specified beam angle: {angle:.1f}°")
-            else:
-                print_func(f"  Auto-computing beam angle (specular reflection)...")
-
-            print_func(f"\n[STEP 4] Calculate Path Loss & Array Gain")
-            print_func(f"  Computing: AP→RIS path loss")
-            print_func(f"  Computing: RIS→UE path loss")
-            print_func(f"  Computing: RIS array gain + antenna gains")
-
-            print_func(f"\n[STEP 5] Query SNR from UE (via Control Channel)")
-            print_func(f"  Action: Controller queries UE for measured SNR...")
+            print_func(f"\n[STEP 3] Calculate RIS Phase Configuration & Path Loss & Array Gain")
 
             res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
                                   enable_feedback=enable_feedback, max_feedback_iterations=3,
                                   tapering=tapering)
 
+            # Show phase configuration results
+            print_func(f"  Phase Configuration:")
+            if 'incident_azimuth_deg' in res:
+                print_func(f"    Incident Angle (AP→RIS): {res['incident_azimuth_deg']:.1f}°")
+            if 'reflected_azimuth_deg' in res:
+                print_func(f"    Reflection Angle (RIS→UE): {res['reflected_azimuth_deg']:.1f}°")
+
+            # Use deflection_angle_deg if available (actual RIS command), otherwise local_deflection_deg
+            deflection = res.get('deflection_angle_deg')
+            if deflection is None:
+                deflection = res.get('local_deflection_deg')
+            if deflection is not None:
+                print_func(f"    Required RIS Deflection: {float(deflection):.1f}°")
+
+            # Show path loss and gain
+            print_func(f"  Path Loss & Array Gain:")
+            try:
+                if ap_node and ris_node and ue_node and hasattr(ap_node, 'freq'):
+                    from core.physics import Physics
+                    d_ap_ris = np.linalg.norm(ris_node.pos - ap_node.pos)
+                    d_ris_ue = np.linalg.norm(ue_node.pos - ris_node.pos)
+                    pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap_node.freq)
+                    pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap_node.freq)
+                    print_func(f"    AP→RIS path loss ({d_ap_ris:.2f} m): {pl_ap_ris:.2f} dB")
+                    print_func(f"    RIS→UE path loss ({d_ris_ue:.2f} m): {pl_ris_ue:.2f} dB")
+            except Exception:
+                pass
+
+            if 'gain_dBi' in res:
+                print_func(f"    RIS array gain + antenna gains: {res['gain_dBi']:.2f} dBi")
+            if 'quant_loss_dB' in res and res['quant_loss_dB'] != 0:
+                print_func(f"    Quantization loss: {abs(float(res['quant_loss_dB'])):.3f} dB")
+
+            print_func(f"\n[STEP 4] Query SNR from UE (via Control Channel)")
+            print_func(f"  Action: Controller queries UE for measured SNR...")
             print_func(f"  ✓ SNR Result: {res['snr_dB']:.2f} dB")
 
-            print_func(f"\n[STEP 6] Store Link Metadata on UE")
+            print_func(f"\n[STEP 5] Store Link Metadata on UE")
             print_func(f"  Storing: (AP, RIS) → SNR, power, gain, phases...")
             print_func(f"  Key: ('{ap}', '{ris}')")
 
-            print_func(f"\n[STEP 7] Create & Activate Link")
+            print_func(f"\n[STEP 6] Create & Activate Link")
             link_key = f"{ap}→{ris}→{ue}"
             print_func(f"  Link: {link_key}")
             print_func(f"  Status: ✓ ESTABLISHED - Ready for data transmission")
