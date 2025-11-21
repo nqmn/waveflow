@@ -14,14 +14,16 @@ from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
 from .hog_sweep import HOGHumanDetectionSweep
-from utils import aruco_utils
 
 
 def __getattr__(name):
-    """Lazy load algorithms on demand."""
+    """Lazy load algorithms and utilities on demand."""
     if name == "ANMLocalizationSweep":
         from .anm_localization_sweep import ANMLocalizationSweep
         return ANMLocalizationSweep
+    elif name == "aruco_utils":
+        from utils import aruco_utils
+        return aruco_utils
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
