@@ -1225,7 +1225,7 @@ class ConnectionHandler:
                 while angle_diff < -math.pi:
                     angle_diff += 2 * math.pi
 
-                deflection_angle_deg = abs(math.degrees(angle_diff))
+                deflection_angle_deg = math.degrees(angle_diff)
                 incident_azimuth_deg = math.degrees(theta_in_rad)
                 reflected_azimuth_deg = math.degrees(theta_out_rad)
 

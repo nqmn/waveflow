@@ -86,8 +86,8 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         while angle_diff < -180:
             angle_diff += 360
 
-        # Base deflection angle magnitude
-        base_deflection_angle = abs(angle_diff)
+        # Base deflection angle (with sign for direction)
+        base_deflection_angle = angle_diff
 
         # Also set base_angle for compatibility (incident direction)
         base_angle = ap_angle

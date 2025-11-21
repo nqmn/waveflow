@@ -325,8 +325,8 @@ class RISNetwork:
             while angle_diff < -np.pi:
                 angle_diff += 2 * np.pi
 
-            deflection_angle_deg = abs(np.degrees(angle_diff))
-            deflection_angle_rad = abs(angle_diff)
+            deflection_angle_deg = np.degrees(angle_diff)
+            deflection_angle_rad = angle_diff
 
             # Store metadata for result dictionary
             phase_metadata = {

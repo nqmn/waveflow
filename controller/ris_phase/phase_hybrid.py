@@ -318,7 +318,7 @@ class HybridPhaseEngine:
             angle_diff -= 2 * np.pi
         while angle_diff < -np.pi:
             angle_diff += 2 * np.pi
-        deflection_angle = abs(angle_diff)
+        deflection_angle = angle_diff
 
         # Elevation angles
         r_horizontal_ap = np.hypot(ap_2d[0] - ris_2d[0], ap_2d[1] - ris_2d[1])
