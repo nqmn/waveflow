@@ -17,7 +17,6 @@ from datetime import datetime
 from pathlib import Path
 import numpy as np
 from core import RIS, AccessPoint, UE
-from controller.beamsweeping import SweepAlgorithmLoader, MLPredictorLoader
 from cli import run_testall
 from cli.ris_shell import RISNodeShell
 from cli.ap_shell import APNodeShell

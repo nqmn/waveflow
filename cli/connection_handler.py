@@ -6,7 +6,6 @@ Extracted from main_shell.py for better modularity
 import shlex
 import numpy as np
 from datetime import datetime
-from controller.beamsweeping import SweepAlgorithmLoader, MLPredictorLoader
 from cli.helpers import sanitize_for_json
 
 
@@ -541,16 +540,6 @@ class ConnectionHandler:
 
             print_func(f"Expected SNR:                   {snr_dB:>8.2f} dB")
 
-        print_func(f"\n{'='*70}")
-        print_func(f"FINAL STATUS: LINK ACTIVE & ESTABLISHED")
-        print_func(f"{'='*70}")
-        print_func(f"Path:       {ap} → {ris} → {ue}")
-        print_func(f"SNR:        {res['snr_dB']:.2f} dB")
-        print_func(f"Power:      {res['pwr_dBm']:.2f} dBm")
-        print_func(f"Gain:       {res['gain_dBi']:.2f} dBi")
-        print_func(f"Beam Angle: {res.get('beam_angle', 0):.1f}°")
-        print_func(f"Status:     ✓ READY FOR DATA TRANSMISSION")
-        print_func(f"{'='*70}\n")
 
     def create_connection_record(self, ap, ris, ue, res, angle, seed, enable_feedback, use_waveform, modulation):
         """Create a connection record for saving"""
@@ -579,6 +568,7 @@ class ConnectionHandler:
     def execute_sweep(self, ap, ris, ue, fov, step, algo_name, ml_predictor, enable_feedback, use_waveform, modulation, seed, metric='snr', enable_codebook_validation=False, codebook_increment=5.0, codebook_neighbors=1, include_predicted_angle=True, codebook_start=10.0, codebook_end=60.0, codebook_step=10.0, use_mock=False, mock_trajectory='circular', r_cw=None, t_cw=None, tapering='uniform', print_func=print):
         """Execute multi-angle sweep"""
         try:
+            from controller.beamsweeping import SweepAlgorithmLoader
             algo = SweepAlgorithmLoader.get_algorithm(algo_name, self.net)
         except ValueError as e:
             print_func(f"Error: {e}")
@@ -823,10 +813,12 @@ class ConnectionHandler:
             print_func(f'\n[ALGORITHM: {algo_display_name}]')
             print_func('-'*70)
 
+        # Initialize metadata variables (used later at line 1084+)
+        loc = out.get('location', {}) or {}
+        meta = out.get('metadata', {}) or {}
+
         # Show ANM-specific summary if present
         if 'mode' in out:
-            loc = out.get('location', {}) or {}
-            meta = out.get('metadata', {}) or {}
             print_func('ANM SUMMARY:')
             print_func('-'*70)
             print_func(f"Mode: {out.get('mode')}")

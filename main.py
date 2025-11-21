@@ -11,15 +11,12 @@ Usage:
 
 import sys
 import argparse
-from core import RISNetwork
-from controller.ris_controller import RISController
-from app import create_app
-from cli.main_shell import RISNetCLI
 
 
 def run_web(net, controller, host='127.0.0.1', port=5000):
     """Run WSGI web interface"""
     from waitress import serve as waitress_serve
+    from app import create_app
     from app.thread_safe_network import ThreadSafeNetwork, ThreadSafeController
     from app.state_manager import WebStateManager
     import signal
@@ -94,6 +91,10 @@ Examples:
                         help='CLI command to execute')
     args = parser.parse_args()
 
+    # Lazy load core components only when needed
+    from core import RISNetwork
+    from controller.ris_controller import RISController
+
     # Initialize core components
     net = RISNetwork()
     controller = RISController(net, net.environment)
@@ -112,6 +113,7 @@ Examples:
     print("RISNet v2.0 - CLI Interface")
     print("="*70 + "\n")
 
+    from cli.main_shell import RISNetCLI
     cli = RISNetCLI(net)
 
     # Load topology if provided

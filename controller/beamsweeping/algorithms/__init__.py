@@ -8,7 +8,7 @@ from ..registry import (
 )
 from .linear_brute_force import LinearBruteForceSweep
 from .coarse_fine_sweep import CoarseFineSweep
-from .directional_exhaustive_sweep import DirectionalExhaustiveSweep
+from .directional_exhaustive_sweep import EdgeCenterSweep
 from .ml_guided_sweep import MLGuidedSweep
 from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
@@ -21,7 +21,7 @@ __all__ = [
     "LinearBruteForceSweep",
     "CoarseFineSweep",
     "MLGuidedSweep",
-    "DirectionalExhaustiveSweep",
+    "EdgeCenterSweep",
     "HierarchicalSweep",
     "AdaptiveDirectionalSweep",
     "OpenCVVisionSweep",

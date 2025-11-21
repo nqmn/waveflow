@@ -7,7 +7,7 @@ Each algorithm is implemented as a separate module and can be loaded dynamically
 from .base import SweepAlgorithmBase
 from .algorithms import (
     CoarseFineSweep,
-    DirectionalExhaustiveSweep,
+    EdgeCenterSweep,
     LinearBruteForceSweep,
     MLGuidedSweep,
     ANMLocalizationSweep,
@@ -87,7 +87,7 @@ __all__ = [
     'LinearBruteForceSweep',
     'CoarseFineSweep',
     'MLGuidedSweep',
-    'DirectionalExhaustiveSweep',
+    'EdgeCenterSweep',
     'ANMLocalizationSweep',
     'SweepAlgorithmLoader',
     'SweepMLPredictor',

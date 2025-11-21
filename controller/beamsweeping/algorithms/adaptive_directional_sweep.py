@@ -21,7 +21,7 @@ from ..common import (
 from ..registry import register_algorithm
 
 
-@register_algorithm("adaptive-directional", aliases=("adaptive-refinement", "adaptive-direction"))
+@register_algorithm("adaptive-directional", aliases=("directional", "refinement", "adaptive-refinement"))
 class AdaptiveDirectionalSweep(SweepAlgorithmBase):
     """Sweep that probes fixed offsets and then refines toward the RIS normal."""
 

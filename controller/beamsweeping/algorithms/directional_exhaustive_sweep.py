@@ -1,21 +1,11 @@
-"""Directional Exhaustive Beam Sweep Algorithm
+"""Edge-Center Beam Sweep Algorithm
 
-Implements a multi-link exhaustive sweeping strategy where all communication links
-in the network are swept across all codebook entries simultaneously. This approach:
+Single-phase alternating sweep that tests angles in an edge-to-center pattern:
+0°, ±60°, ±10°, ±50°, ±20°, ±40°, ±30°
 
-1. Defines all active links in the network (AP->RIS, RIS->RIS, RIS->UE, etc.)
-2. Generates a unified codebook centered on specular reflection angles
-3. Performs exhaustive sweep: tests all codebook angles for ALL links
-4. Tracks SNR measurements with directional correctness
-5. Includes greedy refinement around peak SNR locations
-6. Reports per-link results with peak angles and SNR values
-
-Key Features:
-- Directional SNR calculation: high SNR when beam aligns with target direction
-- Multi-link support: sweeps entire link topology in single coordinated pass
-- Specular reference: uses specular reflection geometry for physically accurate results
-- Greedy refinement: checks neighbors of peak for local optimization
-- Exhaustive coverage: ensures no good angles are missed
+This pattern probes the full field of view early while being efficient, testing
+edges first then progressively filling in toward center. Finds optimal beam angle
+with fewer measurements than exhaustive linear sweep.
 """
 import numpy as np
 from typing import Dict, List, Tuple
@@ -32,19 +22,19 @@ from ..registry import register_algorithm
 
 
 @register_algorithm(
-    "directional-exhaustive",
-    aliases=("directional", "exhaustive"),
+    "edge",
+    aliases=("edge-center", "directional-search", "exhaustive"),
 )
-class DirectionalExhaustiveSweep(SweepAlgorithmBase):
-    """Directional Exhaustive multi-link beam sweep algorithm"""
+class EdgeCenterSweep(SweepAlgorithmBase):
+    """Edge-Center single-phase beam sweep algorithm"""
 
     @property
     def name(self) -> str:
-        return "Directional Exhaustive Multi-Link Sweep"
+        return "Edge-Center Sweep"
 
     @property
     def description(self) -> str:
-        return "Exhaustive sweep of all codebook angles for all network links. Ensures optimal beam alignment with directional SNR measurement."
+        return "Single-phase alternating sweep: tests edges first, then progressively toward center. Efficient alternative to exhaustive linear search."
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
               fov: float = 60.0, step: float = 10.0,
@@ -52,8 +42,8 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
               max_feedback_iterations: int = 3,
               ml_angles=None, use_waveform: bool = False,
               modulation: str = 'QPSK', num_symbols: int = 1000,
-              metric_selector=None, **kwargs) -> Dict:
-        """Execute directional exhaustive sweep across all codebook angles for all links
+              metric_selector=None, early_stop_patience: int = 6, **kwargs) -> Dict:
+        """Execute edge-center sweep with early termination
 
         Args:
             ap_name: Access Point name
@@ -67,25 +57,14 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
             use_waveform: If True, simulate real signal-level SNR/SER (default: False)
             modulation: Modulation type: QPSK, 16QAM, or 64QAM (default: QPSK)
             num_symbols: Number of symbols per measurement (default: 1000)
+            early_stop_patience: Stop after N consecutive measurements without SNR improvement (default: 6)
 
         Returns:
-            Dictionary with comprehensive sweep results for each link
+            Dictionary with sweep results
         """
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # =====================================================================
-        # Step 1: Define all links to be swept
-        # =====================================================================
-        # For now, use the primary link (AP->RIS->UE). This can be extended
-        # to support multi-hop networks by discovering all active links.
-        links_to_sweep = [(ap_name, ris_name, ue_name)]
-
-        all_sweep_results = []
-
-        # =====================================================================
-        # Step 2: Generate unified codebook
-        # =====================================================================
         # Calculate incident and reflected azimuths from 3D coordinates
         ap_vec = ap.pos - ris.pos
         ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
@@ -101,184 +80,138 @@ class DirectionalExhaustiveSweep(SweepAlgorithmBase):
         while angle_diff < -180:
             angle_diff += 360
 
-        # Base deflection angle magnitude
-        base_deflection_angle = abs(angle_diff)
-
-        # Also set base_angle for compatibility (incident direction)
+        # Base angle (incident direction)
         base_angle = ap_angle
 
-        # Set specular_angle for result reporting (incident direction)
-        specular_angle = ap_angle
-
-        # For logging: calculate the incident angle from AP to RIS
-        ap_to_ris_vec = ris.pos - ap.pos
-        incident_angle = np.degrees(np.arctan2(ap_to_ris_vec[1], ap_to_ris_vec[0]))
-
-        # Generate codebook around specular angle
+        # Generate codebook
         codebook_local, num_codebook = generate_codebook(fov, step)
 
-        # Clamp local deflection angles to RIS FOV constraint (native RIS capability)
+        # Clamp local deflection angles to RIS FOV constraint
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
         clamped_codebook_local = clamp_local_deflection_to_ris_fov(codebook_local, ris_max_angle)
 
         # Convert deflection angles to absolute beam angles
         if angle_diff > 0:
-            # UE is counterclockwise from AP, so add deflection to AP angle
             codebook_absolute = ap_angle + clamped_codebook_local
         else:
-            # UE is clockwise from AP, so subtract deflection from AP angle
             codebook_absolute = ap_angle - clamped_codebook_local
-
-        print(f"\n[DIRECTIONAL EXHAUSTIVE SWEEP]")
-        print(f"Incident angle: {incident_angle:.1f}°")
-        print(f"Specular reflection angle: {specular_angle:.1f}°")
-        print(f"Codebook: {num_codebook} angles from {codebook_absolute[0]:.1f}° to {codebook_absolute[-1]:.1f}°")
 
         # Setup waveform simulator if requested
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
-        # =====================================================================
-        # Step 3: Perform exhaustive sweep for each link
-        # =====================================================================
-        for link_idx, (src_name, mid_name, dst_name) in enumerate(links_to_sweep):
-            src = self.network.get(src_name)
-            mid = self.network.get(mid_name)
-            dst = self.network.get(dst_name)
+        snr_measurements = []
+        ser_measurements = [] if use_waveform else None
+        pwr_measurements = []
+        angle_measurements = []  # Track which angle each measurement corresponds to
+        best_snr_found = -np.inf
+        best_measurement_idx = -1
+        tested_indices = set()
 
-            print(f"\n┌─ BEAM SWEEP: {src_name}→{mid_name}→{dst_name}")
-            print(f"│")
+        # Generate alternating edge-center test sequence
+        # Pattern: 0, -60, 60, -10, 10, -50, 50, -20, 20, -40, 40, -30, 30
+        test_sequence = [0]  # Start at center
+        edge_offsets = []
+        center_offsets = []
 
-            snr_measurements = []
-            ser_measurements = [] if use_waveform else None
-            pwr_measurements = []
-            best_snr_found = -np.inf
-            best_index_found = -1
+        for offset in range(int(step), int(fov) + int(step), int(step)):
+            if offset == int(fov):
+                edge_offsets.append(offset)
+            else:
+                center_offsets.append(offset)
 
-            # --- Step 3a: Calculate ground truth target angle for this link ---
-            dst_vec = dst.pos - mid.pos
-            ground_truth_angle = np.degrees(np.arctan2(dst_vec[1], dst_vec[0]))
+        # Interleave: edge, center, edge, center, ...
+        for i in range(max(len(edge_offsets), len(center_offsets))):
+            if i < len(edge_offsets):
+                test_sequence.append(-edge_offsets[i])
+                test_sequence.append(edge_offsets[i])
+            if i < len(center_offsets):
+                test_sequence.append(-center_offsets[i])
+                test_sequence.append(center_offsets[i])
 
-            print(f"│ Target direction (ground truth): {ground_truth_angle:.1f}°")
-            print(f"│")
-            print(f"│ Step 3: EXHAUSTIVE SWEEP - Testing all {len(codebook_absolute)} codebook angles")
+        measurement_idx = 0
+        no_improvement_count = 0
+        for test_deflection in test_sequence:
+            # Find closest angle in codebook to this deflection
+            diffs = np.abs(clamped_codebook_local - test_deflection)
+            codebook_idx = int(np.argmin(diffs))
 
-            # --- Step 3b: Test all codebook angles ---
-            for i, test_angle in enumerate(codebook_absolute):
-                with self._ap_state_guard(src):
-                    res = self.network.connect(
-                        src_name, mid_name, dst_name,
-                        beam_angle_deg=test_angle,
-                        seed=seed,
-                        enable_feedback=enable_feedback,
-                        max_feedback_iterations=max_feedback_iterations,
-                        store_in_active_links=False,  # Don't store intermediate measurements
-                        use_get_snr=self._should_use_get_snr()  # Use get_snr() if enabled
-                    )
+            if codebook_idx in tested_indices:
+                continue
 
-                current_snr, ser_val = apply_waveform_realism(
-                    res,
-                    link_simulator,
-                    seed=seed + i if seed else None,
+            tested_indices.add(codebook_idx)
+            test_angle = codebook_absolute[codebook_idx]
+            local_angle = clamped_codebook_local[codebook_idx]
+
+            with self._ap_state_guard(ap):
+                res = self.network.connect(
+                    ap_name, ris_name, ue_name,
+                    beam_angle_deg=test_angle,
+                    seed=seed,
+                    enable_feedback=enable_feedback,
+                    max_feedback_iterations=max_feedback_iterations,
+                    store_in_active_links=False,
+                    use_get_snr=self._should_use_get_snr()
                 )
-                current_pwr = res['pwr_dBm']
-                snr_measurements.append(current_snr)
-                pwr_measurements.append(current_pwr)
 
-                # Calculate angular error for logging
-                error = abs(test_angle - ground_truth_angle)
-                # Normalize error to [-180, 180]
-                if error > 180:
-                    error = 360 - error
+            current_snr, ser_val = apply_waveform_realism(
+                res,
+                link_simulator,
+                seed=seed + measurement_idx if seed else None,
+            )
+            current_pwr = res['pwr_dBm']
+            snr_measurements.append(current_snr)
+            pwr_measurements.append(current_pwr)
+            angle_measurements.append(float(local_angle))
 
-                # Track the best result found so far (using metric selector if available)
-                if metric_selector is None:
-                    # Default: use SNR
-                    if current_snr > best_snr_found:
-                        best_snr_found = current_snr
-                        best_index_found = i
+            # Track the best result found so far
+            if metric_selector is None:
+                # Default: use SNR
+                if current_snr > best_snr_found:
+                    best_snr_found = current_snr
+                    best_measurement_idx = measurement_idx
+                    no_improvement_count = 0  # Reset counter on improvement
                 else:
-                    # Use metric selector: re-evaluate against all collected measurements
-                    # This will be applied after all measurements are collected
-                    pass
+                    no_improvement_count += 1
+                    # Early stop if no improvement for patience iterations
+                    if no_improvement_count >= early_stop_patience and measurement_idx > 3:
+                        break
 
-                # Determine if this angle is close to target (within half a step)
-                is_target_detected = error < (step / 2)
+            if ser_measurements is not None:
+                ser_measurements.append(ser_val)
 
-                # Log the measurement
-                marker = " <-- TARGET DETECTED" if is_target_detected else ""
-                print(f"│    idx={i:2d} ({test_angle:7.1f}°): SNR = {current_snr:7.2f} dB "
-                      f"[target={ground_truth_angle:7.1f}°, error={error:6.1f}°]{marker}")
+            measurement_idx += 1
 
-                if ser_measurements is not None:
-                    ser_measurements.append(ser_val)
+        # Apply metric selector if provided
+        if metric_selector is not None:
+            best_measurement_idx = metric_selector.find_best_index(snr_measurements)
+            best_snr_found = snr_measurements[best_measurement_idx]
 
-            print(f"│")
+        # Get best angle and values from the measurement
+        best_angle = angle_measurements[best_measurement_idx]
+        best_power = pwr_measurements[best_measurement_idx]
 
-            # Apply metric selector if provided
-            if metric_selector is not None:
-                best_index_found = metric_selector.find_best_index(snr_measurements)
-                best_snr_found = snr_measurements[best_index_found]
-
-            # --- Step 4: Greedy refinement (check neighbors of peak) ---
-            print(f"│ Step 4: GREEDY REFINEMENT - Checking neighbors of peak (index {best_index_found})")
-            if best_index_found > 0:
-                left_snr = snr_measurements[best_index_found - 1]
-                print(f"│    Left neighbor  (idx={best_index_found - 1}): SNR = {left_snr:7.2f} dB")
-            if best_index_found < len(codebook_absolute) - 1:
-                right_snr = snr_measurements[best_index_found + 1]
-                print(f"│    Right neighbor (idx={best_index_found + 1}): SNR = {right_snr:7.2f} dB")
-
-            print(f"│")
-
-            # --- Step 5: Report final results ---
-            print(f"│ Step 5: Final result")
-            peak_angle = codebook_absolute[best_index_found]
-            peak_snr = snr_measurements[best_index_found]
-            peak_pwr = pwr_measurements[best_index_found]
-            deflection = peak_angle - specular_angle
-
-            print(f"│    Peak found at index: {best_index_found}")
-            print(f"│    Peak beam angle (absolute): {peak_angle:.1f}°")
-            print(f"│    Deflection from specular: {deflection:.1f}°")
-            print(f"│    Peak SNR: {peak_snr:.2f} dB")
-            print(f"│    Peak Power: {peak_pwr:.2f} dBm")
-            print(f"└─────────────────────────────────────────────────────────────")
-
-            # Build result dictionary for this link
-            link_result = {
-                'link': f"{src_name}→{mid_name}→{dst_name}",
-                'peak_angle': peak_angle,
-                'peak_snr': peak_snr,
-                'peak_pwr': peak_pwr,
-                'best_index': best_index_found,
-                'local_coarse': codebook_local.tolist(),
-                'snr_coarse': snr_measurements,
-                'pwr_coarse': pwr_measurements,
-                'ground_truth_angle': ground_truth_angle,
-                'num_angles_tested': num_codebook,
-            }
-
-            if use_waveform and ser_measurements:
-                link_result['ser_coarse'] = ser_measurements
-
-            all_sweep_results.append(link_result)
-
-        # =====================================================================
-        # Step 6: Compile overall results for the primary link
-        # =====================================================================
-        primary_result = all_sweep_results[0]
-
-        return {
-            'local_coarse': primary_result['local_coarse'],
-            'snr_coarse': primary_result['snr_coarse'],
-            'pwr_coarse': primary_result['pwr_coarse'],
-            'specular_angle': specular_angle,
-            'base_angle': specular_angle,
-            'best_angle': primary_result['peak_angle'],
-            'best_snr': primary_result['peak_snr'],
-            'best_pwr': primary_result['peak_pwr'],
-            'ground_truth_angle': primary_result['ground_truth_angle'],
-            'num_angles_tested': num_codebook,
-            'all_link_results': all_sweep_results,
-            'ser_coarse': primary_result.get('ser_coarse', None),
+        result = {
+            'angles': angle_measurements,
+            'snr': snr_measurements,
+            'power': pwr_measurements,
+            'best_angle': float(best_angle),
+            'best_snr': float(best_snr_found),
+            'best_power': float(best_power),
+            'base_angle': float(base_angle),
+            'num_angles_tested': len(tested_indices),
+            # Keep legacy keys for backward compatibility
+            'local_coarse': angle_measurements,
+            'snr_coarse': snr_measurements,
+            'pwr_coarse': pwr_measurements,
+            'local_fine': [],
+            'snr_fine': [],
+            'best_local_fine': float(best_angle),
+            'best_snr_fine': float(best_snr_found)
         }
+
+        # Add SER values if waveform simulation was used
+        if use_waveform and ser_measurements:
+            result['ser_coarse'] = ser_measurements
+            result['ser_fine'] = []
+
+        return result
