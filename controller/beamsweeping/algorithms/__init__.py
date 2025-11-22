@@ -14,13 +14,14 @@ from .hierarchical_sweep import HierarchicalSweep
 from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
 from .hog_sweep import HOGHumanDetectionSweep
+from .prime_sweep import PRIMELocalizationSweep
 
 
 def __getattr__(name):
     """Lazy load algorithms and utilities on demand."""
     if name == "ANMLocalizationSweep":
-        from .anm_localization_sweep import ANMLocalizationSweep
-        return ANMLocalizationSweep
+        from .prime_sweep import PRIMELocalizationSweep
+        return PRIMELocalizationSweep
     elif name == "aruco_utils":
         from utils import aruco_utils
         return aruco_utils
@@ -36,7 +37,7 @@ __all__ = [
     "AdaptiveDirectionalSweep",
     "OpenCVVisionSweep",
     "HOGHumanDetectionSweep",
-    "ANMLocalizationSweep",
+    "PRIMELocalizationSweep",
     "aruco_utils",
     "register_algorithm",
     "get_algorithm_class",

@@ -863,6 +863,8 @@ class ConnectionHandler:
         # Initialize metadata variables (used later at line 1084+)
         loc = out.get('location', {}) or {}
         meta = out.get('metadata', {}) or {}
+        recommendation_status = meta.get('recommendation_status', 'ok')
+        no_reliable_estimate = recommendation_status == 'no_reliable_estimate'
 
         # Show ANM-specific summary if present
         if 'mode' in out:
@@ -920,10 +922,61 @@ class ConnectionHandler:
             if anm_az is not None:
                 print_func(f"  Step 4: ANM azimuth estimate: {anm_az:.2f}°")
             rec_loc = meta.get('recommended_local_angle')
+            rec_loc_ris = meta.get('recommended_local_angle_ris')
             rec_abs = meta.get('recommended_abs_angle')
             src = meta.get('angle_recommendation_source', 'unknown')
-            if rec_loc is not None and rec_abs is not None:
-                print_func(f"  Step 5: Steering recommendation ({src}): local={rec_loc:.2f}°, abs={rec_abs:.2f}°")
+            if no_reliable_estimate:
+                loss_val = meta.get('hybrid_model_fit_loss')
+                if loss_val is not None:
+                    print_func(
+                        "  Step 5: Steering recommendation skipped — "
+                        f"no reliable estimate (model loss={loss_val:.4f} > threshold)."
+                    )
+                else:
+                    print_func("  Step 5: Steering recommendation skipped — no reliable estimate.")
+            elif rec_loc is not None and rec_abs is not None:
+                if rec_loc_ris is not None:
+                    print_func(
+                        f"  Step 5: Steering recommendation ({src}): "
+                        f"local(AP)={rec_loc:.2f}°, local(RIS)={rec_loc_ris:.2f}°, abs={rec_abs:.2f}°"
+                    )
+                else:
+                    print_func(f"  Step 5: Steering recommendation ({src}): local={rec_loc:.2f}°, abs={rec_abs:.2f}°")
+
+            # Show measurement table for PRIME/ANM algorithms
+            measurements = out.get('measurements', {})
+            if measurements and algo_name.lower() in ('prime', 'anm', 'anm-localization') and not out.get('suppress_tables'):
+                angles_tested = measurements.get('angles_tested', [])
+                snr_values = measurements.get('snr_values', [])
+                if angles_tested and snr_values and len(angles_tested) == len(snr_values):
+                    try:
+                        print_func("\nMEASURED SNR PATTERN:")
+                        print_func('-'*70)
+                        ris_normal_deg = meta.get('ris_normal_deg', 0)
+                        ap_angle_deg = meta.get('ap_angle_deg', 0)
+
+                        def _wrap_pm180(angle_val: float) -> float:
+                            return ((angle_val + 180.0) % 360.0) - 180.0
+
+                        angles_local_ris = [_wrap_pm180(a - ris_normal_deg) for a in angles_tested]
+                        angles_local_ap = [_wrap_pm180(a - ap_angle_deg) for a in angles_tested]
+                        peak_idx = int(np.nanargmax(snr_values))
+
+                        print_func(f"{'Angle(local_AP)°':>18} {'Angle(local_RIS)°':>18} {'Angle(abs)°':>14} {'SNR(dB)':>10} {'Peak?':>8}")
+                        print_func('-'*80)
+                        for i, (a_loc_ap, a_loc_ris, a_abs, snr) in enumerate(zip(angles_local_ap, angles_local_ris, angles_tested, snr_values)):
+                            marker = " <--" if i == peak_idx else ""
+                            print_func(f"{a_loc_ap:18.1f} {a_loc_ris:18.1f} {a_abs:14.1f} {snr:10.2f}{marker}")
+
+                        print_func(
+                            f"\nPeak: {snr_values[peak_idx]:.2f} dB "
+                            f"at {angles_local_ap[peak_idx]:.1f}° (local_AP) / "
+                            f"{angles_local_ris[peak_idx]:.1f}° (local_RIS), "
+                            f"{angles_tested[peak_idx]:.1f}° (abs)"
+                        )
+                    except Exception as e:
+                        print_func(f"Error displaying measurement table: {e}")
+
             print_func()
 
         local_coarse = out.get('local_coarse', [])
@@ -1119,87 +1172,101 @@ class ConnectionHandler:
 
         # If tables are suppressed (e.g., ANM), prefer recommended angles from metadata
         best_final_local = None
+        best_final_local_ris = None
         best_final_snr = None
         meta_recommended_local = meta.get('recommended_local_angle')
+        meta_recommended_local_ris = meta.get('recommended_local_angle_ris')
         meta_recommended_abs = meta.get('recommended_abs_angle')
         meta_meas_best_snr = None
         meas = out.get('measurements', {})
         if meas:
             meta_meas_best_snr = meas.get('best_snr_dB')
-        use_metadata_angles = out.get('suppress_tables') and meta_recommended_local is not None
-        if use_metadata_angles:
-            best_final_local = float(meta_recommended_local)
-            best_final_abs = float(meta_recommended_abs) if meta_recommended_abs is not None else float(specular_angle + best_final_local)
-            best_final_snr = float(meta_meas_best_snr) if meta_meas_best_snr is not None else None
-        else:
-            if has_fine_phase and local_fine and snr_fine:
-                if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
-                    ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
-                    if ser_vals_idx:
-                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
-                        best_final_local = local_fine[best_ser_idx]
-                        best_final_snr = snr_fine[best_ser_idx]
+        best_final_abs = None
+
+        if not no_reliable_estimate:
+            use_metadata_angles = out.get('suppress_tables') and meta_recommended_local is not None
+            if use_metadata_angles:
+                best_final_local = float(meta_recommended_local)
+                best_final_abs = float(meta_recommended_abs) if meta_recommended_abs is not None else float(specular_angle + best_final_local)
+                best_final_snr = float(meta_meas_best_snr) if meta_meas_best_snr is not None else None
+                if meta_recommended_local_ris is not None:
+                    best_final_local_ris = float(meta_recommended_local_ris)
+            else:
+                if has_fine_phase and local_fine and snr_fine:
+                    if is_real_signal and ser_fine and any(s is not None for s in ser_fine):
+                        ser_vals_idx = [i for i, s in enumerate(ser_fine) if s is not None]
+                        if ser_vals_idx:
+                            best_ser_idx = min(ser_vals_idx, key=lambda i: ser_fine[i])
+                            best_final_local = local_fine[best_ser_idx]
+                            best_final_snr = snr_fine[best_ser_idx]
+                        else:
+                            best_final_local = local_fine[int(np.argmax(snr_fine))]
+                            best_final_snr = float(np.max(snr_fine))
                     else:
                         best_final_local = local_fine[int(np.argmax(snr_fine))]
                         best_final_snr = float(np.max(snr_fine))
                 else:
-                    best_final_local = local_fine[int(np.argmax(snr_fine))]
-                    best_final_snr = float(np.max(snr_fine))
-            else:
-                if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
-                    ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
-                    if ser_vals_idx:
-                        best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
-                        best_final_local = local_coarse[best_ser_idx]
-                        best_final_snr = snr_coarse[best_ser_idx]
+                    if is_real_signal and ser_coarse and any(s is not None for s in ser_coarse):
+                        ser_vals_idx = [i for i, s in enumerate(ser_coarse) if s is not None]
+                        if ser_vals_idx:
+                            best_ser_idx = min(ser_vals_idx, key=lambda i: ser_coarse[i])
+                            best_final_local = local_coarse[best_ser_idx]
+                            best_final_snr = snr_coarse[best_ser_idx]
+                        else:
+                            best_final_local = local_coarse[int(np.argmax(snr_coarse))]
+                            best_final_snr = float(np.max(snr_coarse))
                     else:
                         best_final_local = local_coarse[int(np.argmax(snr_coarse))]
                         best_final_snr = float(np.max(snr_coarse))
-                else:
-                    best_final_local = local_coarse[int(np.argmax(snr_coarse))]
-                    best_final_snr = float(np.max(snr_coarse))
 
-            best_final_abs = specular_angle + best_final_local
+                best_final_abs = specular_angle + best_final_local
 
-            # Fallback if SNR from metadata not available
-            if best_final_snr is None and meta_meas_best_snr is not None:
-                best_final_snr = float(meta_meas_best_snr)
+                if best_final_snr is None and meta_meas_best_snr is not None:
+                    best_final_snr = float(meta_meas_best_snr)
+
+        # Derive RIS-referenced local angle when available
+        if best_final_local_ris is None and best_final_abs is not None:
+            ris_normal_for_meta = meta.get('ris_normal_deg')
+            if ris_normal_for_meta is not None and best_final_abs is not None:
+                offset = best_final_abs - ris_normal_for_meta
+                best_final_local_ris = ((offset + 180.0) % 360.0) - 180.0
 
         # Get the metric-specific expected value at best angle
-        best_final_metric = best_final_snr  # Default
+        best_final_metric = None
         metric_display_label = 'Expected SNR'
         metric_display_unit = 'dB'
 
-        # Find best angle index in appropriate phase
-        best_angle_idx = None
-        if has_fine_phase and local_fine:
-            for i, angle in enumerate(local_fine):
-                if abs(float(angle) - float(best_final_local)) < 0.01:
-                    best_angle_idx = i
-                    break
-            if best_angle_idx is not None:
-                if metric.lower() in ['rssi', 'power'] and 'rssi_fine' in out:
-                    best_final_metric = out['rssi_fine'][best_angle_idx]
-                    metric_display_label = 'Expected RSSI'
-                    metric_display_unit = 'dBm'
-                elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_fine' in out:
-                    best_final_metric = out['csi_quality_fine'][best_angle_idx]
-                    metric_display_label = 'Expected CSI Quality'
-                    metric_display_unit = 'bps/Hz'
-        elif local_coarse:
-            for i, angle in enumerate(local_coarse):
-                if abs(float(angle) - float(best_final_local)) < 0.01:
-                    best_angle_idx = i
-                    break
-            if best_angle_idx is not None:
-                if metric.lower() in ['rssi', 'power'] and 'rssi_coarse' in out:
-                    best_final_metric = out['rssi_coarse'][best_angle_idx]
-                    metric_display_label = 'Expected RSSI'
-                    metric_display_unit = 'dBm'
-                elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_coarse' in out:
-                    best_final_metric = out['csi_quality_coarse'][best_angle_idx]
-                    metric_display_label = 'Expected CSI Quality'
-                    metric_display_unit = 'bps/Hz'
+        if not no_reliable_estimate and best_final_local is not None:
+            best_final_metric = best_final_snr
+            best_angle_idx = None
+            if has_fine_phase and local_fine:
+                for i, angle in enumerate(local_fine):
+                    if abs(float(angle) - float(best_final_local)) < 0.01:
+                        best_angle_idx = i
+                        break
+                if best_angle_idx is not None:
+                    if metric.lower() in ['rssi', 'power'] and 'rssi_fine' in out:
+                        best_final_metric = out['rssi_fine'][best_angle_idx]
+                        metric_display_label = 'Expected RSSI'
+                        metric_display_unit = 'dBm'
+                    elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_fine' in out:
+                        best_final_metric = out['csi_quality_fine'][best_angle_idx]
+                        metric_display_label = 'Expected CSI Quality'
+                        metric_display_unit = 'bps/Hz'
+            elif local_coarse:
+                for i, angle in enumerate(local_coarse):
+                    if abs(float(angle) - float(best_final_local)) < 0.01:
+                        best_angle_idx = i
+                        break
+                if best_angle_idx is not None:
+                    if metric.lower() in ['rssi', 'power'] and 'rssi_coarse' in out:
+                        best_final_metric = out['rssi_coarse'][best_angle_idx]
+                        metric_display_label = 'Expected RSSI'
+                        metric_display_unit = 'dBm'
+                    elif metric.lower() in ['csi', 'csi_quality'] and 'csi_quality_coarse' in out:
+                        best_final_metric = out['csi_quality_coarse'][best_angle_idx]
+                        metric_display_label = 'Expected CSI Quality'
+                        metric_display_unit = 'bps/Hz'
 
         # Compute actual deflection angle from geometry (AP→RIS vs RIS→UE)
         # This should match the deflection angle reported by connect command
@@ -1240,13 +1307,32 @@ class ConnectionHandler:
         print_func('RECOMMENDATION TO SEND TO RIS:')
         print_func('-'*70)
 
-        # Display the best local sweep angle (relative to RIS normal)
-        print_func(f'Steering Angle (Local Deflection): {best_final_local:.2f}°')
-        print_func(f'{metric_display_label:<34} {best_final_metric:.2f} {metric_display_unit}')
-        print_func()
+        if no_reliable_estimate or best_final_local is None or best_final_abs is None:
+            loss_val = meta.get('hybrid_model_fit_loss')
+            loss_threshold = meta.get('loss_threshold')
+            print_func('No reliable steering estimate available from PRIME model-fit.')
+            if loss_val is not None and loss_threshold is not None:
+                print_func(f'Model-fit loss {loss_val:.4f} exceeded threshold {loss_threshold:.4f}.')
+            suggestion = meta.get('diagnostic_suggestions') or "Increase sweep resolution or enable near-field ANM/CSI."
+            print_func(f'Suggestion: {suggestion}')
+            print_func()
+        else:
+            if best_final_local_ris is not None:
+                print_func(
+                    f'Steering Angle (Local Deflection): '
+                    f'{best_final_local:.2f}° (AP), {best_final_local_ris:.2f}° (RIS)'
+                )
+            else:
+                print_func(f'Steering Angle (Local Deflection): {best_final_local:.2f}°')
+            if best_final_metric is not None:
+                print_func(f'{metric_display_label:<34} {best_final_metric:.2f} {metric_display_unit}')
+            else:
+                print_func(f'{metric_display_label:<34} n/a {metric_display_unit}')
+            print_func()
 
         return {
             'best_final_local': best_final_local,
+            'best_final_local_ris': best_final_local_ris,
             'best_final_snr': best_final_snr,
             'best_final_abs': best_final_abs,
             'specular_angle': specular_angle,
@@ -1261,6 +1347,9 @@ class ConnectionHandler:
         best_final_abs = best_angles_info['best_final_abs']
         specular_angle = best_angles_info['specular_angle']
         algo_name_clean = best_angles_info['algo_name_clean']
+
+        if best_final_local is None or best_final_abs is None:
+            return  # Nothing reliable to store
 
         # Update/create active link with best result from sweep
         ap_node = self.net.get(ap)
