@@ -1397,7 +1397,7 @@ class ConnectionHandler:
             'ue': ue_key,
             'snr_dB': float(best_final_snr),
             'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
-            'beam_angle_local': float(best_final_local),
+            'beam_angle_local': float(deflection_angle_deg if deflection_angle_deg is not None else best_final_local),
             'beam_angle_absolute': float(best_final_abs),
             'ris_normal_angle': float(specular_angle),
             'gain_dBi': 47.46,
