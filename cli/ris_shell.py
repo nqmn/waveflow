@@ -5,8 +5,10 @@ import shlex
 import numpy as np
 from datetime import datetime
 
+from .matlab_commands import MatlabCommandsMixin
 
-class RISNodeShell(cmd.Cmd):
+
+class RISNodeShell(MatlabCommandsMixin, cmd.Cmd):
     """Interactive shell for RIS node management"""
 
     def __init__(self, ris_node, network=None):
@@ -20,6 +22,7 @@ class RISNodeShell(cmd.Cmd):
         print("\nAvailable commands: help, status, config, info, phases, wave_mode, exit")
         print("Phase formats: compact, grid, stats, plot, codebook, transmit, export")
         print("Wave modes: set_tx_mode, set_rx_mode, wave_mode")
+        print("MATLAB: matlab_heatmap, matlab_beam, matlab_geometry, matlab_response")
         print("Type 'help' for more information\n")
 
     def do_help(self, arg):
