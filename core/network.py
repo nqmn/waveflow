@@ -698,7 +698,7 @@ class RISNetwork:
                 'ue': ue_key,
                 'snr_dB': result['snr_dB'],
                 'pwr_dBm': result['pwr_dBm'],
-                'beam_angle_local': float(local_deflection),  # LOCAL deflection (what to send to RIS: -60 to +60)
+                'beam_angle_local': float(result.get('deflection_angle_deg', local_deflection)),  # RIS deflection angle (θ_out - θ_in)
                 'beam_angle_absolute': float(beam_angle_deg),  # ABSOLUTE angle (world/global reference)
                 'ris_normal_angle': float(ris_normal),  # RIS normal angle (for coordinate conversion)
                 'gain_dBi': result.get('gain_dBi', 0.0),

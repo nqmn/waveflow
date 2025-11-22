@@ -69,15 +69,31 @@ function [angles, pattern_dB, metrics] = compute_beam_pattern(N, freq, beam_angl
         main_lobe_width = 0;
     end
 
-    % Sidelobe level
-    % Find first null after peak
-    below_null = pattern_dB < -15;
-    null_after_peak = find(below_null & (1:length(angles))' > peak_idx, 1);
-    if ~isempty(null_after_peak) && null_after_peak < length(pattern_dB)
-        sidelobe_region = pattern_dB(null_after_peak:end);
+    % Sidelobe level - find max outside main lobe (-3dB region)
+    main_lobe_end = peak_idx;
+    for ii = peak_idx:length(pattern_dB)-1
+        if pattern_dB(ii) >= -3 && pattern_dB(ii+1) < -3
+            main_lobe_end = ii + 1;
+            break;
+        end
+    end
+    
+    if main_lobe_end < length(pattern_dB) - 3
+        sidelobe_region = pattern_dB(main_lobe_end+2:end);
         sidelobe_level = max(sidelobe_region);
     else
-        sidelobe_level = -30;
+        main_lobe_start = peak_idx;
+        for ii = peak_idx:-1:2
+            if pattern_dB(ii) >= -3 && pattern_dB(ii-1) < -3
+                main_lobe_start = ii - 1;
+                break;
+            end
+        end
+        if main_lobe_start > 3
+            sidelobe_level = max(pattern_dB(1:main_lobe_start-2));
+        else
+            sidelobe_level = -30;
+        end
     end
 
     metrics.main_lobe_width = main_lobe_width;

@@ -92,9 +92,10 @@ class MatlabCommandsMixin:
         """matlab_beam [angle] - Compute and plot beam pattern in MATLAB
 
         Computes the beam pattern for the current RIS configuration.
+        Uses the LOCAL deflection angle (relative to RIS normal), not absolute.
 
         Options:
-            matlab_beam              - Use current beam angle
+            matlab_beam              - Use deflection angle from active link
             matlab_beam 30           - Compute pattern for 30 degree steering
             matlab_beam noplot       - Compute without plotting (returns metrics)
 
@@ -120,12 +121,18 @@ class MatlabCommandsMixin:
                 except ValueError:
                     pass
 
-        # Use current beam angle if not specified
+        # Use beam steering angle from active link if not specified
         if beam_angle is None:
-            beam_angle = self.ris_node.current_beam_angle
+            # Get deflection angle from phase_metadata (the actual RIS steering angle)
+            if hasattr(self.ris_node, 'phase_metadata') and self.ris_node.phase_metadata:
+                deflection = self.ris_node.phase_metadata.get('deflection_angle_deg')
+                if deflection is not None:
+                    beam_angle = deflection
             if beam_angle is None:
                 beam_angle = 0.0
                 print("No beam angle configured, using 0 degrees.")
+            else:
+                print(f"Using beam steering angle from active link: {beam_angle:.1f} degrees")
 
         try:
             result = bridge.compute_beam_pattern(
