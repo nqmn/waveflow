@@ -22,7 +22,7 @@ class RISNodeShell(MatlabCommandsMixin, cmd.Cmd):
         print("\nAvailable commands: help, status, config, info, phases, wave_mode, exit")
         print("Phase formats: compact, grid, stats, plot, codebook, transmit, export")
         print("Wave modes: set_tx_mode, set_rx_mode, wave_mode")
-        print("MATLAB: matlab_heatmap, matlab_beam, matlab_geometry, matlab_response")
+        print("MATLAB: matlab_heatmap, matlab_beam, matlab_farfield, matlab_sweep, matlab_geometry")
         print("Type 'help' for more information\n")
 
     def do_help(self, arg):
@@ -697,11 +697,22 @@ PERFORMANCE METRICS:
         return f"Continuous {wave_phrase} ramp with ~{unique_count} sampled bins"
 
     def _detect_wave_mode(self):
-        """Detect if phase pattern is plane wave or spherical wave
+        """Detect wave mode from phase metadata or heuristic analysis.
 
         Returns:
-            str: 'Plane Wave' or 'Spherical Wave' based on phase gradient analysis
+            str: Wave mode description (e.g., 'Spherical TX + Spherical (Focusing) RX')
         """
+        # First, try to get mode from phase_metadata (accurate from HybridPhaseEngine)
+        if hasattr(self.ris_node, 'phase_metadata') and self.ris_node.phase_metadata is not None:
+            meta = self.ris_node.phase_metadata
+            tx_mode = meta.get('tx_mode', None)
+            rx_mode = meta.get('rx_mode', None)
+            if tx_mode is not None and rx_mode is not None:
+                tx_desc = "Plane" if tx_mode == 'plane' else "Spherical"
+                rx_desc = "Plane (Steering)" if rx_mode == 'plane' else "Spherical (Focusing)"
+                return f"{tx_desc} TX + {rx_desc} RX"
+
+        # Fallback: heuristic detection from phase pattern
         if self.ris_node.current_phases is None:
             return "Unknown"
 
@@ -740,9 +751,9 @@ PERFORMANCE METRICS:
         # Plane wave: low row difference + consistent column gradient
         # Threshold empirically determined
         if row_similarity < 0.3 and grad_consistency < 0.3:
-            return "Plane Wave"
+            return "Plane Wave (heuristic)"
         else:
-            return "Spherical Wave"
+            return "Spherical Wave (heuristic)"
 
     def _print_phase_codebook(self):
         """Print phase state codebook (0, 1, 2, ... for each element)"""

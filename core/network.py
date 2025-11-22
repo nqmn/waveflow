@@ -288,58 +288,18 @@ class RISNetwork:
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
 
-        # Compute RIS phase configuration
+        # Compute RIS phase configuration using HybridPhaseEngine (formula_hybrid.md)
         phase_metadata = {}
         if compute_phases:
-            # FIX FOR SNR DISCREPANCY: Use linear steering phases instead of path-optimized phases
-            # The paper uses simple beam steering, not complex path-optimized phases.
-            # Linear steering produces phases compatible with array factor calculation.
-            from controller.ris_phase.phase_steering import PhaseSteeringEngine
-
-            wavelength = C / ris.freq
-            # Use linear steering phases for proper array gain at beam direction
-            phases_linear = PhaseSteeringEngine.linear_steering_phases(
-                beam_angle_deg=beam_angle_deg,
-                ris_position=ris.pos,
-                wavelength=wavelength,
-                ris_array_size=ris.N,
-                element_positions=getattr(ris, "element_positions", None),
-            )
-            ris.current_phases = phases_linear
+            # Use ris.compute_phases() which implements formula_hybrid.md:
+            # - TX phase: spherical or plane wave (configurable via ris.plane_tx)
+            # - RX phase: steering (plane) or focusing (spherical) (configurable via ris.plane_rx)
+            # - Total phase: φ(i,j) = φ_tx(i,j) + φ_rx(i,j)
+            ris.compute_phases(ap.pos, ue.pos)
             ris.quantize_phases()
 
-            # Compute deflection angle for metadata (for consistency with formula doc)
-            # Extract 2D projections for deflection calculation
-            ap_2d = ap.pos[:2]
-            ris_2d = ris.pos[:2]
-            ue_2d = ue.pos[:2]
-
-            # Calculate incident and reflected azimuth angles
-            theta_in_rad = np.arctan2(ap_2d[1] - ris_2d[1], ap_2d[0] - ris_2d[0])
-            theta_out_rad = np.arctan2(ue_2d[1] - ris_2d[1], ue_2d[0] - ris_2d[0])
-
-            # Calculate angle difference and deflection
-            angle_diff = theta_out_rad - theta_in_rad
-            while angle_diff > np.pi:
-                angle_diff -= 2 * np.pi
-            while angle_diff < -np.pi:
-                angle_diff += 2 * np.pi
-
-            deflection_angle_deg = np.degrees(angle_diff)
-            deflection_angle_rad = angle_diff
-
-            # Store metadata for result dictionary
-            phase_metadata = {
-                'deflection_angle_deg': deflection_angle_deg,
-                'deflection_angle_clamped_deg': deflection_angle_deg,  # Not clamped in this path
-                'fov_clamped': False,
-                'incident_azimuth_deg': np.degrees(theta_in_rad),
-                'reflected_azimuth_deg': np.degrees(theta_out_rad),
-                'angle_diff_deg': np.degrees(angle_diff),
-            }
-
-            # Store phase metadata on RIS node so it can be picked up later
-            ris.phase_metadata = phase_metadata
+            # Get metadata from the HybridPhaseEngine computation
+            phase_metadata = ris.phase_metadata if ris.phase_metadata else {}
 
         # Calculate link SNR using physics models
         if bandwidth_MHz is None:

@@ -126,15 +126,29 @@ function [angles, pattern_dB, metrics] = compute_beam_pattern(N, freq, beam_angl
 
         % Polar plot
         subplot(1,2,2);
-        % Shift pattern for polar plot (add 40 dB offset for visibility)
-        polar_pattern = pattern_dB + 40;
-        polar_pattern(polar_pattern < 0) = 0;
-        polarplot(deg2rad(angles), polar_pattern, 'b-', 'LineWidth', 1.5);
+        % Convert pattern_dB to linear scale for proper polar visualization
+        % Use power pattern (not dB) for polar radius
+        pattern_linear = 10.^(pattern_dB / 20);  % Voltage pattern (linear)
+        pattern_linear = pattern_linear / max(pattern_linear);  % Normalize to [0,1]
+
+        % Plot using same angle convention as Cartesian
+        % In polar plot: 0° is right, 90° is up, angles go counterclockwise
+        polarplot(deg2rad(angles), pattern_linear, 'b-', 'LineWidth', 1.5);
         hold on;
-        polarplot(deg2rad([beam_angle beam_angle]), [0 40], 'r--', 'LineWidth', 1.5);
+        polarplot(deg2rad([beam_angle beam_angle]), [0 1], 'r--', 'LineWidth', 1.5);
         hold off;
-        rlim([0 45]);
-        title('Polar Pattern');
+
+        ax = gca;
+        ax.ThetaZeroLocation = 'right';  % 0° at right (standard convention)
+        ax.ThetaDir = 'counterclockwise';
+        ax.ThetaLim = [-90 90];  % Show only front hemisphere
+        ax.RLim = [0 1.1];
+
+        % Add dB reference circles
+        rticks([0.1 0.25 0.5 0.71 1.0]);
+        rticklabels({'-20dB', '-12dB', '-6dB', '-3dB', '0dB'});
+
+        title('Polar Pattern (Linear)');
 
         % Add metrics annotation
         annotation('textbox', [0.35, 0.02, 0.3, 0.08], ...

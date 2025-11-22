@@ -273,6 +273,319 @@ class MatlabCommandsMixin:
         except Exception as e:
             print(f"Error: {e}")
 
+    def do_matlab_farfield(self, arg):
+        """matlab_farfield [style] [resolution] - Plot 3D CST-style far-field radiation pattern
+
+        Displays the RIS far-field radiation pattern in MATLAB with CST-style visualization.
+        Shows RIS array surface with phase heatmap and 3D beam pattern above it.
+
+        Styles:
+            cst        - CST-style with RIS surface + 3D beam (default)
+            polar3d    - 3D polar radiation pattern only
+            sphere     - Pattern mapped onto unit sphere
+            cartesian  - Standard 3D Cartesian surface plot
+
+        Options:
+            matlab_farfield                - Default CST style, 2 deg resolution
+            matlab_farfield cst 1          - CST style with 1 deg resolution
+            matlab_farfield polar3d        - Polar 3D style
+            matlab_farfield sphere         - Sphere projection style
+
+        Examples:
+            matlab_farfield
+            matlab_farfield cst
+            matlab_farfield polar3d 1
+        """
+        bridge = self._get_matlab_bridge()
+        if bridge is None:
+            return
+
+        parts = arg.split() if arg else []
+        style = 'cst'
+        resolution = 2.0
+
+        for part in parts:
+            if part.lower() in ['cst', 'polar3d', 'sphere', 'cartesian']:
+                style = part.lower()
+            else:
+                try:
+                    resolution = float(part)
+                except ValueError:
+                    pass
+
+        # Ensure geometry and phases are available
+        if self.ris_node.element_positions is None:
+            self.ris_node.update_geometry()
+
+        phases = self.ris_node.quantized_phases
+        if phases is None:
+            phases = self.ris_node.current_phases
+        if phases is None:
+            print("No phases configured. Run 'connect' command first.")
+            return
+
+        # Get beam angle from phase_metadata
+        beam_angle = 0.0
+        if hasattr(self.ris_node, 'phase_metadata') and self.ris_node.phase_metadata:
+            deflection = self.ris_node.phase_metadata.get('deflection_angle_deg')
+            if deflection is not None:
+                beam_angle = deflection
+
+        try:
+            bits = self.ris_node.bits if hasattr(self.ris_node, 'bits') else 0
+            print(f"Computing 3D far-field pattern (style={style}, resolution={resolution}°, {bits}-bit)...")
+            result = bridge.plot_farfield_3d(
+                element_positions=self.ris_node.element_positions,
+                phases=phases,
+                frequency=self.ris_node.freq,
+                beam_angle_deg=beam_angle,
+                N=self.ris_node.N,
+                style=style,
+                resolution=resolution,
+                bits=bits
+            )
+            print(f"Far-field pattern displayed in MATLAB")
+            print(f"  Array size:     {result['array_size']}x{result['array_size']}")
+            print(f"  Peak direction: theta={result['peak_theta']:.1f}°, phi={result['peak_phi']:.1f}°")
+            print(f"  HPBW:           {result['hpbw']:.1f}°")
+            print(f"  Quantization:   {bits}-bit" if bits > 0 else "  Quantization:   continuous")
+            print(f"  Style:          {style}")
+        except Exception as e:
+            print(f"Error: {e}")
+
+    def do_matlab_sweep(self, arg):
+        """matlab_sweep [step] [table] [apply] [AP_name] [UE_name] - Sweep beam angles
+
+        Two modes:
+        1. Discovery mode (default): Sweep angles to find peak directivity.
+           Only needs AP and RIS positions. UE position is unknown.
+        2. UE-aware mode: If UE is specified, compute SNR at UE direction.
+
+        Options:
+            matlab_sweep              - Discovery mode, 1 deg step
+            matlab_sweep 0.5          - 0.5 degree step (finer resolution)
+            matlab_sweep 2            - 2 degree step (faster)
+            matlab_sweep table        - Show directivity/SNR table
+            matlab_sweep apply        - Apply optimal angle to active links
+            matlab_sweep AP1          - Specify AP (discovery mode)
+            matlab_sweep AP1 UE1      - UE-aware mode with specific AP/UE
+
+        Examples:
+            matlab_sweep              - Discovery sweep using first AP
+            matlab_sweep 0.5 table    - Fine sweep with table output
+            matlab_sweep AP1 UE1      - UE-aware mode
+            matlab_sweep 1 apply      - Sweep and apply optimal angle
+        """
+        bridge = self._get_matlab_bridge()
+        if bridge is None:
+            return
+
+        # Parse arguments
+        parts = arg.split() if arg else []
+        angle_step = 1.0
+        apply_result = False
+        show_table = False
+        ap_name = None
+        ue_name = None
+
+        for part in parts:
+            if part.lower() == 'apply':
+                apply_result = True
+            elif part.lower() == 'table':
+                show_table = True
+            else:
+                try:
+                    angle_step = float(part)
+                except ValueError:
+                    # Could be node name
+                    if self.network and part in self.network.nodes:
+                        node = self.network.get(part)
+                        if hasattr(node, 'power_dBm'):
+                            ap_name = part
+                        elif hasattr(node, 'noise_figure_dB'):
+                            ue_name = part
+
+        # Ensure geometry is available
+        if self.ris_node.element_positions is None:
+            self.ris_node.update_geometry()
+
+        # Get AP from network
+        if self.network is None:
+            print("Error: No network available. Load a topology first.")
+            return
+
+        ap_node = None
+        ue_node = None
+
+        # If AP name specified, use it
+        if ap_name:
+            ap_node = self.network.get(ap_name)
+        else:
+            # Try to find from active links first
+            for link_key, link_info in self.network.active_links.items():
+                if link_info.get('ris') == self.ris_node.name:
+                    ap_name = link_info.get('ap')
+                    if ap_name:
+                        ap_node = self.network.get(ap_name)
+                    break
+
+            # Fallback: find first AP in network
+            if ap_node is None:
+                for name, node in self.network.nodes.items():
+                    if hasattr(node, 'power_dBm'):
+                        ap_node = node
+                        break
+
+        if ap_node is None:
+            print("Error: No AP found in network.")
+            return
+
+        # Get UE if specified (for UE-aware mode)
+        if ue_name:
+            ue_node = self.network.get(ue_name)
+
+        tx_power = getattr(ap_node, 'power_dBm', 20.0)
+        bits = self.ris_node.bits if hasattr(self.ris_node, 'bits') else 0
+
+        # Determine mode
+        discovery_mode = ue_node is None
+
+        if discovery_mode:
+            print(f"Beam Discovery Sweep (step={angle_step} deg, {bits}-bit)...")
+            print(f"  AP:  {ap_node.name} at ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
+            print(f"  RIS: {self.ris_node.name} at ({self.ris_node.pos[0]:.2f}, {self.ris_node.pos[1]:.2f}, {self.ris_node.pos[2]:.2f})")
+            print(f"  UE:  (unknown - discovery mode)")
+        else:
+            print(f"UE-Aware Sweep (step={angle_step} deg, {bits}-bit)...")
+            print(f"  AP:  {ap_node.name} at ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
+            print(f"  RIS: {self.ris_node.name} at ({self.ris_node.pos[0]:.2f}, {self.ris_node.pos[1]:.2f}, {self.ris_node.pos[2]:.2f})")
+            print(f"  UE:  {ue_node.name} at ({ue_node.pos[0]:.2f}, {ue_node.pos[1]:.2f}, {ue_node.pos[2]:.2f})")
+
+        try:
+            result = bridge.sweep_beam_snr(
+                element_positions=self.ris_node.element_positions,
+                frequency=self.ris_node.freq,
+                N=self.ris_node.N,
+                bits=bits,
+                ap_pos=ap_node.pos,
+                ris_pos=self.ris_node.pos,
+                ue_pos=ue_node.pos if ue_node else None,
+                tx_power_dBm=tx_power,
+                angle_range=(-90, 90),
+                angle_step=angle_step
+            )
+
+            print(f"\nResults:")
+            print(f"  Incident angle (AP->RIS):  {result['incident_angle']:.1f} deg")
+            if discovery_mode:
+                print(f"  Optimal steering angle:    {result['optimal_angle']:.1f} deg")
+                print(f"  Peak directivity:          {result['optimal_snr']:.1f} dB")
+                print(f"  Beam direction (absolute): {result['target_angle']:.1f} deg")
+                print(f"  Distance AP->RIS:          {result['d_ap_ris']:.2f} m")
+            else:
+                print(f"  Target angle (RIS->UE):    {result['target_angle']:.1f} deg")
+                print(f"  Deflection angle:          {result['deflection_angle']:.1f} deg")
+                print(f"  SNR at deflection:         {result['snr_at_deflection']:.1f} dB")
+                print(f"  Optimal angle:             {result['optimal_angle']:.1f} deg")
+                print(f"  SNR at optimal:            {result['optimal_snr']:.1f} dB")
+                print(f"  Distance AP->RIS:          {result['d_ap_ris']:.2f} m")
+                print(f"  Distance RIS->UE:          {result['d_ris_ue']:.2f} m")
+
+                if abs(result['optimal_angle'] - result['deflection_angle']) < angle_step * 2:
+                    print(f"\n  [OK] Deflection angle matches optimal!")
+                else:
+                    print(f"\n  [!] Optimal differs from deflection by {abs(result['optimal_angle'] - result['deflection_angle']):.1f} deg")
+
+            # Show table if requested
+            if show_table and 'angles' in result and 'snr_values' in result:
+                angles = result['angles']
+                snr_values = result['snr_values']
+                metric_name = "Directivity (dB)" if discovery_mode else "SNR (dB)"
+
+                print(f"\n{'='*70}")
+                print(f"BEAM SWEEP TABLE ({len(angles)} angles)")
+                print(f"{'='*70}")
+                print(f"{'Angle (deg)':>12} {metric_name:>16} {'Status':>15}")
+                print(f"{'-'*12} {'-'*16} {'-'*15}")
+
+                # Find top 10 values for highlighting
+                sorted_indices = sorted(range(len(snr_values)), key=lambda i: snr_values[i], reverse=True)
+                top_indices = set(sorted_indices[:10])
+
+                for i, (angle, snr) in enumerate(zip(angles, snr_values)):
+                    status = ""
+                    if abs(angle - result['optimal_angle']) < 0.1:
+                        status = "<- OPTIMAL"
+                    elif not discovery_mode and abs(angle - result['deflection_angle']) < 0.1:
+                        status = "<- DEFLECTION"
+                    elif i in top_indices:
+                        status = f"(top {sorted_indices.index(i)+1})"
+
+                    print(f"{angle:>12.1f} {snr:>16.1f} {status:>15}")
+
+                print(f"{'='*70}")
+
+                # Show summary of top angles
+                print(f"\nTop 5 beam angles by {metric_name.split()[0]}:")
+                for rank, idx in enumerate(sorted_indices[:5], 1):
+                    print(f"  {rank}. {angles[idx]:>6.1f} deg -> {snr_values[idx]:.1f} dB")
+
+            # Apply optimal angle if requested
+            if apply_result:
+                print(f"\nApplying optimal angle to RIS phases...")
+                try:
+                    # Compute phases for optimal angle
+                    import numpy as np
+                    c = 3e8
+                    wavelength = c / self.ris_node.freq
+                    k = 2 * np.pi / wavelength
+
+                    # Get element positions centered
+                    elem_pos = self.ris_node.element_positions
+                    x_pos = elem_pos[:, 0] - np.mean(elem_pos[:, 0])
+                    y_pos = elem_pos[:, 1] - np.mean(elem_pos[:, 1])
+
+                    optimal_angle = result['optimal_angle']
+                    phases = -k * (x_pos * np.cos(np.radians(optimal_angle)) +
+                                   y_pos * np.sin(np.radians(optimal_angle)))
+
+                    # Apply quantization
+                    if bits > 0:
+                        num_levels = 2 ** bits
+                        phase_step = 2 * np.pi / num_levels
+                        phases = np.round(phases / phase_step) * phase_step
+
+                    # Store phases
+                    self.ris_node.current_phases = phases
+                    self.ris_node.quantized_phases = phases
+
+                    # Update phase metadata
+                    if hasattr(self.ris_node, 'phase_metadata'):
+                        self.ris_node.phase_metadata['deflection_angle_deg'] = optimal_angle
+                        self.ris_node.phase_metadata['incident_azimuth_deg'] = result['incident_angle']
+                        self.ris_node.phase_metadata['reflected_azimuth_deg'] = result['target_angle']
+
+                    print(f"  [OK] Phases applied for {optimal_angle:.1f} deg steering")
+                    print(f"       Beam direction: {result['target_angle']:.1f} deg (absolute)")
+
+                    # If we have a UE, also create active link
+                    if ue_node:
+                        connect_result = self.network.connect(
+                            ap_node.name,
+                            self.ris_node.name,
+                            ue_node.name,
+                            compute_phases=True,
+                            store_in_active_links=True
+                        )
+                        print(f"  [OK] Active link: {ap_node.name}->{self.ris_node.name}->{ue_node.name}")
+                        print(f"       SNR: {connect_result['snr_dB']:.1f} dB, Gain: {connect_result['gain_dBi']:.1f} dBi")
+
+                except Exception as e:
+                    print(f"  [X] Failed to apply: {e}")
+
+        except Exception as e:
+            print(f"Error: {e}")
+
     def do_matlab_disconnect(self, arg):
         """matlab_disconnect - Disconnect from MATLAB engine
 

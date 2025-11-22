@@ -285,6 +285,125 @@ class MatlabBridge:
             'sidelobe_level': float(metrics['sidelobe_level'])
         }
 
+    def plot_farfield_3d(
+        self,
+        element_positions: np.ndarray,
+        phases: np.ndarray,
+        frequency: float,
+        beam_angle_deg: float,
+        N: int,
+        style: str = 'cst',
+        resolution: float = 2.0,
+        bits: int = 0
+    ) -> Dict[str, Any]:
+        """
+        Plot CST-style 3D far-field radiation pattern.
+
+        Args:
+            element_positions: (N*N, 3) element positions
+            phases: 1D array of phases (radians)
+            frequency: Operating frequency (Hz)
+            beam_angle_deg: Beam steering angle (azimuth deflection)
+            N: Array size (NxN)
+            style: Plot style - 'cst', 'polar3d', 'sphere', or 'cartesian'
+            resolution: Angular resolution in degrees (default: 2)
+            bits: Phase quantization bits (default: 0 = continuous)
+
+        Returns:
+            Dict with 'peak_theta', 'peak_phi', 'hpbw', 'array_size'
+        """
+        result = self.engine.plot_farfield_3d(
+            self._to_matlab(element_positions),
+            self._to_matlab(phases),
+            float(frequency),
+            float(beam_angle_deg),
+            float(N),
+            style,
+            float(resolution),
+            float(bits),
+            nargout=1
+        )
+
+        return {
+            'peak_gain_dB': float(result['peak_gain_dB']),
+            'peak_theta': float(result['peak_theta']),
+            'peak_phi': float(result['peak_phi']),
+            'hpbw': float(result['hpbw']),
+            'array_size': int(result['array_size'])
+        }
+
+    def sweep_beam_snr(
+        self,
+        element_positions: np.ndarray,
+        frequency: float,
+        N: int,
+        bits: int,
+        ap_pos: np.ndarray,
+        ris_pos: np.ndarray,
+        ue_pos: Optional[np.ndarray] = None,
+        tx_power_dBm: float = 20.0,
+        angle_range: Tuple[float, float] = (-90, 90),
+        angle_step: float = 1.0
+    ) -> Dict[str, Any]:
+        """
+        Sweep beam angles and compute directivity/SNR for each to find optimal.
+
+        Two modes:
+        1. Discovery mode (ue_pos=None): Sweep to find peak directivity
+        2. UE-aware mode (ue_pos provided): Compute SNR at UE direction
+
+        Args:
+            element_positions: (N*N, 3) element positions
+            frequency: Operating frequency (Hz)
+            N: Array size (NxN)
+            bits: Phase quantization bits (0 = continuous)
+            ap_pos: AP position [x, y, z]
+            ris_pos: RIS center position [x, y, z]
+            ue_pos: UE position [x, y, z] or None for discovery mode
+            tx_power_dBm: Transmit power in dBm
+            angle_range: (min_angle, max_angle) in degrees
+            angle_step: Angle step in degrees
+
+        Returns:
+            Dict with optimal_angle, optimal_snr/directivity, etc.
+        """
+        matlab = _get_matlab()
+
+        # Pass empty array for discovery mode
+        ue_pos_matlab = self._to_matlab(ue_pos) if ue_pos is not None else matlab.double([])
+
+        result = self.engine.sweep_beam_snr(
+            self._to_matlab(element_positions),
+            float(frequency),
+            float(N),
+            float(bits),
+            self._to_matlab(ap_pos),
+            self._to_matlab(ris_pos),
+            ue_pos_matlab,
+            float(tx_power_dBm),
+            matlab.double(list(angle_range)),
+            float(angle_step),
+            nargout=1
+        )
+
+        # Convert MATLAB arrays to Python lists
+        angles = self._from_matlab(result['angles']).flatten().tolist()
+        snr_values = self._from_matlab(result['snr_values']).flatten().tolist()
+
+        return {
+            'optimal_angle': float(result['optimal_angle']),
+            'optimal_snr': float(result['optimal_snr']),
+            'deflection_angle': float(result['deflection_angle']),
+            'snr_at_deflection': float(result['snr_at_deflection']),
+            'incident_angle': float(result['incident_angle']),
+            'target_angle': float(result['target_angle']),
+            'd_ap_ris': float(result['d_ap_ris']),
+            'd_ris_ue': float(result['d_ris_ue']),
+            'angles': angles,
+            'snr_values': snr_values,
+            'discovery_mode': ue_pos is None
+        }
+
     # ─────────────────────────────────────────────────────────
     # Generic MATLAB Execution
     # ─────────────────────────────────────────────────────────
