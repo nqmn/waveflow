@@ -7,7 +7,8 @@
       "Bash(timeout 120 python3:*)",
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(timeout 60 python:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []
