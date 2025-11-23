@@ -150,58 +150,95 @@ class MatlabCommandsMixin:
             print(f"Error: {e}")
 
     def do_matlab_geometry(self, arg):
-        """matlab_geometry - Plot RIS geometry in MATLAB 3D view
+        """matlab_geometry [fov] - Plot RIS geometry in MATLAB 3D view
 
-        Displays the RIS element positions in a 3D plot.
-        Optionally includes AP and UE positions if network is available.
+        Displays the RIS element positions in a 3D plot with all network nodes.
+        Shows all APs and UEs in the network, with connecting lines to RIS.
+        Includes RIS normal, beam direction, and optional field of view arc.
 
         Options:
-            matlab_geometry           - Plot RIS elements only
-            matlab_geometry AP1 UE1   - Include AP1 and UE1 positions
+            matlab_geometry           - Plot all nodes
+            matlab_geometry fov       - Include field of view arc visualization
 
         Examples:
             matlab_geometry
-            matlab_geometry AP1 UE1
+            matlab_geometry fov
         """
         bridge = self._get_matlab_bridge()
         if bridge is None:
             return
 
+        import numpy as np
+
         parts = arg.split() if arg else []
+        show_fov = 'fov' in [p.lower() for p in parts]
 
         # Ensure geometry is computed
         if self.ris_node.element_positions is None:
             self.ris_node.update_geometry()
 
-        ap_pos = None
-        ue_pos = None
+        # Collect all APs and UEs from network
+        ap_positions = []
+        ap_names = []
+        ue_positions = []
+        ue_names = []
 
-        # Try to get AP/UE positions from network
-        if self.network is not None and len(parts) >= 1:
-            ap_name = parts[0] if len(parts) >= 1 else None
-            ue_name = parts[1] if len(parts) >= 2 else None
+        if self.network is not None:
+            for name, node in self.network.nodes.items():
+                # Check if it's an AP (has power_dBm attribute)
+                if hasattr(node, 'power_dBm'):
+                    ap_positions.append(node.pos)
+                    ap_names.append(name)
+                # Check if it's a UE (has noise_figure_dB but not power_dBm)
+                elif hasattr(node, 'noise_figure_dB') and not hasattr(node, 'power_dBm'):
+                    ue_positions.append(node.pos)
+                    ue_names.append(name)
 
-            if ap_name and ap_name in self.network.nodes:
-                ap_pos = self.network.nodes[ap_name].pos
-            if ue_name and ue_name in self.network.nodes:
-                ue_pos = self.network.nodes[ue_name].pos
+        # Convert to numpy arrays
+        ap_positions = np.array(ap_positions) if ap_positions else None
+        ue_positions = np.array(ue_positions) if ue_positions else None
 
-        beam_angle = self.ris_node.current_beam_angle
+        # Get beam angle from phase metadata (absolute direction)
+        beam_angle = None
+        if hasattr(self.ris_node, 'phase_metadata') and self.ris_node.phase_metadata:
+            beam_angle = self.ris_node.phase_metadata.get('reflected_azimuth_deg')
+        if beam_angle is None:
+            beam_angle = self.ris_node.current_beam_angle
+
+        # Get RIS normal and compute FoV range
+        ris_normal = getattr(self.ris_node, 'normal_angle_deg', 0.0)
+        max_angle = getattr(self.ris_node, 'max_angle_deg', 60.0)
+
+        # Compute beam arc range if requested
+        beam_arc_range = None
+        if show_fov:
+            # FoV is relative to RIS normal
+            beam_arc_range = (ris_normal - max_angle, ris_normal + max_angle)
 
         try:
             bridge.plot_ris_geometry(
                 ris_position=self.ris_node.pos,
                 element_positions=self.ris_node.element_positions,
-                ap_position=ap_pos,
-                ue_position=ue_pos,
+                ap_positions=ap_positions,
+                ue_positions=ue_positions,
                 beam_angle_deg=beam_angle,
-                title=f"RIS: {self.ris_node.name} ({self.ris_node.N}x{self.ris_node.N})"
+                title=f"RIS Network: {self.ris_node.name} ({self.ris_node.N}x{self.ris_node.N})",
+                ap_names=ap_names,
+                ue_names=ue_names,
+                ris_normal_deg=ris_normal,
+                beam_arc_range=beam_arc_range
             )
             print(f"Geometry sent to MATLAB ({self.ris_node.N}x{self.ris_node.N} elements)")
-            if ap_pos is not None:
-                print(f"  AP: {parts[0]}")
-            if ue_pos is not None:
-                print(f"  UE: {parts[1] if len(parts) >= 2 else ''}")
+            print(f"  RIS: {self.ris_node.name} at ({self.ris_node.pos[0]:.2f}, {self.ris_node.pos[1]:.2f}, {self.ris_node.pos[2]:.2f})")
+            print(f"  Normal: {ris_normal:.1f} deg")
+            if beam_angle is not None:
+                print(f"  Beam:   {beam_angle:.1f} deg")
+            if ap_names:
+                print(f"  APs:    {', '.join(ap_names)}")
+            if ue_names:
+                print(f"  UEs:    {', '.join(ue_names)}")
+            if show_fov:
+                print(f"  FoV:    [{ris_normal - max_angle:.1f}, {ris_normal + max_angle:.1f}] deg")
         except Exception as e:
             print(f"Error: {e}")
 
@@ -331,6 +368,11 @@ class MatlabCommandsMixin:
             if deflection is not None:
                 beam_angle = deflection
 
+        # Debug: show what angle is being used
+        print(f"[DEBUG] Beam angle for farfield: {beam_angle}°")
+        if hasattr(self.ris_node, 'phase_metadata'):
+            print(f"[DEBUG] Phase metadata: {self.ris_node.phase_metadata}")
+
         try:
             bits = self.ris_node.bits if hasattr(self.ris_node, 'bits') else 0
             print(f"Computing 3D far-field pattern (style={style}, resolution={resolution}°, {bits}-bit)...")
@@ -345,11 +387,14 @@ class MatlabCommandsMixin:
                 bits=bits
             )
             print(f"Far-field pattern displayed in MATLAB")
-            print(f"  Array size:     {result['array_size']}x{result['array_size']}")
-            print(f"  Peak direction: theta={result['peak_theta']:.1f}°, phi={result['peak_phi']:.1f}°")
-            print(f"  HPBW:           {result['hpbw']:.1f}°")
-            print(f"  Quantization:   {bits}-bit" if bits > 0 else "  Quantization:   continuous")
-            print(f"  Style:          {style}")
+            print(f"  Beam steering angle:  {beam_angle:.1f}° (used for phase computation)")
+            print(f"  Array size:           {result['array_size']}x{result['array_size']}")
+            print(f"  Peak direction:       theta={result['peak_theta']:.1f}° (elevation), phi={result['peak_phi']:.1f}° (azimuth)")
+            print(f"  HPBW:                 {result['hpbw']:.1f}°")
+            print(f"  Quantization:         {bits}-bit" if bits > 0 else "  Quantization:         continuous")
+            print(f"  Style:                {style}")
+            print(f"\n  NOTE: Peak direction should match steering angle in azimuth (phi)")
+            print(f"        Expected phi ≈ {beam_angle:.1f}° or equivalently ≈ {(beam_angle + 180) % 360 - 180:.1f}°")
         except Exception as e:
             print(f"Error: {e}")
 
@@ -447,6 +492,10 @@ class MatlabCommandsMixin:
         tx_power = getattr(ap_node, 'power_dBm', 20.0)
         bits = self.ris_node.bits if hasattr(self.ris_node, 'bits') else 0
 
+        # Get RIS normal and max steering angle
+        ris_normal = getattr(self.ris_node, 'normal_angle_deg', 0.0)
+        max_steering = getattr(self.ris_node, 'max_angle_deg', 60.0)
+
         # Determine mode
         discovery_mode = ue_node is None
 
@@ -454,11 +503,13 @@ class MatlabCommandsMixin:
             print(f"Beam Discovery Sweep (step={angle_step} deg, {bits}-bit)...")
             print(f"  AP:  {ap_node.name} at ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
             print(f"  RIS: {self.ris_node.name} at ({self.ris_node.pos[0]:.2f}, {self.ris_node.pos[1]:.2f}, {self.ris_node.pos[2]:.2f})")
+            print(f"  RIS Normal: {ris_normal:.1f} deg, Max Steering: +/-{max_steering:.1f} deg")
             print(f"  UE:  (unknown - discovery mode)")
         else:
             print(f"UE-Aware Sweep (step={angle_step} deg, {bits}-bit)...")
             print(f"  AP:  {ap_node.name} at ({ap_node.pos[0]:.2f}, {ap_node.pos[1]:.2f}, {ap_node.pos[2]:.2f})")
             print(f"  RIS: {self.ris_node.name} at ({self.ris_node.pos[0]:.2f}, {self.ris_node.pos[1]:.2f}, {self.ris_node.pos[2]:.2f})")
+            print(f"  RIS Normal: {ris_normal:.1f} deg, Max Steering: +/-{max_steering:.1f} deg")
             print(f"  UE:  {ue_node.name} at ({ue_node.pos[0]:.2f}, {ue_node.pos[1]:.2f}, {ue_node.pos[2]:.2f})")
 
         try:
@@ -471,30 +522,64 @@ class MatlabCommandsMixin:
                 ris_pos=self.ris_node.pos,
                 ue_pos=ue_node.pos if ue_node else None,
                 tx_power_dBm=tx_power,
-                angle_range=(-90, 90),
-                angle_step=angle_step
+                angle_range=(-max_steering, max_steering),
+                angle_step=angle_step,
+                ris_normal_deg=ris_normal,
+                max_steering_deg=max_steering
             )
 
-            print(f"\nResults:")
-            print(f"  Incident angle (AP->RIS):  {result['incident_angle']:.1f} deg")
+            print(f"\nResults (angles in GLOBAL coordinates, matching 'connect' command):")
+            print(f"  RIS Normal:                {result['ris_normal_deg']:.1f} deg (absolute)")
+
+            # Convert incident angle to deflection (absolute frame)
+            incident_abs = result['ris_normal_deg'] + result['incident_angle']
+            # Normalize to [-180, 180]
+            while incident_abs > 180:
+                incident_abs -= 360
+            while incident_abs < -180:
+                incident_abs += 360
+
             if discovery_mode:
-                print(f"  Optimal steering angle:    {result['optimal_angle']:.1f} deg")
+                optimal_abs = result['ris_normal_deg'] + result['optimal_angle']
+                # Normalize
+                while optimal_abs > 180:
+                    optimal_abs -= 360
+                while optimal_abs < -180:
+                    optimal_abs += 360
+
+                print(f"  Incident angle (AP->RIS):  {incident_abs:.1f} deg (absolute)")
+                print(f"  Optimal steering angle:    {result['optimal_angle']:.1f} deg (rel to normal) = {optimal_abs:.1f} deg (absolute)")
                 print(f"  Peak directivity:          {result['optimal_snr']:.1f} dB")
                 print(f"  Beam direction (absolute): {result['target_angle']:.1f} deg")
                 print(f"  Distance AP->RIS:          {result['d_ap_ris']:.2f} m")
             else:
-                print(f"  Target angle (RIS->UE):    {result['target_angle']:.1f} deg")
-                print(f"  Deflection angle:          {result['deflection_angle']:.1f} deg")
-                print(f"  SNR at deflection:         {result['snr_at_deflection']:.1f} dB")
-                print(f"  Optimal angle:             {result['optimal_angle']:.1f} deg")
+                optimal_abs = result['ris_normal_deg'] + result['optimal_angle']
+                # Normalize
+                while optimal_abs > 180:
+                    optimal_abs -= 360
+                while optimal_abs < -180:
+                    optimal_abs += 360
+
+                target_abs = result['target_angle']
+                deflection_from_incident = target_abs - incident_abs
+                while deflection_from_incident > 180:
+                    deflection_from_incident -= 360
+                while deflection_from_incident < -180:
+                    deflection_from_incident += 360
+
+                print(f"  Incident angle (AP->RIS):  {incident_abs:.1f} deg (absolute)")
+                print(f"  Target angle (RIS->UE):    {target_abs:.1f} deg (absolute)")
+                print(f"  Required deflection:       {deflection_from_incident:.1f} deg")
+                print(f"  SNR at target:             {result['snr_at_deflection']:.1f} dB")
+                print(f"  Optimal angle:             {result['optimal_angle']:.1f} deg (rel to normal) = {optimal_abs:.1f} deg (absolute)")
                 print(f"  SNR at optimal:            {result['optimal_snr']:.1f} dB")
                 print(f"  Distance AP->RIS:          {result['d_ap_ris']:.2f} m")
                 print(f"  Distance RIS->UE:          {result['d_ris_ue']:.2f} m")
 
                 if abs(result['optimal_angle'] - result['deflection_angle']) < angle_step * 2:
-                    print(f"\n  [OK] Deflection angle matches optimal!")
+                    print(f"\n  [OK] Optimal angle matches target direction!")
                 else:
-                    print(f"\n  [!] Optimal differs from deflection by {abs(result['optimal_angle'] - result['deflection_angle']):.1f} deg")
+                    print(f"\n  [!] Optimal differs from target by {abs(result['optimal_angle'] - result['deflection_angle']):.1f} deg")
 
             # Show table if requested
             if show_table and 'angles' in result and 'snr_values' in result:
@@ -502,33 +587,50 @@ class MatlabCommandsMixin:
                 snr_values = result['snr_values']
                 metric_name = "Directivity (dB)" if discovery_mode else "SNR (dB)"
 
-                print(f"\n{'='*70}")
+                print(f"\n{'='*85}")
                 print(f"BEAM SWEEP TABLE ({len(angles)} angles)")
-                print(f"{'='*70}")
-                print(f"{'Angle (deg)':>12} {metric_name:>16} {'Status':>15}")
-                print(f"{'-'*12} {'-'*16} {'-'*15}")
+                print(f"{'='*85}")
+                print(f"{'Rel Angle':>12} {'Abs Angle':>12} {metric_name:>16} {'Status':>20}")
+                print(f"{'(deg)':>12} {'(deg)':>12} {'':<16} {'':<20}")
+                print(f"{'-'*12} {'-'*12} {'-'*16} {'-'*20}")
 
                 # Find top 10 values for highlighting
                 sorted_indices = sorted(range(len(snr_values)), key=lambda i: snr_values[i], reverse=True)
                 top_indices = set(sorted_indices[:10])
 
-                for i, (angle, snr) in enumerate(zip(angles, snr_values)):
+                for i, (angle_rel, snr) in enumerate(zip(angles, snr_values)):
+                    # Convert to absolute angle
+                    angle_abs = result['ris_normal_deg'] + angle_rel
+                    # Normalize to [-180, 180]
+                    while angle_abs > 180:
+                        angle_abs -= 360
+                    while angle_abs < -180:
+                        angle_abs += 360
+
                     status = ""
-                    if abs(angle - result['optimal_angle']) < 0.1:
+                    if abs(angle_rel - result['optimal_angle']) < 0.1:
                         status = "<- OPTIMAL"
-                    elif not discovery_mode and abs(angle - result['deflection_angle']) < 0.1:
+                    elif not discovery_mode and abs(angle_rel - result['deflection_angle']) < 0.1:
                         status = "<- DEFLECTION"
                     elif i in top_indices:
                         status = f"(top {sorted_indices.index(i)+1})"
 
-                    print(f"{angle:>12.1f} {snr:>16.1f} {status:>15}")
+                    print(f"{angle_rel:>12.1f} {angle_abs:>12.1f} {snr:>16.1f} {status:>20}")
 
-                print(f"{'='*70}")
+                print(f"{'='*85}")
 
                 # Show summary of top angles
+                ris_normal = result['ris_normal_deg']
                 print(f"\nTop 5 beam angles by {metric_name.split()[0]}:")
                 for rank, idx in enumerate(sorted_indices[:5], 1):
-                    print(f"  {rank}. {angles[idx]:>6.1f} deg -> {snr_values[idx]:.1f} dB")
+                    angle_rel = angles[idx]
+                    angle_abs = ris_normal + angle_rel
+                    # Normalize
+                    while angle_abs > 180:
+                        angle_abs -= 360
+                    while angle_abs < -180:
+                        angle_abs += 360
+                    print(f"  {rank}. {angle_rel:>6.1f} deg (rel) = {angle_abs:>7.1f} deg (abs) -> {snr_values[idx]:.1f} dB")
 
             # Apply optimal angle if requested
             if apply_result:

@@ -127,10 +127,14 @@ class MatlabBridge:
         self,
         ris_position: np.ndarray,
         element_positions: np.ndarray,
-        ap_position: Optional[np.ndarray] = None,
-        ue_position: Optional[np.ndarray] = None,
+        ap_positions: Optional[np.ndarray] = None,
+        ue_positions: Optional[np.ndarray] = None,
         beam_angle_deg: Optional[float] = None,
-        title: str = "RIS Geometry"
+        title: str = "RIS Geometry",
+        ap_names: Optional[list] = None,
+        ue_names: Optional[list] = None,
+        ris_normal_deg: Optional[float] = None,
+        beam_arc_range: Optional[Tuple[float, float]] = None
     ) -> None:
         """
         Send RIS geometry to MATLAB for 3D visualization.
@@ -138,19 +142,27 @@ class MatlabBridge:
         Args:
             ris_position: RIS center [x, y, z]
             element_positions: (N*N, 3) array of element positions
-            ap_position: Optional AP position [x, y, z]
-            ue_position: Optional UE position [x, y, z]
-            beam_angle_deg: Optional beam steering angle
+            ap_positions: (N_ap, 3) array of AP positions or None
+            ue_positions: (N_ue, 3) array of UE positions or None
+            beam_angle_deg: Optional beam steering angle (absolute direction)
             title: Plot title
+            ap_names: List of AP names
+            ue_names: List of UE names
+            ris_normal_deg: RIS normal angle in degrees
+            beam_arc_range: (min_angle, max_angle) for field of view visualization
         """
         matlab = _get_matlab()
         self.engine.plot_ris_geometry(
             self._to_matlab(ris_position),
             self._to_matlab(element_positions),
-            self._to_matlab(ap_position) if ap_position is not None else matlab.double([]),
-            self._to_matlab(ue_position) if ue_position is not None else matlab.double([]),
+            self._to_matlab(ap_positions) if ap_positions is not None else matlab.double([]),
+            self._to_matlab(ue_positions) if ue_positions is not None else matlab.double([]),
             float(beam_angle_deg) if beam_angle_deg is not None else matlab.double([]),
             title,
+            ap_names if ap_names else [],
+            ue_names if ue_names else [],
+            float(ris_normal_deg) if ris_normal_deg is not None else matlab.double([]),
+            self._to_matlab(np.array(beam_arc_range)) if beam_arc_range else matlab.double([]),
             nargout=0
         )
 
@@ -342,8 +354,10 @@ class MatlabBridge:
         ris_pos: np.ndarray,
         ue_pos: Optional[np.ndarray] = None,
         tx_power_dBm: float = 20.0,
-        angle_range: Tuple[float, float] = (-90, 90),
-        angle_step: float = 1.0
+        angle_range: Tuple[float, float] = (-60, 60),
+        angle_step: float = 1.0,
+        ris_normal_deg: float = 0.0,
+        max_steering_deg: float = 60.0
     ) -> Dict[str, Any]:
         """
         Sweep beam angles and compute directivity/SNR for each to find optimal.
@@ -361,11 +375,13 @@ class MatlabBridge:
             ris_pos: RIS center position [x, y, z]
             ue_pos: UE position [x, y, z] or None for discovery mode
             tx_power_dBm: Transmit power in dBm
-            angle_range: (min_angle, max_angle) in degrees
+            angle_range: (min_angle, max_angle) in degrees relative to RIS normal
             angle_step: Angle step in degrees
+            ris_normal_deg: RIS normal angle in degrees (0 = +x direction)
+            max_steering_deg: Maximum steering angle from normal
 
         Returns:
-            Dict with optimal_angle, optimal_snr/directivity, etc.
+            Dict with optimal_angle (relative to normal), optimal_snr/directivity, etc.
         """
         matlab = _get_matlab()
 
@@ -383,6 +399,8 @@ class MatlabBridge:
             float(tx_power_dBm),
             matlab.double(list(angle_range)),
             float(angle_step),
+            float(ris_normal_deg),
+            float(max_steering_deg),
             nargout=1
         )
 
@@ -399,6 +417,7 @@ class MatlabBridge:
             'target_angle': float(result['target_angle']),
             'd_ap_ris': float(result['d_ap_ris']),
             'd_ris_ue': float(result['d_ris_ue']),
+            'ris_normal_deg': float(result['ris_normal_deg']),
             'angles': angles,
             'snr_values': snr_values,
             'discovery_mode': ue_pos is None
