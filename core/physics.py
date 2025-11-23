@@ -515,11 +515,13 @@ class Physics:
         # For ±60° max deviation: a = 20 / (60^2) = 0.00556
         # This gives smooth penalty without artifacts
 
-        a = 20.0 / (60.0 ** 2)  # Scaling factor: -20 dB at ±60°
+        # Use steeper scaling: -40 dB at ±60° deviation
+        # This provides more realistic beam pattern with significant null regions
+        a = 40.0 / (60.0 ** 2)  # Scaling factor: -40 dB at ±60°
         loss_dB = -a * (angular_deviation ** 2)
 
-        # Clamp to maximum loss of -30 dB (more than -60° away)
-        loss_dB = max(loss_dB, -30.0)
+        # Clamp to maximum loss of -60 dB (represents deep null/no signal)
+        loss_dB = max(loss_dB, -60.0)
 
         return loss_dB
 

@@ -1366,12 +1366,18 @@ class ConnectionHandler:
         deflection_angle_deg = None
         incident_azimuth_deg = None
         reflected_azimuth_deg = None
+        final_gain_dBi = None
+        final_quant_loss_dB = None
+        final_pwr_dBm = None
         try:
             final_result = self.net.connect(ap, ris, ue, beam_angle_deg=best_final_abs,
                                            compute_phases=True, store_in_active_links=False)
             deflection_angle_deg = final_result.get('deflection_angle_deg')
             incident_azimuth_deg = final_result.get('incident_azimuth_deg')
             reflected_azimuth_deg = final_result.get('reflected_azimuth_deg')
+            final_gain_dBi = final_result.get('gain_dBi')
+            final_quant_loss_dB = final_result.get('quant_loss_dB')
+            final_pwr_dBm = final_result.get('pwr_dBm')
 
             # Normalize angles to [0, 360) for cleaner display
             if incident_azimuth_deg is not None and incident_azimuth_deg < 0:
@@ -1396,12 +1402,12 @@ class ConnectionHandler:
             'ris': ris_key,
             'ue': ue_key,
             'snr_dB': float(best_final_snr),
-            'pwr_dBm': float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67,
+            'pwr_dBm': float(final_pwr_dBm) if final_pwr_dBm is not None else (float(out.get('pwr_coarse', [0])[0]) if out.get('pwr_coarse') else -63.67),
             'beam_angle_local': float(deflection_angle_deg if deflection_angle_deg is not None else best_final_local),
             'beam_angle_absolute': float(best_final_abs),
             'ris_normal_angle': float(specular_angle),
-            'gain_dBi': 47.46,
-            'quant_loss_dB': -0.75,
+            'gain_dBi': float(final_gain_dBi) if final_gain_dBi is not None else 0.0,
+            'quant_loss_dB': float(final_quant_loss_dB) if final_quant_loss_dB is not None else 0.0,
             'source': 'connect_sweep',
             'algorithm': algo_name_clean,
             **phase_data

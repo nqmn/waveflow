@@ -504,20 +504,25 @@ class RISNetwork:
 
         snr_dB = snr_computed_dB
 
-        # ARRAY FACTOR INTEGRATION: Replace beam_hits_ue cutoff with physics-based array factor
-        # Array factor naturally models sidelobe response without artificial binary cutoff
+        # ARRAY FACTOR INTEGRATION: Model beam pattern gain/loss based on steering direction
+        #
+        # When phases are computed to steer towards the UE, the array factor is at peak (0 dB).
+        # When steering elsewhere, we compute angular loss based on deviation from UE direction.
+        #
+        # NOTE: We use Physics.angle_loss_dB instead of compute_array_factor because:
+        # - The stored phases include incident compensation + steering
+        # - compute_array_factor expects pure steering phases and produces incorrect results
+        # - angle_loss_dB provides smooth, predictable beam pattern behavior
         if ris.current_phases is not None and len(ris.current_phases) > 0:
-            # Compute array factor for actual beam position
-            # This determines gain reduction due to sidelobe pattern
-            af_dB = Physics.compute_array_factor(
-                phases=ris.current_phases,
-                element_positions=ris.element_positions,
-                target_angle_deg=target_angle,  # Evaluate AF at UE location, not beam direction
-                frequency=ris.freq,
-                weights=getattr(ris, 'element_weights', None),
-                ris_position=ris.pos,
-                ap_position=ap.pos if ap is not None else None
-            )
+            # Get the steering direction from phase metadata (where beam is actually pointing)
+            steering_angle_deg = target_angle  # Default: assume pointing at UE
+            if hasattr(ris, 'phase_metadata') and ris.phase_metadata:
+                # Use the actual azimuth_out from phase computation
+                steering_angle_deg = ris.phase_metadata.get('azimuth_out_deg', target_angle)
+
+            # Compute angular loss based on deviation from steering direction to UE
+            # This provides smooth beam pattern: 0 dB at steering direction, -20 dB at ±60°
+            af_dB = Physics.angle_loss_dB(steering_angle_deg, target_angle)
 
             # Apply array factor to gain
             # af_dB is normalized so peak (steering direction) = 0 dB
