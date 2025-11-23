@@ -1,30 +1,119 @@
-# `connect --sweep` flow
+# `connect --sweep` Flow
 
-- Entry point lives in `cli/main_shell.py#do_connect`. Parsed args go to `cli/connection_handler.ConnectionHandler`.
-- `parse_connect_arguments` resolves AP/RIS/UE (auto-fills when unambiguous). `parse_flags` sets defaults: FOV=60°, step=10°, `algo=linear`, `ml_predictor=gmf`, waveform enabled unless flags disable them.
-- If `--sweep` is present, `_do_connect_sweep` calls `ConnectionHandler.execute_sweep`.
+## Overview
+The sweep command tests multiple beam steering angles to find the optimal direction for the RIS to illuminate the UE. It measures SNR at each angle and selects the best one.
+
+## Entry Point
+- Entry point: `cli/main_shell.py#do_connect`
+- Parsed args go to `cli/connection_handler.ConnectionHandler`
+- `parse_connect_arguments` resolves AP/RIS/UE (auto-fills when unambiguous)
+- `parse_flags` sets defaults: FOV=60deg, step=10deg, `algo=linear`, `ml_predictor=gmf`, waveform enabled unless flags disable them
+- If `--sweep` is present, `_do_connect_sweep` calls `ConnectionHandler.execute_sweep`
 
 ## `execute_sweep`
-- Loads sweep algorithm via `SweepAlgorithmLoader.get_algorithm(name, net)`; validates required nodes (OpenCV sweep can create UE, others require AP/RIS/UE to exist).
-- Builds kwargs for the algorithm:
-  - Core: `fov`, `step`, `seed`, `tapering`, `metric` label, `enable_feedback=False` (critical so per-angle measurements stay independent; feedback would otherwise mutate UE state).
-  - ML extras (when `algo` is `ml/ml-guided`): predictor name, codebook validation knobs (`enable_codebook_validation`, increment/neighbor counts, include-predicted flag, codebook range/step).
-  - Waveform extras when `--modulation`/default waveform enabled: `use_waveform=True`, modulation, symbol count for SER simulation.
-  - OpenCV vision extras: mock/live camera toggles, trajectory, viewer flag, plus optional `r_cw`/`t_cw` numpy loads (mock defaults to identity/zeros, real camera warns if missing).
-- Runs `algo.sweep(ap, ris, ue, **kwargs)` and post-processes results:
-  - Derives RSSI or CSI quality arrays if `--metric` requests them.
-  - If waveform is on and SER arrays are absent, simulates SER per measured SNR using `SignalLevelLink`.
-  - If metric != SNR, reselects best angle based on the derived metric, updating `best_angle`/`best_snr` style fields.
+1. Loads sweep algorithm via `SweepAlgorithmLoader.get_algorithm(name, net)`
+2. Validates required nodes (OpenCV sweep can create UE, others require AP/RIS/UE to exist)
+3. Builds kwargs for the algorithm:
+   - Core: `fov`, `step`, `seed`, `tapering`, `metric` label
+   - `enable_feedback=False` (critical: per-angle measurements stay independent)
+   - ML extras when `algo` is `ml/ml-guided`
+   - Waveform extras when `--modulation`/default waveform enabled
+   - OpenCV vision extras for camera-based sweeps
 
-## Printing and selection
-- `print_sweep_results` (still in `ConnectionHandler`) formats ML suggestions, coarse/fine phases, and SER/SNR/metric tables.
-- Chooses the final beam:
-  - Prefers fine-phase results when present; uses SER minima if available, else SNR/metric maxima.
-  - Computes absolute beam angle by adding local offset to the specular/base angle and reports the metric value at that angle.
-  - Returns a small summary (`best_final_local`, `best_final_abs`, `best_final_snr`, etc.).
+## Sweep Algorithm (Linear Brute Force)
+Located in `controller/beamsweeping/algorithms/linear_brute_force.py`:
 
-## Persisting the result
-- `create_sweep_record_and_link` consumes the summary:
-  - Calls `net.connect(..., beam_angle_deg=best_final_abs, compute_phases=True, store_in_active_links=False)` to recover deflection/phase metadata.
-  - Stores/reregisters an active link keyed as `ap→ris→ue (Connect Sweep - <algo>)`, including phase data if present on the RIS node.
-  - Updates RIS attributes (`specular_angle_deg`, absolute/local beam angles), saves a sweep record to `net.last_sweep_result` (later used by `plot`/`save`), and writes basic sweep parameters (FOV, step, algo, waveform settings).
+1. **Geometry Calculation**:
+   - `ap_angle = atan2(ap.pos - ris.pos)` - direction FROM RIS TO AP
+   - `ue_angle = atan2(ue.pos - ris.pos)` - direction FROM RIS TO UE
+   - `base_deflection = ue_angle - ap_angle` - ideal deflection to reach UE
+
+2. **Codebook Generation**:
+   - `generate_codebook(fov, step)` creates local angles from -FOV to +FOV
+   - Example with FOV=60, step=10: [-60, -50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50, 60]
+
+3. **Absolute Angle Conversion**:
+   - `abs_angles = ap_angle + local_angles`
+   - Local 0deg means beam reflects back toward AP direction
+   - Local 45deg means beam deflects 45deg from incident direction
+
+4. **Per-Angle Measurement** (calls `network.connect` for each angle):
+   - Passes `beam_angle_deg=abs_angle` to `network.connect()`
+   - Uses `fixed_ris_normal` for consistent measurements across all angles
+   - Stores SNR result for each angle
+
+## Phase Computation During Sweep (in `network.connect`)
+Located in `core/network.py` lines 291-331:
+
+**Key behavior**: When `beam_angle_deg` differs from actual UE direction by >0.1deg:
+1. Creates a **virtual target position** at `beam_angle_deg` direction
+2. Computes phases to steer beam toward virtual target (not actual UE)
+3. This simulates "what if we point the beam at this angle?"
+
+```python
+if angle_diff_from_ue > 0.1:  # Sweep mode
+    # Create virtual target at beam_angle_deg direction
+    virtual_target_pos = ris.pos + d_ris_ue * [cos(beam_angle_deg), sin(beam_angle_deg)]
+    ris.compute_phases(ap.pos, virtual_target_pos)
+else:
+    # Direct connect: steer toward actual UE
+    ris.compute_phases(ap.pos, ue.pos)
+```
+
+## SNR Calculation with Array Factor
+Located in `core/network.py` lines 507-525:
+
+The SNR depends on how well the beam (steered to `beam_angle_deg`) illuminates the actual UE:
+
+1. **Get steering direction** from `ris.phase_metadata['azimuth_out_deg']`
+2. **Compute angular loss** using `Physics.angle_loss_dB(steering_angle, target_angle)`
+   - 0deg deviation: 0 dB loss (optimal)
+   - 5deg deviation: ~0.56 dB loss
+   - 60deg deviation: ~40 dB loss
+   - Max clamp: -60 dB
+
+This creates realistic sweep behavior:
+- Angles close to UE direction: high SNR
+- Angles far from UE direction: low SNR (can be negative)
+
+## Result Processing
+After sweep completes:
+
+1. **`print_sweep_results`** formats tables showing SNR at each angle
+2. **Best angle selection**: Uses SNR maxima (or SER minima if waveform enabled)
+3. **Absolute angle calculation**: `best_final_abs = ap_angle + best_local`
+
+## Persisting the Result (`create_sweep_record_and_link`)
+Located in `cli/connection_handler.py` lines 1360-1430:
+
+1. Calls `net.connect(beam_angle_deg=best_final_abs, store_in_active_links=False)` to get final metrics
+2. Extracts from result:
+   - `snr_dB`, `gain_dBi`, `quant_loss_dB`, `pwr_dBm`
+   - `deflection_angle_deg`, `incident_azimuth_deg`, `reflected_azimuth_deg`
+3. Creates active link with key: `ap->ris->ue (Connect Sweep - <algo>)`
+4. Updates RIS node attributes (`specular_angle_deg`, beam angles)
+5. Saves sweep record to `net.last_sweep_result`
+
+## Expected Sweep Output Pattern
+For geometry where UE is at 45deg deflection from incident:
+
+```
+Local (deg)     SNR (dB)
+-60.0           -25.0    (far from UE, low SNR)
+-40.0           -15.0
+-20.0            -5.0
+  0.0             5.0
+ 20.0            15.0
+ 40.0            30.0    (close to optimal)
+ 50.0            30.0    (close to optimal)
+ 60.0            25.0
+```
+
+The SNR should vary significantly (30-50 dB range) between angles that hit vs miss the UE.
+
+## Key Files
+- `cli/connection_handler.py` - execute_sweep, print_sweep_results, create_sweep_record_and_link
+- `controller/beamsweeping/algorithms/linear_brute_force.py` - LinearBruteForceSweep.sweep()
+- `controller/beamsweeping/common.py` - generate_codebook, helper functions
+- `core/network.py` - connect() with virtual target logic and array factor
+- `core/physics.py` - angle_loss_dB for beam pattern modeling

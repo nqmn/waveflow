@@ -1,9 +1,21 @@
-  Step-by-Step: What Happens During connect Command
+# `connect` Command Flow
 
-  [STEP 1] Retrieve Node References
-  - Fetch AP, RIS, and UE objects from network
-  - Display node positions (x, y, z coordinates)
-  - Show RIS normal angle (reference direction for deflection angles)
+## Overview
+The connect command establishes an AP->RIS->UE link by computing optimal RIS phases
+to steer the beam toward the UE, then measuring the resulting SNR.
+
+## Key Code Location
+- Entry: `cli/main_shell.py#do_connect` -> `cli/connection_handler.ConnectionHandler`
+- Core: `core/network.py#connect()` - main link computation
+- Phase computation: `controller/ris_phase/phase_hybrid.py#HybridPhaseEngine`
+
+---
+Step-by-Step: What Happens During connect Command
+
+[STEP 1] Retrieve Node References
+- Fetch AP, RIS, and UE objects from network
+- Display node positions (x, y, z coordinates)
+- Show RIS normal angle (reference direction for deflection angles)
 
   ---
   [STEP 2] Compute Geometry & FOV Validation
@@ -27,25 +39,27 @@
   ---
   [STEP 3] Calculate RIS Phase Configuration & Path Loss & Array Gain
 
-  A) Phase Configuration:
+  A) Phase Configuration (HybridPhaseEngine):
 
-     Angle Calculations:
-       incident_azimuth = atan2(AP_y - RIS_y, AP_x - RIS_x)  [Angle AP arrives at RIS]
-       reflected_azimuth = atan2(UE_y - RIS_y, UE_x - RIS_x)  [Angle toward UE]
-       local_deflection = reflected_azimuth - RIS.normal_angle  [Deflection from normal]
+     Located in: controller/ris_phase/phase_hybrid.py
 
-     Phase Computation (for N×N elements):
-     For each RIS element at position (x_m, y_n):
-       distance_to_ap = ||element_pos - AP_pos||
-       distance_to_ue = ||element_pos - UE_pos||
-       ideal_phase[m,n] = (2π/λ) × (distance_to_ap - distance_to_ue)
+     The phase for each element combines incident compensation + steering:
+       phi_total = phi_tx + phi_rx
 
-     Each element applies phase: e^(j*ideal_phase[m,n])
+     TX Phase (incident wave compensation):
+       - Spherical mode: phi_tx = k * distance(AP, element)
+       - Plane mode: phi_tx = -k * (x * u_ap_x + y * u_ap_y)
+
+     RX Phase (beam steering toward target):
+       - Spherical mode (focusing): phi_rx = k * distance(element, UE)
+       - Plane mode (steering): phi_rx = -k * (x * cos(theta_az) + y * sin(theta_az))
+
+     Where:
+       k = 2*pi/wavelength
+       theta_az = atan2(UE_y - RIS_y, UE_x - RIS_x)  [Azimuth to target]
 
      Quantization (to B bits):
        phase_state = round(ideal_phase / (2π/2^B)) × (2π/2^B)
-       quantized_phase = phase_state
-
        Common: 2-bit (4 levels), 4-bit (16 levels), 8-bit (256 levels)
 
   B) Path Loss Calculation:
@@ -95,6 +109,24 @@
 
   ---
   [STEP 4] Query SNR from UE (via Control Channel)
+
+  Located in: core/network.py lines 490-550
+
+  The SNR calculation includes an **Array Factor** component that models
+  how well the beam illuminates the UE based on steering direction.
+
+  Array Factor Calculation:
+    1. Get steering direction from phase metadata: azimuth_out_deg
+    2. Compute angular deviation: diff = |steering_angle - target_angle|
+    3. Apply angular loss: af_dB = Physics.angle_loss_dB(steering, target)
+       - 0deg deviation: 0 dB (optimal)
+       - 5deg deviation: ~0.56 dB loss
+       - 60deg deviation: ~40 dB loss
+       - Max clamp: -60 dB
+
+  This ensures:
+    - Direct connect (beam at UE): af_dB ~ 0 dB (optimal SNR)
+    - Sweep at wrong angle: af_dB << 0 dB (degraded SNR)
 
   A) Received Power Calculation:
 
@@ -193,34 +225,40 @@
   FORMULA REFERENCE SUMMARY
 
   Geometry:
-    d = √[(x₁-x₂)² + (y₁-y₂)² + (z₁-z₂)²]                    [Euclidean distance]
-    θ = atan2(Δy, Δx)                                           [Azimuth angle]
+    d = sqrt[(x1-x2)^2 + (y1-y2)^2 + (z1-z2)^2]              [Euclidean distance]
+    theta = atan2(dy, dx)                                      [Azimuth angle]
 
   Path Loss:
-    PL(dB) = 20·log₁₀(4πd/λ)                                  [Free space path loss]
-    PL(dB) = 32.4 + 20·log₁₀(d_km) + 20·log₁₀(f_GHz)          [Simplified]
+    PL(dB) = 20*log10(4*pi*d/lambda)                          [Free space path loss]
+    PL(dB) = 32.4 + 20*log10(d_km) + 20*log10(f_GHz)          [Simplified]
 
-  RIS Phase Configuration:
-    φ_ideal[m,n] = (2π/λ) × (d_AP→element - d_element→UE)     [Ideal phase]
-    φ_quantized = round(φ_ideal / Δφ) × Δφ, where Δφ = 2π/2^B [Quantized phase]
+  RIS Phase Configuration (HybridPhaseEngine):
+    phi_tx = k * distance(AP, element)                         [Incident compensation]
+    phi_rx = -k * (x*cos(theta_az) + y*sin(theta_az))         [Beam steering]
+    phi_total = phi_tx + phi_rx                                [Combined phase]
+    phi_quantized = round(phi_total / delta_phi) * delta_phi   [Quantized, delta_phi = 2*pi/2^B]
 
   Array Gain:
-    G_array = 10·log₁₀(N²)                                     [N = elements per side]
+    G_array = 10*log10(N^2)                                    [N = elements per side]
+
+  Angular Loss (beam pattern model):
+    af_dB = -40 * (angular_deviation / 60)^2                   [Quadratic roll-off]
+    Clamped to -60 dB maximum loss
 
   Received Power:
-    P_rx(dBm) = P_tx + G_ap + G_ue + G_ris - PL_AP_RIS - PL_RIS_UE
+    P_rx(dBm) = P_tx + G_ap + G_ue + G_ris + af_dB - PL_AP_RIS - PL_RIS_UE
 
   Noise Floor:
-    N_floor = N_0 + NF + 10·log₁₀(BW)                          [N_0 ≈ -174 dBm/Hz]
+    N_floor = N_0 + NF + 10*log10(BW)                          [N_0 = -174 dBm/Hz]
 
   Signal-to-Noise Ratio:
     SNR(dB) = P_rx - N_floor                                   [In dB]
     SNR_linear = 10^(SNR_dB/10)                                [In linear scale]
 
-  Quantization Loss (4-bit example):
-    Loss_quant ≈ 1.67 dB for 4-bit                            [Typical values]
-    Loss_quant ≈ 3-4 dB for 2-bit
-    Loss_quant ≈ 0.2 dB for 8-bit
+  Quantization Loss (typical values):
+    Loss_quant ~ 1.67 dB for 4-bit (16 levels)
+    Loss_quant ~ 3-4 dB for 2-bit (4 levels)
+    Loss_quant ~ 0.2 dB for 8-bit (256 levels)
 
   Modulation Coding (approximate SNR thresholds):
     BPSK: SNR > 4 dB
@@ -229,10 +267,20 @@
     64QAM: SNR > 20.7 dB
 
   EVM (Error Vector Magnitude):
-    EVM(%) = (RMS_error / RMS_reference) × 100%               [Quality metric]
+    EVM(%) = (RMS_error / RMS_reference) * 100%               [Quality metric]
 
   Symbol Error Rate (approximate):
-    SER ≈ Q(√(2·SNR·log₂(M)))                                 [M = constellation size]
+    SER ~ Q(sqrt(2*SNR*log2(M)))                              [M = constellation size]
     where Q(x) = complementary error function
+
+  ---
+  KEY FILES
+
+  - cli/main_shell.py - do_connect entry point
+  - cli/connection_handler.py - ConnectionHandler class
+  - core/network.py - connect() main computation
+  - core/physics.py - path_loss_dB, angle_loss_dB, compute_snr_dB
+  - controller/ris_phase/phase_hybrid.py - HybridPhaseEngine
+  - controller/ris_phase/phase_steering.py - PhaseSteeringEngine (legacy)
 
   ---
