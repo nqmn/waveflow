@@ -177,7 +177,11 @@ class HybridPhaseEngine:
         """
         Compute reflect phase using plane wave (far-field RX, beam steering).
 
-        Formula: φ_rx(i,j) = -k·(x_i·sin(θ_az) + y_i·sin(θ_el))
+        Formula for 2D azimuth steering (RIS in XY plane, normal along Z):
+            φ_rx(i,j) = -k·(x_i·cos(θ_az) + y_i·sin(θ_az))
+
+        This creates a linear phase gradient that steers the beam to azimuth angle θ_az.
+        The gradient direction is [cos(θ_az), sin(θ_az)] which points towards the target.
 
         Args:
             k: Wavenumber (2π/λ)
@@ -203,8 +207,10 @@ class HybridPhaseEngine:
         theta_az = np.arctan2(v_out[1], v_out[0])  # radians
         theta_el = np.arcsin(v_hat[2])             # radians, in [-π/2, π/2]
 
-        # Linear phase for beam steering
-        phi_reflect = -k * (x_rel * np.sin(theta_az) + y_rel * np.sin(theta_el))
+        # Linear phase for beam steering in 2D (azimuth only)
+        # For steering to direction θ_az, the phase gradient must be along [cos(θ_az), sin(θ_az)]
+        # This ensures constructive interference in the target direction
+        phi_reflect = -k * (x_rel * np.cos(theta_az) + y_rel * np.sin(theta_az))
         return phi_reflect, theta_az, theta_el
 
     @staticmethod

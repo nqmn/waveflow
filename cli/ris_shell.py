@@ -685,16 +685,25 @@ PERFORMANCE METRICS:
         unique_levels = np.unique(np.round(phases_grid, 2))
         unique_count = unique_levels.size
         wave_desc = wave_mode if isinstance(wave_mode, str) else "Unknown"
-        wave_phrase = wave_desc.lower()
 
         if self.ris_node.quantized_phases is not None:
             if states == 2 and unique_count <= 2:
-                if wave_mode == "Plane Wave":
-                    return "1-bit 0°/180° stripes approximating a linear ramp"
-                return "1-bit 0°/180° pattern with spatial variation (spherical-phase steering)"
+                # Check metadata for TX/RX mode combination
+                if hasattr(self.ris_node, 'phase_metadata') and self.ris_node.phase_metadata:
+                    tx_mode = self.ris_node.phase_metadata.get('tx_mode', '')
+                    rx_mode = self.ris_node.phase_metadata.get('rx_mode', '')
+                    if tx_mode == 'plane' and rx_mode == 'plane':
+                        return "1-bit 0°/180° vertical stripes (plane TX + plane RX)"
+                    elif tx_mode == 'spherical' and rx_mode == 'plane':
+                        return "1-bit 0°/180° pattern (spherical TX + plane steering)"
+                    elif tx_mode == 'spherical' and rx_mode == 'spherical':
+                        return "1-bit 0°/180° pattern (spherical TX + spherical focusing)"
+                    elif tx_mode == 'plane' and rx_mode == 'spherical':
+                        return "1-bit 0°/180° pattern (plane TX + spherical focusing)"
+                return f"1-bit 0°/180° pattern ({wave_desc})"
             return f"{unique_count} unique level(s) across {states}-state quantizer"
 
-        return f"Continuous {wave_phrase} ramp with ~{unique_count} sampled bins"
+        return f"Continuous phase pattern with ~{unique_count} sampled bins"
 
     def _detect_wave_mode(self):
         """Detect wave mode from phase metadata or heuristic analysis.

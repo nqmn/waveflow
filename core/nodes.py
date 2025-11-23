@@ -309,10 +309,11 @@ class RIS(Node):
         self.phase_metadata = None  # Metadata from phase computation (deflection angles, etc.)
 
         # Hybrid mode configuration (Approach B from formula_hybrid.md)
-        # Default to plane wave for both TX and RX (standard beam steering mode)
-        # Use None for auto-selection based on Fraunhofer boundary, False for spherical (focusing)
-        self.plane_tx = True  # TX wave type: True (plane), False (spherical), None (auto)
-        self.plane_rx = True  # RX wave type: True (plane/steering), False (spherical/focusing), None (auto)
+        # Default to auto-selection based on Fraunhofer boundary (r_boundary = 2D²/λ)
+        # - TX: spherical if dist < boundary, plane if dist > boundary
+        # - RX: focus (spherical) if dist < boundary, steer (plane) if dist > boundary
+        self.plane_tx = None  # TX wave type: None (auto), True (plane), False (spherical)
+        self.plane_rx = None  # RX wave type: None (auto), True (plane/steer), False (spherical/focus)
         self.use_hybrid_engine = True  # Use new hybrid phase engine
 
         # Phase manager (lazy-loaded on demand)

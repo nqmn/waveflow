@@ -295,7 +295,36 @@ class RISNetwork:
             # - TX phase: spherical or plane wave (configurable via ris.plane_tx)
             # - RX phase: steering (plane) or focusing (spherical) (configurable via ris.plane_rx)
             # - Total phase: φ(i,j) = φ_tx(i,j) + φ_rx(i,j)
-            ris.compute_phases(ap.pos, ue.pos)
+            #
+            # CRITICAL FIX: For beam sweeps, we need to compute phases that steer
+            # towards beam_angle_deg, not always towards the actual UE position.
+            # Create a virtual target position at the beam_angle_deg direction.
+            # The SNR is then evaluated at the actual UE position to see how well
+            # the beam (steered to beam_angle_deg) illuminates the UE.
+            #
+            # Original code always used ue.pos, which meant all sweep angles
+            # had the same (optimal) phases, giving nearly identical SNR values.
+            vec_tgt = ue.pos - ris.pos
+            actual_ue_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
+
+            # Check if beam_angle_deg differs from actual UE angle (sweep mode)
+            angle_diff_from_ue = abs((beam_angle_deg - actual_ue_angle_deg + 180) % 360 - 180)
+
+            if angle_diff_from_ue > 0.1:  # Sweep mode: beam_angle differs from UE direction
+                # Create virtual target position at beam_angle_deg direction
+                # Use same distance as RIS-to-UE for consistency
+                d_ris_ue = np.linalg.norm(vec_tgt)
+                beam_angle_rad = np.radians(beam_angle_deg)
+                virtual_target_pos = np.array([
+                    ris.pos[0] + d_ris_ue * np.cos(beam_angle_rad),
+                    ris.pos[1] + d_ris_ue * np.sin(beam_angle_rad),
+                    ue.pos[2]  # Keep same height as UE
+                ])
+                ris.compute_phases(ap.pos, virtual_target_pos)
+            else:
+                # Direct connect mode: steer towards actual UE
+                ris.compute_phases(ap.pos, ue.pos)
+
             ris.quantize_phases()
 
             # Get metadata from the HybridPhaseEngine computation
