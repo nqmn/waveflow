@@ -15,6 +15,7 @@ from .adaptive_directional_sweep import AdaptiveDirectionalSweep
 from .opencv_sweep import OpenCVVisionSweep
 from .hog_sweep import HOGHumanDetectionSweep
 from .prime_sweep import PRIMELocalizationSweep
+from .de_localization_sweep import DELocalizationSweep
 
 
 def __getattr__(name):
@@ -38,6 +39,7 @@ __all__ = [
     "OpenCVVisionSweep",
     "HOGHumanDetectionSweep",
     "PRIMELocalizationSweep",
+    "DELocalizationSweep",
     "aruco_utils",
     "register_algorithm",
     "get_algorithm_class",
