@@ -203,6 +203,8 @@ class DELocalizationSweep(SweepAlgorithmBase):
         # For DE algorithm, we return single-value arrays since it's a different approach
         snr_coarse_list = [float(snr_db)]  # Single SNR value in array format
         angle_coarse_list = [float(beam_angle_deg)]  # Local beam angle in array format
+        # Note: do NOT include 'ser_coarse' - let waveform post-processing add it
+        # Including empty list causes issues with numpy array truth value checks
 
         result = {
             # DE-specific results
