@@ -691,3 +691,27 @@ Change budget: [files 3] [functions: mock-camera diagnostics, viewer entrypoint 
 - Assumptions invalidated: None.
 - Known debt (acknowledged): The OpenCV/HOG sweep algorithms remain the major unfinished logging surface in the vision stack.
 - Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/opencv_mock.py controller/beamsweeping/algorithms/opencv_viewer.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
+
+## Task: Continue Phase 4 Logging Migration for OpenCV Vision Sweep
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the logging-only hunks in `controller/beamsweeping/algorithms/opencv_sweep.py` and `tasks/todo.md`.
+Change budget: [files 2] [functions: OpenCV sweep diagnostics and validation display logging] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `controller/beamsweeping/algorithms/opencv_sweep.py` — replace direct stdout diagnostics with module loggers
+- `tasks/todo.md` — record this migration slice
+
+### Steps
+- [x] Inspect all remaining `print()` call sites in `opencv_sweep.py`
+- [x] Replace diagnostic stdout output with module loggers
+- [x] Verify targeted compilation and smoke coverage
+
+### Review
+- Completed: Replaced the OpenCV vision sweep’s diagnostic stdout output with module loggers, including node/bootstrap notices, coordinate-transform tracing, deflection-angle tracing, diagnostics, and result summaries, without changing the sweep result structure.
+- Out-of-scope flagged: `hog_sweep.py` remains the largest unfinished non-CLI logging surface.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The vision stack still has a large amount of direct stdout output in `hog_sweep.py`.
+- Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/opencv_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.

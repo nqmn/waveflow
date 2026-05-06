@@ -19,6 +19,7 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+import logging
 import numpy as np
 from typing import Dict, Optional, Tuple, List
 from ..base import SweepAlgorithmBase
@@ -44,6 +45,8 @@ try:
     MOCK_AVAILABLE = True
 except ImportError:
     MOCK_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 @register_algorithm("opencv", aliases=("vision", "aruco"))
@@ -143,19 +146,26 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
         # Handle UE node
         if ue is None:
-            print(f"\n[OPENCV VISION SWEEP] UE '{ue_name}' not found in network.")
-            print(f"[OPENCV VISION SWEEP] Creating placeholder UE node (position will be set from camera detection).")
+            logger.info(
+                "\n[OPENCV VISION SWEEP] UE '%s' not found in network.\n"
+                "[OPENCV VISION SWEEP] Creating placeholder UE node (position will be set from camera detection).",
+                ue_name,
+            )
             try:
                 self.network.add_ue(ue_name, 0.0, 0.0, 0.0)
                 ue = self.network.nodes[ue_name]
-                print(f"[OPENCV VISION SWEEP] Created placeholder UE '{ue_name}' at origin.")
+                logger.info("[OPENCV VISION SWEEP] Created placeholder UE '%s' at origin.", ue_name)
             except Exception as e:
                 raise ValueError(f"Could not create UE node: {e}") from e
         else:
-            print(f"\n[OPENCV VISION SWEEP] UE '{ue_name}' exists in topology.")
-            print(f"[OPENCV VISION SWEEP] Will replace UE position with detected marker position.")
             ue_pos_original = np.array(ue.pos, dtype=np.float64).copy()
-            print(f"[OPENCV VISION SWEEP] Original UE position: {ue_pos_original}")
+            logger.info(
+                "\n[OPENCV VISION SWEEP] UE '%s' exists in topology.\n"
+                "[OPENCV VISION SWEEP] Will replace UE position with detected marker position.\n"
+                "[OPENCV VISION SWEEP] Original UE position: %s",
+                ue_name,
+                ue_pos_original,
+            )
 
         # Initialize camera and ArUco detection
         if use_mock:
@@ -167,7 +177,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 marker_trajectory=mock_trajectory,
                 num_frames=max_frames
             )
-            print(f"[OPENCV MOCK] Using synthetic camera with {mock_trajectory} trajectory")
+            logger.info("[OPENCV MOCK] Using synthetic camera with %s trajectory", mock_trajectory)
         else:
             cap = cv2.VideoCapture(camera_id)
             if not cap.isOpened():
@@ -201,9 +211,12 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             t_cw = np.array(t_cw, dtype=np.float64)
 
         if default_rotation:
-            print("[OPENCV] r_cw not provided. Assuming camera axes aligned with RIS (identity rotation).")
+            logger.info("[OPENCV] r_cw not provided. Assuming camera axes aligned with RIS (identity rotation).")
         if default_translation:
-            print(f"[OPENCV] t_cw not provided. Assuming camera located at RIS position {np.asarray(ris.pos)}.")
+            logger.info(
+                "[OPENCV] t_cw not provided. Assuming camera located at RIS position %s.",
+                np.asarray(ris.pos),
+            )
 
         # Get RIS parameters
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
@@ -225,10 +238,13 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             # Camera axes aligned with world axes (identity rotation)
             r_cw = np.eye(3, dtype=np.float64)
 
-            print(f"[MOCK CAMERA] Computed transformation:")
-            print(f"  Camera position (t_cw): {t_cw}")
-            print(f"  Camera rotation (r_cw): identity")
-            print(f"  Note: Camera is at RIS center with world-aligned axes")
+            logger.info(
+                "[MOCK CAMERA] Computed transformation:\n"
+                "  Camera position (t_cw): %s\n"
+                "  Camera rotation (r_cw): identity\n"
+                "  Note: Camera is at RIS center with world-aligned axes",
+                t_cw,
+            )
 
         # Setup waveform simulator if requested
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
@@ -249,12 +265,18 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
         # Note: Video recording removed. Detected frame will be saved as image instead.
 
-        print(f"\n[OPENCV VISION SWEEP]")
-        print(f"Camera ID: {camera_id}")
-        print(f"ArUco Dict: {aruco_dict_type}")
-        print(f"Marker Size: {marker_size}m")
-        print(f"Max Frames: {max_frames}")
-        print(f"Processing frames...")
+        logger.info(
+            "\n[OPENCV VISION SWEEP]\n"
+            "Camera ID: %s\n"
+            "ArUco Dict: %s\n"
+            "Marker Size: %sm\n"
+            "Max Frames: %s\n"
+            "Processing frames...",
+            camera_id,
+            aruco_dict_type,
+            marker_size,
+            max_frames,
+        )
 
         try:
             while cap.isOpened():
@@ -354,24 +376,37 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
                 # Log coordinate transformation for first detection
                 if unique_poses == 0:
-                    print(f"\n[COORDINATE TRANSFORMATION DETAILS]")
-                    print(f"Frame {frame_count}:")
-                    print(f"  Camera frame (from ArUco detector):")
-                    print(f"    x_cam = {x_cam:.6f} m")
-                    print(f"    y_cam = {y_cam:.6f} m")
-                    print(f"    z_cam = {z_cam:.6f} m")
-                    print(f"    distance = {dist_cam:.6f} m")
-                    print(f"  Transform parameters:")
-                    print(f"    R_cw (rotation matrix):")
-                    print(f"      {r_cw}")
-                    print(f"    t_cw (translation): {t_cw}")
                     is_identity = (np.allclose(r_cw, np.eye(3)) and
                                    np.allclose(t_cw, np.zeros(3)))
-                    print(f"    Is identity transform: {is_identity}")
-                    print(f"  World frame (RIS-centered):")
-                    print(f"    x_world = {x_world:.6f}")
-                    print(f"    y_world = {y_world:.6f}")
-                    print(f"    z_world = {z_world:.6f}")
+                    logger.info(
+                        "\n[COORDINATE TRANSFORMATION DETAILS]\n"
+                        "Frame %s:\n"
+                        "  Camera frame (from ArUco detector):\n"
+                        "    x_cam = %.6f m\n"
+                        "    y_cam = %.6f m\n"
+                        "    z_cam = %.6f m\n"
+                        "    distance = %.6f m\n"
+                        "  Transform parameters:\n"
+                        "    R_cw (rotation matrix):\n"
+                        "      %s\n"
+                        "    t_cw (translation): %s\n"
+                        "    Is identity transform: %s\n"
+                        "  World frame (RIS-centered):\n"
+                        "    x_world = %.6f\n"
+                        "    y_world = %.6f\n"
+                        "    z_world = %.6f",
+                        frame_count,
+                        x_cam,
+                        y_cam,
+                        z_cam,
+                        dist_cam,
+                        r_cw,
+                        t_cw,
+                        is_identity,
+                        x_world,
+                        y_world,
+                        z_world,
+                    )
 
                 # Draw axis on marker if not mock
                 if not use_mock:
@@ -408,10 +443,14 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 if unique_poses == 0:
                     ue_pos_before = np.array(ue.pos, dtype=np.float64).copy()
                     ue.pos = np.array(p_ue_world, dtype=np.float64)
-                    print(f"\n[UE POSITION UPDATE]")
-                    print(f"  UE position before (from network topology): {ue_pos_before}")
-                    print(f"  UE position after (from camera detection): {ue.pos.tolist()}")
-                    print(f"  This ensures deflection angle is based on detected marker position")
+                    logger.info(
+                        "\n[UE POSITION UPDATE]\n"
+                        "  UE position before (from network topology): %s\n"
+                        "  UE position after (from camera detection): %s\n"
+                        "  This ensures deflection angle is based on detected marker position",
+                        ue_pos_before,
+                        ue.pos.tolist(),
+                    )
 
                 # Compute deflection angle from AP/RIS/UE geometry
                 deflection_angle = self._compute_deflection_angle(ap, ris, p_ue_world)
@@ -421,20 +460,31 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
                 # Log deflection calculation for first detection
                 if unique_poses == 0:
-                    print(f"\n[DEFLECTION ANGLE CALCULATION]")
-                    print(f"  RIS position: {ris.pos}")
-                    print(f"  AP position: {ap.pos}")
-                    print(f"  UE position (world frame): {p_ue_world}")
-                    print(f"  Vector RIS→AP: {ap.pos - ris.pos}")
-                    print(f"  Vector RIS→UE: {p_ue_world - ris.pos}")
                     ap_vec = ap.pos - ris.pos
                     ue_vec = p_ue_world - ris.pos
                     ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
                     ue_angle = np.degrees(np.arctan2(ue_vec[1], ue_vec[0]))
-                    print(f"  AP azimuth angle: {ap_angle:.2f}°")
-                    print(f"  UE azimuth angle: {ue_angle:.2f}°")
-                    print(f"  Raw deflection angle: {deflection_angle:.2f}°")
-                    print(f"  Clamped deflection angle: {deflection_clamped:.2f}°")
+                    logger.info(
+                        "\n[DEFLECTION ANGLE CALCULATION]\n"
+                        "  RIS position: %s\n"
+                        "  AP position: %s\n"
+                        "  UE position (world frame): %s\n"
+                        "  Vector RIS→AP: %s\n"
+                        "  Vector RIS→UE: %s\n"
+                        "  AP azimuth angle: %.2f°\n"
+                        "  UE azimuth angle: %.2f°\n"
+                        "  Raw deflection angle: %.2f°\n"
+                        "  Clamped deflection angle: %.2f°",
+                        ris.pos,
+                        ap.pos,
+                        p_ue_world,
+                        ap.pos - ris.pos,
+                        p_ue_world - ris.pos,
+                        ap_angle,
+                        ue_angle,
+                        deflection_angle,
+                        deflection_clamped,
+                    )
 
                 # Skip if too close to previously measured angle (redundancy check)
                 if local_angles:
@@ -490,7 +540,10 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
                 # For non-mock mode: stop after first marker is detected and measured
                 if not use_mock:
-                    print(f"\n[MARKER DETECTED] Marker found at frame {frame_count}. Stopping sweep.")
+                    logger.info(
+                        "\n[MARKER DETECTED] Marker found at frame %s. Stopping sweep.",
+                        frame_count,
+                    )
                     break
 
         finally:
@@ -501,28 +554,38 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         if not snr_values:
             # Provide diagnostic information
             detection_rate = (frames_with_markers / frame_count * 100) if frame_count > 0 else 0
-            print(f"\n[DIAGNOSTIC REPORT]")
-            print(f"Total frames processed: {frame_count}")
-            print(f"Frames with markers detected: {frames_with_markers}")
-            print(f"Detection rate: {detection_rate:.1f}%")
-            print(f"\nPossible issues:")
+            diagnostic_lines = [
+                "",
+                "[DIAGNOSTIC REPORT]",
+                f"Total frames processed: {frame_count}",
+                f"Frames with markers detected: {frames_with_markers}",
+                f"Detection rate: {detection_rate:.1f}%",
+                "",
+                "Possible issues:",
+            ]
             if detection_rate == 0:
-                print(f"  - No ArUco markers detected in any frame")
-                print(f"  - Check: Camera is connected and oriented correctly")
-                print(f"  - Check: ArUco marker is clearly visible in camera view")
-                print(f"  - Check: Lighting is adequate for marker detection")
-                print(f"  - Check: Marker size parameter ({marker_size}m) matches actual marker")
-                print(f"  - Check: ArUco dictionary (DICT_4X4_50) matches your markers")
-                print(f"\n  Debug frames saved:")
-                print(f"    - camera_frame_001.jpg, camera_frame_005.jpg, camera_frame_010.jpg, ...")
-                print(f"  These show what the camera sees. Check them to:")
-                print(f"    1. Verify camera is working")
-                print(f"    2. See where to place the ArUco marker")
-                print(f"    3. Adjust lighting/focus if needed")
+                diagnostic_lines.extend([
+                    "  - No ArUco markers detected in any frame",
+                    "  - Check: Camera is connected and oriented correctly",
+                    "  - Check: ArUco marker is clearly visible in camera view",
+                    "  - Check: Lighting is adequate for marker detection",
+                    f"  - Check: Marker size parameter ({marker_size}m) matches actual marker",
+                    "  - Check: ArUco dictionary (DICT_4X4_50) matches your markers",
+                    "",
+                    "  Debug frames saved:",
+                    "    - camera_frame_001.jpg, camera_frame_005.jpg, camera_frame_010.jpg, ...",
+                    "  These show what the camera sees. Check them to:",
+                    "    1. Verify camera is working",
+                    "    2. See where to place the ArUco marker",
+                    "    3. Adjust lighting/focus if needed",
+                ])
             elif unique_poses == 0:
-                print(f"  - Markers detected but poses not valid for RIS FOV constraints")
-                print(f"  - Check: UE position is within RIS field of view")
-                print(f"  - Check: Angle change threshold ({angle_change_threshold}°) is not too strict")
+                diagnostic_lines.extend([
+                    "  - Markers detected but poses not valid for RIS FOV constraints",
+                    "  - Check: UE position is within RIS field of view",
+                    f"  - Check: Angle change threshold ({angle_change_threshold}°) is not too strict",
+                ])
+            logger.warning("\n%s", "\n".join(diagnostic_lines))
 
             raise RuntimeError(
                 f"No UE positions detected in {frame_count} frames. "
@@ -540,31 +603,49 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         best_abs = ap_angle + best_local
 
         # Print results summary
-        print(f"\n[OPENCV VISION RESULTS]")
-        print(f"Frames processed: {frame_count}")
-        print(f"Unique poses detected: {unique_poses}")
-        print(f"Deflection angles (degrees): {[f'{a:.1f}' for a in local_angles]}")
-        print(f"SNR values (dB): {[f'{s:.2f}' for s in snr_values]}")
-        print(f"\nBest Result:")
-        print(f"  Local deflection angle: {best_local:.2f}°")
-        print(f"  Absolute beam angle: {best_abs:.2f}°")
-        print(f"  Best SNR: {best_snr:.4f} dB")
+        summary_lines = [
+            "",
+            "[OPENCV VISION RESULTS]",
+            f"Frames processed: {frame_count}",
+            f"Unique poses detected: {unique_poses}",
+            f"Deflection angles (degrees): {[f'{a:.1f}' for a in local_angles]}",
+            f"SNR values (dB): {[f'{s:.2f}' for s in snr_values]}",
+            "",
+            "Best Result:",
+            f"  Local deflection angle: {best_local:.2f}°",
+            f"  Absolute beam angle: {best_abs:.2f}°",
+            f"  Best SNR: {best_snr:.4f} dB",
+        ]
+        logger.info("\n%s", "\n".join(summary_lines))
 
         # Save and display detected marker frame
         if last_detection_frame is not None:
-            print(f"\n[MARKER VALIDATION DISPLAY]")
-            print(f"  Frame: {last_detection_info['frame_count']}")
-            print(f"  Camera coords - X: {last_detection_info['x_cam']:.3f}m, Y: {last_detection_info['y_cam']:.3f}m, Z: {last_detection_info['z_cam']:.3f}m, Dist: {last_detection_info['dist_cam']:.3f}m")
-            print(f"  World coords - X: {last_detection_info['p_ue_world'][0]:.3f}, Y: {last_detection_info['p_ue_world'][1]:.3f}, Z: {last_detection_info['p_ue_world'][2]:.3f}")
+            logger.info(
+                "\n[MARKER VALIDATION DISPLAY]\n"
+                "  Frame: %s\n"
+                "  Camera coords - X: %.3fm, Y: %.3fm, Z: %.3fm, Dist: %.3fm\n"
+                "  World coords - X: %.3f, Y: %.3f, Z: %.3f",
+                last_detection_info['frame_count'],
+                last_detection_info['x_cam'],
+                last_detection_info['y_cam'],
+                last_detection_info['z_cam'],
+                last_detection_info['dist_cam'],
+                last_detection_info['p_ue_world'][0],
+                last_detection_info['p_ue_world'][1],
+                last_detection_info['p_ue_world'][2],
+            )
 
             # Save detected frame as image file
             marker_image_path = "aruco_marker_detected.png"
             cv2.imwrite(marker_image_path, last_detection_frame)
-            print(f"\n[MARKER FRAME SAVED]")
-            print(f"  Path: {marker_image_path}")
-            print(f"  Shows: ArUco marker detection with green square outline")
+            logger.info(
+                "\n[MARKER FRAME SAVED]\n"
+                "  Path: %s\n"
+                "  Shows: ArUco marker detection with green square outline",
+                marker_image_path,
+            )
 
-            print(f"\nPress any key to view the detected marker frame...")
+            logger.info("\nPress any key to view the detected marker frame...")
             cv2.imshow("Detected Marker Frame - Validation", last_detection_frame)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
