@@ -1,10 +1,12 @@
-# RISNet v2.0
+# Waveflow v2.0
 
-Advanced Reconfigurable Intelligent Surface (RIS) network simulator with modular architecture, beam sweeping algorithms, spatial channel modeling, and ML-guided optimization.
+Wireless propagation, waveform, and RIS-assisted network simulator with modular architecture, beam sweeping algorithms, spatial channel modeling, and ML-guided optimization.
 
-## What is RISNet?
+## What is Waveflow?
 
-RISNet simulates wireless networks where passive RIS panels reflect signals from an Access Point (AP) to User Equipment (UE). It models the full link budget: path loss, RIS array gain, phase quantization, fading, and FOV constraints.
+Waveflow simulates adaptive wireless networks, including passive RIS panels that reflect signals from an Access Point (AP) to User Equipment (UE). It models link budget, path loss, RIS array gain, phase quantization, fading, FOV constraints, waveform-level channels, and ML-guided control.
+
+Waveflow is the forward-looking package name for the project formerly known as RISNet. The `risnet` import path and CLI command remain available as compatibility aliases.
 
 ## Quick Start
 
@@ -12,7 +14,7 @@ RISNet simulates wireless networks where passive RIS panels reflect signals from
 git clone https://github.com/nqmn/risnet
 cd risnet
 pip install -e .
-risnet
+waveflow
 ```
 
 Full installation options and troubleshooting: **[INSTALL.md](INSTALL.md)**
@@ -27,7 +29,7 @@ Step-by-step tutorials from basic to advanced: **[TUTORIAL.md](TUTORIAL.md)**
 | Beam sweeping | Linear, adaptive, DE, ML-guided, hierarchical, PRIME |
 | Pathfinding | Dijkstra, A\*, Greedy, Exhaustive |
 | Channel | OFDM waveform, multipath, per-subcarrier SNR |
-| ML | Random Forest, XGBoost, SVR, MLP beam predictors |
+| ML | Random Forest, XGBoost, SVR, KNN, LGBM beam predictors |
 | Interface | Interactive CLI, REST API (Flask), Python API |
 | Feedback | UE→AP SNR feedback loop with adaptive beam tracking |
 
@@ -41,7 +43,8 @@ risnet/
 ├── cli/                # Interactive shell
 ├── config/             # Configuration management
 ├── utils/              # Link budget, SNR, RSSI helpers
-├── risnet/             # Package root and high-level RISnet API
+├── waveflow/           # New public package wrappers
+├── risnet/             # Backward-compatible package root and high-level API
 ├── matlab_integration/ # MATLAB bridge and .m scripts
 ├── examples/
 │   ├── script/         # Runnable Python examples
@@ -58,13 +61,13 @@ risnet/
 ### Interactive CLI
 
 ```bash
-risnet
-risnet> add ap ap1 0 0
-risnet> add ris ris1 5 0 0 16 2
-risnet> add ue ue1 10 3
-risnet> connect ap1 ris1 ue1
-risnet> sweep ap1 ris1 ue1 60 10 --algo de
-risnet> help
+waveflow
+waveflow> add ap ap1 0 0
+waveflow> add ris ris1 5 0 0 16 2
+waveflow> add ue ue1 10 3
+waveflow> connect ap1 ris1 ue1
+waveflow> sweep ap1 ris1 ue1 60 10 --algo de
+waveflow> help
 ```
 
 ### Python API (low-level)
@@ -84,7 +87,7 @@ print(f"SNR: {result['snr_dB']:.1f} dB")
 ### Python API (high-level)
 
 ```python
-from risnet import RISnet
+from waveflow import RISnet
 
 net = RISnet()
 ap  = net.addAP('ap1',  position=(0, 0))
@@ -99,7 +102,7 @@ print(f"SNR: {result['snr_dB']:.1f} dB, hops: {result['hops']}")
 ### Web interface
 
 ```bash
-risnet --web
+waveflow --web
 # Open http://127.0.0.1:5000
 ```
 
@@ -107,10 +110,10 @@ risnet --web
 
 ```bash
 # From CLI
-risnet> sweep ap1 ris1 ue1 60 10 --algo linear
-risnet> sweep ap1 ris1 ue1 60 10 --algo adaptive
-risnet> sweep ap1 ris1 ue1 60 10 --algo de
-risnet> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
+waveflow> sweep ap1 ris1 ue1 60 10 --algo linear
+waveflow> sweep ap1 ris1 ue1 60 10 --algo adaptive
+waveflow> sweep ap1 ris1 ue1 60 10 --algo de
+waveflow> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
 ```
 
 | Algorithm | Key | Notes |
@@ -118,7 +121,7 @@ risnet> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
 | Linear brute-force | `linear` | Uniform steps, coarse→fine |
 | Adaptive center-out | `adaptive` | ~30% faster than linear |
 | Differential Evolution | `de` | Population-based global search |
-| ML-guided | `ml-guided` | RF/XGBoost/SVR/MLP predictor + refinement |
+| ML-guided | `ml-guided` | RF/XGBoost/SVR/KNN/LGBM predictor + refinement |
 | Hierarchical | `hierarchical` | Multi-resolution |
 | PRIME localization | `prime` | Localization-assisted |
 
@@ -126,7 +129,7 @@ risnet> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
 
 ```bash
 # Compile check
-python3 -m compileall core controller cli risnet app config utils
+python3 -m compileall core controller cli risnet waveflow app config utils
 
 # Physics regression
 PYTHONPATH=. python3 tests/test_physics_fixes.py

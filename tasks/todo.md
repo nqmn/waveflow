@@ -99,3 +99,31 @@ Change budget: files 2 functions: RISNetwork._resolve_connect_nodes, RISNetwork.
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Only the node lookup branch was extracted in this slice.
+
+## Task: Soft Rebrand to Waveflow
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the additive waveflow package wrappers, metadata edits, and docs rename edits.
+Change budget: files 20 functions: package entry points only interfaces: PyPI name waveflow, CLI waveflow, import waveflow, compatibility risnet CLI/import state mutations: None
+
+### Scope
+- pyproject.toml - publish metadata and scripts for waveflow while retaining risnet CLI alias.
+- setup.py - mirror legacy setuptools metadata and scripts.
+- waveflow/* - additive compatibility package that re-exports the existing implementation.
+- README.md, INSTALL.md, TUTORIAL.md - primary docs rename and compatibility notes.
+- tests/test_smoke.py - verify new CLI/import surface while keeping old alias coverage.
+
+### Steps
+- [x] Add additive waveflow package wrappers
+- [x] Update package metadata and console scripts
+- [x] Update primary docs for waveflow install/import/CLI
+- [ ] Run focused verification
+
+### Review
+- Completed:
+- Out-of-scope flagged:
+- Assumptions invalidated:
+- Known debt (acknowledged):
+- Limitations:

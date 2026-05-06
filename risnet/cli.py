@@ -1,5 +1,5 @@
 """
-Interactive CLI for RISNet with direct node access
+Interactive CLI for Waveflow with direct node access
 
 Allows commands like:
   ap1 info              - Get AP info
@@ -19,11 +19,11 @@ import pprint
 
 
 class RISnetCLI(cmd.Cmd):
-    """Interactive CLI for RISNet simulator with node access"""
+    """Interactive CLI for Waveflow simulator with node access"""
 
     intro = """
 ╔════════════════════════════════════════════════════════════╗
-║           RISNet v2.0 - Interactive CLI                   ║
+║           Waveflow v2.0 - Interactive CLI                 ║
 ║                                                            ║
 ║  Add nodes: add ap ap1 0 0                                ║
 ║             add ris ris1 5 0                              ║
@@ -40,13 +40,13 @@ class RISnetCLI(cmd.Cmd):
 ╚════════════════════════════════════════════════════════════╝
 """
 
-    prompt = "risnet> "
+    prompt = "waveflow> "
 
     def __init__(self, net):
         """Initialize CLI with RISnet instance
 
         Args:
-            net: RISnet instance
+            net: Waveflow/RISnet instance
         """
         super().__init__()
         self.net = net
@@ -667,7 +667,7 @@ class RISnetCLI(cmd.Cmd):
         else:
             print("""
 ╔════════════════════════════════════════════════════════════╗
-║                    RISNet CLI Help                         ║
+║                    Waveflow CLI Help                       ║
 ╚════════════════════════════════════════════════════════════╝
 
 NETWORK MANAGEMENT:
@@ -687,15 +687,15 @@ NODE OPERATIONS (syntax: <nodename> <command>):
   <ap> connect <ris> <ue>        - Connect AP→RIS→UE
 
 EXAMPLE SESSION:
-  risnet> add ap ap1 0 0
-  risnet> add ris ris1 5 0 N=16 bits=2
-  risnet> add ue ue1 10 3
-  risnet> list
-  risnet> ap1 info
-  risnet> ap1 rename access_point
-  risnet> access_point ping ue1
-  risnet> ap1 findpaths ue1 dijkstra
-  risnet> ap1 connect ris1 ue1
+  waveflow> add ap ap1 0 0
+  waveflow> add ris ris1 5 0 N=16 bits=2
+  waveflow> add ue ue1 10 3
+  waveflow> list
+  waveflow> ap1 info
+  waveflow> ap1 rename access_point
+  waveflow> access_point ping ue1
+  waveflow> ap1 findpaths ue1 dijkstra
+  waveflow> ap1 connect ris1 ue1
 
 Type 'help <command>' for more details
 """)

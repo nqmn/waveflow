@@ -1,4 +1,4 @@
-"""Command-line entry point for the installed ``risnet`` package."""
+"""Command-line entry point for the installed package."""
 
 import argparse
 import sys
@@ -26,16 +26,16 @@ def _run_web(net, controller, host="127.0.0.1", port=5000):
 
 
 def main(argv=None):
-    """Run the RISNet CLI or web interface."""
+    """Run the Waveflow CLI or web interface."""
     parser = argparse.ArgumentParser(
-        description="RISNet v2.0 Advanced RIS Network Simulator",
+        description="Waveflow v2.0 Advanced Wireless and RIS Simulator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  risnet --web                          # Run web interface
-  risnet --cli                          # Run CLI interface (default)
-  risnet --cli --topology topology.json # Load topology on startup
-  risnet testall --exec-only            # Run testall and exit
+  waveflow --web                          # Run web interface
+  waveflow --cli                          # Run CLI interface (default)
+  waveflow --cli --topology topology.json # Load topology on startup
+  waveflow testall --exec-only            # Run testall and exit
         """,
     )
     parser.add_argument("--web", action="store_true", help="Run web interface")
@@ -60,13 +60,13 @@ Examples:
 
     if args.web:
         print("\n" + "=" * 70)
-        print("RISNet v2.0 - Web Interface")
+        print("Waveflow v2.0 - Web Interface")
         print("=" * 70 + "\n")
         _run_web(net, controller, host=args.host, port=args.port)
         return 0
 
     print("\n" + "=" * 70)
-    print("RISNet v2.0 - CLI Interface")
+    print("Waveflow v2.0 - CLI Interface")
     print("=" * 70 + "\n")
 
     from cli.main_shell import RISNetCLI

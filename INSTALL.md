@@ -1,4 +1,4 @@
-# Installation Guide
+# Waveflow Installation Guide
 
 ## Requirements
 
@@ -11,6 +11,9 @@
 git clone https://github.com/nqmn/risnet
 cd risnet
 ```
+
+The GitHub repository still lives at `nqmn/risnet`, but the Python package is
+published as `waveflow`. The old `risnet` import and CLI are kept as aliases.
 
 ## 2. Choose an Install Profile
 
@@ -29,7 +32,7 @@ Excludes: web interface, ML predictors, computer vision, visualization.
 pip install -e ".[web]"
 ```
 
-Adds Flask and Waitress. Enables `risnet --web`.
+Adds Flask and Waitress. Enables `waveflow --web`.
 
 ### With ML beam predictors
 
@@ -81,10 +84,10 @@ pip install -e ".[all]"
 
 ```bash
 # Check the CLI entry point
-risnet --help
+waveflow --help
 
 # Run a compile check
-python3 -m compileall core controller cli risnet app config utils
+python3 -m compileall core controller cli risnet waveflow app config utils
 
 # Run the physics regression test
 PYTHONPATH=. python3 tests/test_physics_fixes.py
@@ -92,7 +95,7 @@ PYTHONPATH=. python3 tests/test_physics_fixes.py
 # Baseline simulation check
 python3 - <<'PY'
 from core import RISNetwork
-from risnet import RISnet
+from waveflow import RISnet
 net = RISNetwork(enable_messaging=False)
 net.add_ap("ap1", 0, 2)
 net.add_ris("ris1", 5, 2, max_angle_deg=90)
@@ -111,7 +114,7 @@ source .venv/bin/activate      # Linux / macOS
 .venv\Scripts\activate         # Windows
 
 pip install -e ".[dev]"
-risnet --help
+waveflow --help
 ```
 
 ## 5. Running Tests
@@ -132,7 +135,7 @@ a stale expected value and will report one failure. All other tests pass.
 
 ```bash
 pip install -e ".[web]"
-risnet --web
+waveflow --web
 # Open http://127.0.0.1:5000
 ```
 
@@ -167,15 +170,17 @@ boresight range, or widen the FOV:
 net.add_ris('ris1', 5, 0, max_angle_deg=90)  # ±90° FOV
 ```
 
-**`risnet` command not found after install**
+**`waveflow` command not found after install**
 
 Confirm editable install completed without errors:
 
 ```bash
 pip install -e .
-which risnet       # Linux/macOS
-where risnet       # Windows
+which waveflow       # Linux/macOS
+where waveflow       # Windows
 ```
+
+The legacy `risnet` command is also installed for backward compatibility.
 
 **MATLAB integration errors**
 

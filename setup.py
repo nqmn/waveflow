@@ -51,6 +51,9 @@ EXTRAS_REQUIRE["all"] = sorted(
 )
 
 setup(
+    name="waveflow",
+    version="2.0.0",
+    description="Waveflow: wireless propagation, waveform, and RIS-assisted network simulator",
     install_requires=BASE_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
     packages=find_packages(
@@ -61,6 +64,7 @@ setup(
             "controller*",
             "core*",
             "risnet*",
+            "waveflow*",
             "utils*",
         ],
         exclude=[
@@ -71,6 +75,7 @@ setup(
     ),
     entry_points={
         "console_scripts": [
+            "waveflow=waveflow.__main__:main",
             "risnet=risnet.__main__:main",
         ],
     },

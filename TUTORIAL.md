@@ -1,8 +1,12 @@
-# RISNet Tutorial
+# Waveflow Tutorial
 
-This tutorial covers RISNet from a first simulation to advanced beam sweeping,
+This tutorial covers Waveflow from a first simulation to advanced beam sweeping,
 waveform-level analysis, and ML-guided optimization. Each section builds on
 the previous one.
+
+Waveflow is the new package name for the project formerly known as RISNet. The
+legacy `risnet` import path still works, but new code should prefer
+`waveflow`.
 
 Prerequisites: completed installation per [INSTALL.md](INSTALL.md).
 
@@ -58,7 +62,7 @@ AP and UE must be within this cone. The default is ±60°. Use
 network testing tools.
 
 ```python
-from risnet import RISnet
+from waveflow import RISnet
 
 net = RISnet()
 ap  = net.addAP('ap1',  position=(0, 0))
@@ -150,7 +154,7 @@ print(f"Blocking walls: {len(blocking)}")
 ### 2.3 Predefined Topologies
 
 ```python
-from risnet import RISnet, topos
+from waveflow import RISnet, topos
 
 # Available topologies: 'simple', 'obstacle', 'grid', 'sdr'
 topo = topos['obstacle']()
@@ -174,7 +178,7 @@ net.stop()
 ### 3.1 Finding Paths
 
 ```python
-from risnet import RISnet
+from waveflow import RISnet
 
 net = RISnet()
 ap  = net.addAP('ap1',  position=(0, 0))
@@ -294,13 +298,13 @@ print(f"DE best SNR: {result['best_snr_fine']:.1f} dB")
 ### 4.4 Sweep via CLI
 
 ```bash
-risnet> add ap ap1 0 0
-risnet> add ris ris1 5 0 0 16 2
-risnet> add ue ue1 10 3
-risnet> sweep ap1 ris1 ue1 60 10
-risnet> sweep ap1 ris1 ue1 60 10 --algo adaptive
-risnet> sweep ap1 ris1 ue1 60 10 --algo de M=32
-risnet> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
+waveflow> add ap ap1 0 0
+waveflow> add ris ris1 5 0 0 16 2
+waveflow> add ue ue1 10 3
+waveflow> sweep ap1 ris1 ue1 60 10
+waveflow> sweep ap1 ris1 ue1 60 10 --algo adaptive
+waveflow> sweep ap1 ris1 ue1 60 10 --algo de M=32
+waveflow> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
 ```
 
 ---
@@ -379,7 +383,7 @@ print(f"Fading coefficient: {fading:.4f}")
 
 ### 6.1 Creating a Feedback Channel
 
-RISNet models the UE→AP feedback path for closed-loop beam adaptation.
+Waveflow models the UE→AP feedback path for closed-loop beam adaptation.
 
 ```python
 from core import RISNetwork
@@ -683,7 +687,7 @@ print(f"Best SNR: {result['best_snr_fine']:.1f} dB")
 
 From the CLI:
 ```bash
-risnet> sweep ap1 ris1 ue1 45 5 --algo my-sweep
+waveflow> sweep ap1 ris1 ue1 45 5 --algo my-sweep
 ```
 
 ---

@@ -6,11 +6,13 @@ import sys
 
 from core import RISNetwork
 from risnet import RISnet
+from waveflow import RISnet as WaveflowRISnet
 
 
 def test_imports_from_installed_package():
     assert RISNetwork is not None
     assert RISnet is not None
+    assert WaveflowRISnet is RISnet
 
 
 def test_minimal_connect_smoke():
@@ -28,6 +30,18 @@ def test_minimal_connect_smoke():
 
 def test_module_help_from_outside_repo():
     result = subprocess.run(
+        [sys.executable, "-m", "waveflow", "--help"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Waveflow v2.0 Advanced Wireless and RIS Simulator" in result.stdout
+
+
+def test_legacy_module_help_from_outside_repo():
+    result = subprocess.run(
         [sys.executable, "-m", "risnet", "--help"],
         cwd="/tmp",
         check=True,
@@ -35,12 +49,12 @@ def test_module_help_from_outside_repo():
         text=True,
     )
 
-    assert "RISNet v2.0 Advanced RIS Network Simulator" in result.stdout
+    assert "Waveflow v2.0 Advanced Wireless and RIS Simulator" in result.stdout
 
 
 def test_console_help_from_outside_repo():
     bin_dir = os.path.dirname(sys.executable)
-    risnet_executable = os.path.join(bin_dir, "risnet")
+    risnet_executable = os.path.join(bin_dir, "waveflow")
 
     result = subprocess.run(
         [risnet_executable, "help", "--exec-only"],

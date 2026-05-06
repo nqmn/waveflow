@@ -27,9 +27,9 @@ from cli.connection_handler import ConnectionHandler
 
 
 class RISNetCLI(cmd.Cmd):
-    """Interactive CLI for RISNet simulator"""
-    intro = "Welcome to RISNet CLI. Type help or ? to list commands."
-    prompt = "risnet> "
+    """Interactive CLI for Waveflow simulator"""
+    intro = "Welcome to Waveflow CLI. Type help or ? to list commands."
+    prompt = "waveflow> "
 
     def __init__(self, net):
         super().__init__()
@@ -2508,7 +2508,7 @@ class RISNetCLI(cmd.Cmd):
     def do_testall(self, arg):
         """testall - Run comprehensive test suite"""
         print("\n" + "="*70)
-        print("RISNet v2.0 - Comprehensive Test Suite")
+        print("Waveflow v2.0 - Comprehensive Test Suite")
         print("="*70)
 
         suite_results = run_testall(self.net)
@@ -2527,7 +2527,7 @@ class RISNetCLI(cmd.Cmd):
             # Do NOT save network on exit - ensures clean state on restart
             # Only save results would be blank anyway after clearing
             print("✓ Topology and links cleared (not saved)")
-        print('Exiting RISNet CLI')
+        print('Exiting Waveflow CLI')
         return True
 
     def do_exit(self, arg):

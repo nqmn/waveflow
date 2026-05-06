@@ -3,16 +3,16 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "risnet"
+name = "waveflow"
 version = "2.0.0"
-description = "RISNet: Reconfigurable Intelligent Surface (RIS) Network Simulator"
+description = "Waveflow: wireless propagation, waveform, and RIS-assisted network simulator"
 readme = "README.md"
 requires-python = ">=3.7"
 license = "MIT"
 authors = [
-    {name = "RISNet Contributors"},
+    {name = "Waveflow Contributors"},
 ]
-keywords = ["ris", "wireless", "simulation", "network", "reconfigurable-intelligent-surface"]
+keywords = ["wireless", "waveform", "simulation", "network", "ris", "reconfigurable-intelligent-surface"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
@@ -90,6 +90,7 @@ Repository = "https://github.com/nqmn/risnet.git"
 Issues = "https://github.com/nqmn/risnet/issues"
 
 [project.scripts]
+waveflow = "waveflow.__main__:main"
 risnet = "risnet.__main__:main"
 
 [tool.setuptools.packages.find]
@@ -100,6 +101,7 @@ include = [
     "controller*",
     "core*",
     "risnet*",
+    "waveflow*",
     "utils*",
 ]
 exclude = [
@@ -110,6 +112,7 @@ exclude = [
 
 [tool.setuptools.package-data]
 risnet = ["py.typed"]
+waveflow = ["py.typed"]
 
 [tool.black]
 line-length = 100
