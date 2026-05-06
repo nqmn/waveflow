@@ -852,6 +852,13 @@ Exit gate:
 - Old and new primitive calculations match within documented tolerances.
 - Existing beam-sweeping tests still pass.
 
+Current status:
+
+- In Progress: array-related primitives exist under `risnet/arrays`.
+- In Progress: the roadmap intent to reuse extracted array and phase helpers is
+  underway, but the full equivalence-and-routing migration described above is
+  not closed yet.
+
 ### Phase 3 - Extract Channel Interface Around Existing Link Budget
 
 Goal: create the first channel abstraction as an adapter over existing physics,
@@ -878,6 +885,13 @@ Exit gate:
   before and after the adapter route.
 - Adapter tests cover missing paths, blocked paths, and deterministic seeded
   links.
+
+Current status:
+
+- In Progress: `ChannelModel` and `LinkBudgetChannel` are implemented and
+  covered by focused adapter tests.
+- In Progress: the broader consolidation of all overlapping link-budget callers
+  and utilities is not complete yet.
 
 ### Phase 4 - Decompose `RISNetwork.connect()` Behind Compatibility Facade
 
@@ -907,6 +921,16 @@ Exit gate:
 - Each extracted service has focused tests.
 - Flask, CLI, and examples still call the same public method successfully.
 
+Current status:
+
+- Mostly complete: `RISNetwork.connect()` now delegates node lookup,
+  geometry/FOV preparation, phase computation, channel/link-budget evaluation,
+  and result persistence through focused internal helpers while preserving the
+  public facade.
+- In Progress: the public compatibility surface is stable and covered by the
+  Phase 1 characterization tests, but the surrounding architectural debt is not
+  fully resolved yet.
+
 ### Phase 5 - Scenario API and Headless Runner
 
 Goal: make simulations executable without Flask or the interactive shell.
@@ -932,6 +956,14 @@ Exit gate:
 - A scenario can run from a test without importing Flask.
 - Existing JSON examples either load directly or have documented compatibility
   adapters.
+
+Current status:
+
+- In Progress: the headless scenario layer exists through `ScenarioRunner`,
+  request objects, `connect` and `sweep` actions, ordered action lists, and
+  JSON/YAML scenario request documents.
+- In Progress: richer scenario schema validation, broader fixture migration,
+  and cross-client adoption remain to be completed.
 
 ### Phase 6 - Minimal Runtime Kernel
 
@@ -1152,21 +1184,28 @@ Status as of 2026-05-06:
    prerequisite before any refactoring).
 4. Fix `examples/hog_human_detection_example.py` — remove or update the
    `NetworkManager` reference to use the current `RISNetwork` API.
-5. Add characterization regression tests for `RISNetwork.connect()` output
-   shape, FOV errors, seeded fading, and active-link behavior (Phase 1).
+5. ~~Add characterization regression tests for `RISNetwork.connect()` output
+   shape, FOV errors, seeded fading, and active-link behavior (Phase 1).~~ —
+   Done. Covered by `tests/test_connect_characterization.py`.
 6. Introduce a `PhaseEngine` abstract base in `core/` and remove the
    `core/network.py:20` controller import (prerequisite for Phase 4).
 7. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests
-   (Phase 2).
-8. Extract a `ChannelModel` interface and wrap current link-budget behavior
-   (Phase 3).
-9. Split `RISNetwork.connect()` into smaller internal services without changing
-   its public return shape (Phase 4).
+   (Phase 2). Status: In Progress — additive array primitives are present under
+   `risnet/arrays`, but the phase-wide migration is not complete.
+8. ~~Extract a `ChannelModel` interface and wrap current link-budget behavior
+   (Phase 3).~~ — In Progress/Mostly Done. `ChannelModel` and
+   `LinkBudgetChannel` exist, though consolidation of all callers remains.
+9. ~~Split `RISNetwork.connect()` into smaller internal services without changing
+   its public return shape (Phase 4).~~ — Mostly Done. The public facade is
+   preserved and the major internal steps are extracted behind it.
 10. Replace `print()` with `logging` in all non-CLI library modules (Phase 4).
 11. Decide canonical CLI implementation and document or consolidate the
     `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).
-12. Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).
+12. ~~Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).~~
+    — Done. `ScenarioRunner` executes headless `connect`/`sweep` flows and
+    ordered action sequences from code and JSON/YAML request documents.
 13. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
+    Status: In Progress.
 
 ## Risks
 

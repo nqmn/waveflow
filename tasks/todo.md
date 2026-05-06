@@ -353,3 +353,51 @@ Change budget: [files 3] [functions: additive sweep dataclass and runner path, t
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: The action list now supports connect and sweep only; richer declarative scenario documents and additional action types remain future work.
+
+## Task: Phase 5 serializable scenario documents
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive document-parsing changes in `risnet/scenarios.py` and focused tests.
+Change budget: [files 2] [functions: additive request parsing from dict/file, targeted tests] [interfaces: additive scenario document loading only] [state mutations: none beyond existing runner execution]
+
+### Scope
+- `risnet/scenarios.py` — additive `ScenarioRequest.from_dict()` and `from_file()` support for JSON/YAML
+- `tests/test_scenarios.py` — focused document-loading coverage
+
+### Steps
+- [x] Add additive request parsing from dict and file
+- [x] Add focused tests for JSON/YAML document loading and execution
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Added `ScenarioRequest.from_dict()` and `from_file()` with JSON/YAML support, plus focused tests for dict parsing and document-based execution.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The document format is intentionally minimal and maps directly onto the current dataclasses; schema validation and richer document structure remain future work.
+
+## Task: FUTURE roadmap status alignment
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the `FUTURE.md` and task-log hunks if any status labels are incorrect.
+Change budget: [files 2] [functions: N/A] [interfaces: none] [state mutations: roadmap text only]
+
+### Scope
+- `FUTURE.md` — align phase and action-item statuses with the current implementation state
+- `tasks/todo.md` — record this docs-only status pass
+
+### Steps
+- [x] Capture the current implemented status of the roadmap sections ✓
+- [x] Update `FUTURE.md` for Phases 1-5 and the Immediate Action Items
+- [x] Review the diff for scope and accuracy
+
+### Review
+- Completed: Updated `FUTURE.md` so Phases 2-5 now carry explicit current-status text and the Immediate Action Items now mark implemented work as Done, Mostly Done, or In Progress.
+- Out-of-scope flagged: Existing uncommitted code changes in `README.md`, `risnet/scenarios.py`, and `tests/test_scenarios.py` were left untouched.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This pass only aligned roadmap status text; it did not resolve any underlying technical debt items.
