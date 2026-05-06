@@ -154,6 +154,22 @@ def run(argv: Optional[List[str]] = None) -> int:
         console.print("[bold cyan]Opening legacy interactive shell.[/bold cyan]")
         cli.cmdloop()
 
+    @app.command("testall")
+    def testall() -> None:
+        """Run the comprehensive test suite and display results."""
+        from cli.test_suite import run_testall
+        from controller.ris_controller import RISController
+
+        net = _new_network()
+        controller = RISController(net, net.environment)
+        net.set_controller(controller)
+
+        results = run_testall(net)
+        for section in results.sections:
+            console.rule(f"[bold]{section.title}[/bold]")
+            for line in section.lines:
+                console.print(line)
+
     try:
         app(args=list(argv or []), prog_name="waveflow terminal")
     except SystemExit as exc:
