@@ -84,10 +84,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nqmn/risnet"
-Documentation = "https://github.com/nqmn/risnet#readme"
-Repository = "https://github.com/nqmn/risnet.git"
-Issues = "https://github.com/nqmn/risnet/issues"
+Homepage = "https://github.com/nqmn/waveflow"
+Documentation = "https://github.com/nqmn/waveflow#readme"
+Repository = "https://github.com/nqmn/waveflow.git"
+Issues = "https://github.com/nqmn/waveflow/issues"
 
 [project.scripts]
 waveflow = "waveflow.__main__:main"

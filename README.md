@@ -11,7 +11,7 @@ Waveflow is the forward-looking package name for the project formerly known as R
 ## Quick Start
 
 ```bash
-git clone https://github.com/nqmn/risnet
+git clone https://github.com/nqmn/waveflow
 cd risnet
 pip install -e .
 waveflow
@@ -145,4 +145,4 @@ See [FUTURE.md](FUTURE.md) for the full v3 architecture migration plan (phased a
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+Apache 2.0 — see [LICENSE](LICENSE)
