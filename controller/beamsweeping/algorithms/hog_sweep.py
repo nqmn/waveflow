@@ -38,6 +38,7 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+import logging
 import numpy as np
 from typing import Dict, Optional, Tuple
 from ..base import SweepAlgorithmBase
@@ -56,6 +57,8 @@ try:
     MOCK_CAMERA_AVAILABLE = True
 except ImportError:
     MOCK_CAMERA_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
 
 
 def non_max_suppression(boxes: np.ndarray, overlap_thresh: float = 0.65) -> np.ndarray:
@@ -313,11 +316,14 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
 
         # Handle UE node
         if ue is None:
-            print(f"\n[HOG HUMAN DETECTION] Creating placeholder UE '{ue_name}'")
+            logger.info("\n[HOG HUMAN DETECTION] Creating placeholder UE '%s'", ue_name)
             self.network.add_ue(ue_name, 0.0, 0.0, 0.0)
             ue = self.network.nodes[ue_name]
         else:
-            print(f"\n[HOG HUMAN DETECTION] UE '{ue_name}' will be updated with detected position")
+            logger.info(
+                "\n[HOG HUMAN DETECTION] UE '%s' will be updated with detected position",
+                ue_name,
+            )
 
         # Open camera with auto-detection fallback
         cap = None
@@ -337,17 +343,24 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                 num_humans=mock_num_humans
             )
             using_mock = True
-            print(f"\n[HOG CAMERA] Using synthetic camera")
-            print(f"[HOG CAMERA] Trajectory: {mock_trajectory}")
-            print(f"[HOG CAMERA] Simulated humans: {mock_num_humans}")
+            logger.info(
+                "\n[HOG CAMERA] Using synthetic camera\n"
+                "[HOG CAMERA] Trajectory: %s\n"
+                "[HOG CAMERA] Simulated humans: %s",
+                mock_trajectory,
+                mock_num_humans,
+            )
         else:
             # Try the specified camera first
-            print(f"\n[HOG CAMERA] Attempting to open camera {camera_id}...")
+            logger.info("\n[HOG CAMERA] Attempting to open camera %s...", camera_id)
             cap = cv2.VideoCapture(camera_id)
 
             # If specified camera fails, search for available cameras
             if not cap.isOpened() or cap is None:
-                print(f"[HOG CAMERA] Camera {camera_id} not available. Searching for available cameras...")
+                logger.info(
+                    "[HOG CAMERA] Camera %s not available. Searching for available cameras...",
+                    camera_id,
+                )
                 for cam_id in range(10):
                     if cam_id == camera_id:
                         continue  # Skip already tried
@@ -355,15 +368,17 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                     if test_cap.isOpened():
                         actual_camera_id = cam_id
                         cap = test_cap
-                        print(f"[HOG CAMERA] Found available camera at index {cam_id}")
+                        logger.info("[HOG CAMERA] Found available camera at index %s", cam_id)
                         break
                     test_cap.release()
 
             # Final check - offer mock as fallback
             if cap is None or not cap.isOpened():
                 if MOCK_CAMERA_AVAILABLE:
-                    print(f"\n[HOG CAMERA] No physical camera available.")
-                    print(f"[HOG CAMERA] Switching to synthetic camera for testing...")
+                    logger.info(
+                        "\n[HOG CAMERA] No physical camera available.\n"
+                        "[HOG CAMERA] Switching to synthetic camera for testing..."
+                    )
                     cap = MockCameraForHOG(
                         width=640,
                         height=480,
@@ -378,7 +393,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                         "Please connect a camera or fix mock camera import."
                     )
 
-        print(f"[HOG CAMERA] Using camera (Mock: {using_mock})")
+        logger.info("[HOG CAMERA] Using camera (Mock: %s)", using_mock)
 
         # Load camera calibration
         K, dist_coeffs = self._load_camera_calibration(camera_matrix_path, dist_coeffs_path)
@@ -408,7 +423,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                 'hog_detection_output.avi',
                 fourcc, fps, frame_size
             )
-            print(f"[HOG VIDEO] Recording to hog_detection_output.avi")
+            logger.info("[HOG VIDEO] Recording to hog_detection_output.avi")
 
         # Setup waveform simulator
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
@@ -435,16 +450,20 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
         window_angles_generated = False
         measured_angles = set()  # Track all measured angles to avoid duplicates
 
-        print(f"\n[HOG HUMAN DETECTION SWEEP]")
-        print(f"Camera ID: {actual_camera_id}")
-        print(f"Min Box Area: {min_box_area} pixels^2")
-        print(f"HOG Window Stride: {hog_win_stride}")
-        print(f"Max Frames: {max_frames}")
+        header_lines = [
+            "",
+            "[HOG HUMAN DETECTION SWEEP]",
+            f"Camera ID: {actual_camera_id}",
+            f"Min Box Area: {min_box_area} pixels^2",
+            f"HOG Window Stride: {hog_win_stride}",
+            f"Max Frames: {max_frames}",
+        ]
         if adaptive_window:
-            print(f"Adaptive Window: ENABLED (span={window_span}°, step={window_step}°)")
+            header_lines.append(f"Adaptive Window: ENABLED (span={window_span}°, step={window_step}°)")
         else:
-            print(f"Adaptive Window: DISABLED")
-        print(f"Processing frames (press 'q' to stop)...\n")
+            header_lines.append("Adaptive Window: DISABLED")
+        header_lines.append("Processing frames (press 'q' to stop)...")
+        logger.info("\n%s", "\n".join(header_lines))
 
         try:
             while cap.isOpened() and frame_count < max_frames:
@@ -545,28 +564,46 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
 
                         # Log coordinate transformation for first detection (mimic ArUco logging)
                         if unique_poses == 0:
-                            print(f"\n[COORDINATE TRANSFORMATION DETAILS]")
-                            print(f"Frame {frame_count}:")
-                            print(f"  HOG Bounding Box Detection:")
-                            print(f"    Centroid pixel: ({cx}, {cy})")
-                            print(f"    Box dimensions: {box_width:.0f}x{box_height:.0f} pixels")
-                            print(f"    Estimated human height: {human_height_m}m")
-                            print(f"  Camera frame (from HOG detector):")
-                            print(f"    x_cam = {x_cam:.6f} m")
-                            print(f"    y_cam = {y_cam:.6f} m")
-                            print(f"    z_cam = {z_cam:.6f} m")
-                            print(f"    distance = {dist_cam:.6f} m")
-                            print(f"  Transform parameters:")
-                            print(f"    R_cw (rotation matrix):")
-                            print(f"      {r_cw}")
-                            print(f"    t_cw (translation): {t_cw}")
                             is_identity = (np.allclose(r_cw, np.eye(3)) and
                                          np.allclose(t_cw, np.zeros(3)))
-                            print(f"    Is identity transform: {is_identity}")
-                            print(f"  World frame (RIS-centered):")
-                            print(f"    x_world = {x_world:.6f}")
-                            print(f"    y_world = {y_world:.6f}")
-                            print(f"    z_world = {z_world:.6f}")
+                            logger.info(
+                                "\n[COORDINATE TRANSFORMATION DETAILS]\n"
+                                "Frame %s:\n"
+                                "  HOG Bounding Box Detection:\n"
+                                "    Centroid pixel: (%s, %s)\n"
+                                "    Box dimensions: %.0fx%.0f pixels\n"
+                                "    Estimated human height: %sm\n"
+                                "  Camera frame (from HOG detector):\n"
+                                "    x_cam = %.6f m\n"
+                                "    y_cam = %.6f m\n"
+                                "    z_cam = %.6f m\n"
+                                "    distance = %.6f m\n"
+                                "  Transform parameters:\n"
+                                "    R_cw (rotation matrix):\n"
+                                "      %s\n"
+                                "    t_cw (translation): %s\n"
+                                "    Is identity transform: %s\n"
+                                "  World frame (RIS-centered):\n"
+                                "    x_world = %.6f\n"
+                                "    y_world = %.6f\n"
+                                "    z_world = %.6f",
+                                frame_count,
+                                cx,
+                                cy,
+                                box_width,
+                                box_height,
+                                human_height_m,
+                                x_cam,
+                                y_cam,
+                                z_cam,
+                                dist_cam,
+                                r_cw,
+                                t_cw,
+                                is_identity,
+                                x_world,
+                                y_world,
+                                z_world,
+                            )
 
                         # Update UE position from detection (mimics ArUco behavior)
                         ue.pos = np.array(p_ue_world, dtype=np.float64)
@@ -592,9 +629,15 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                         if adaptive_window and first_detection_angle is None:
                             first_detection_angle = local_angle
                             window_angles_generated = True
-                            print(f"\n[ADAPTIVE WINDOW] First detection at {first_detection_angle:.1f}°")
-                            print(f"[ADAPTIVE WINDOW] Window span: [{first_detection_angle - window_span:.1f}°, {first_detection_angle + window_span:.1f}°]")
-                            print(f"[ADAPTIVE WINDOW] Step size: {window_step}°")
+                            logger.info(
+                                "\n[ADAPTIVE WINDOW] First detection at %.1f°\n"
+                                "[ADAPTIVE WINDOW] Window span: [%.1f°, %.1f°]\n"
+                                "[ADAPTIVE WINDOW] Step size: %s°",
+                                first_detection_angle,
+                                first_detection_angle - window_span,
+                                first_detection_angle + window_span,
+                                window_step,
+                            )
 
                         # Check if angle should be measured
                         skip_reason = None
@@ -661,7 +704,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                                            (10, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
                             except Exception as e:
-                                print(f"[HOG] Measurement error: {e}")
+                                logger.warning("[HOG] Measurement error: %s", e)
 
                     # Preserve the latest frame that actually had a detection so the
                     # final viewer shows what was detected instead of an empty frame.
@@ -739,22 +782,33 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
             cv2.imwrite(snapshot_path, final_frame)
 
             if last_detection_info is not None:
-                print(f"\n[HOG DETECTION SNAPSHOT]")
-                print(f"  Frame: {last_detection_info['frame']}")
-                print(f"  Centroid: {last_detection_info['centroid']}")
                 bw, bh = last_detection_info['box']
-                print(f"  Box size: {bw:.0f}x{bh:.0f} px")
-                print(f"  Camera coords: x={last_detection_info['x_cam']:.3f}m "
-                      f"y={last_detection_info['y_cam']:.3f}m z={last_detection_info['z_cam']:.3f}m "
-                      f"d={last_detection_info['dist_cam']:.3f}m")
                 pw = last_detection_info['p_world']
-                print(f"  World coords: x={pw[0]:.3f} y={pw[1]:.3f} z={pw[2]:.3f}")
+                logger.info(
+                    "\n[HOG DETECTION SNAPSHOT]\n"
+                    "  Frame: %s\n"
+                    "  Centroid: %s\n"
+                    "  Box size: %.0fx%.0f px\n"
+                    "  Camera coords: x=%.3fm y=%.3fm z=%.3fm d=%.3fm\n"
+                    "  World coords: x=%.3f y=%.3f z=%.3f",
+                    last_detection_info['frame'],
+                    last_detection_info['centroid'],
+                    bw,
+                    bh,
+                    last_detection_info['x_cam'],
+                    last_detection_info['y_cam'],
+                    last_detection_info['z_cam'],
+                    last_detection_info['dist_cam'],
+                    pw[0],
+                    pw[1],
+                    pw[2],
+                )
 
-            print(f"[HOG VIEWER] Snapshot saved to {snapshot_path}")
+            logger.info("[HOG VIEWER] Snapshot saved to %s", snapshot_path)
 
             # Display until user closes window
             cv2.imshow("HOG Human Detection", final_frame)
-            print("\n[HOG VIEWER] Scan complete. Click window or press 'q' to close.")
+            logger.info("\n[HOG VIEWER] Scan complete. Click window or press 'q' to close.")
 
             while True:
                 key = cv2.waitKey(1) & 0xFF
@@ -768,7 +822,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
 
         # Compute results
         if len(local_angles) == 0:
-            print("[HOG] Warning: No human detections with valid measurements")
+            logger.warning("[HOG] Warning: No human detections with valid measurements")
             return {
                 'local_coarse': [],
                 'snr_coarse': [],
@@ -786,12 +840,19 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
         best_angle = local_angles[best_idx]
         best_snr = snr_values[best_idx]
 
-        print(f"\n[HOG RESULTS]")
-        print(f"Frames processed: {frame_count}")
-        print(f"Human detections: {frames_with_detections}")
-        print(f"Unique angles measured: {unique_poses}")
-        print(f"Best angle: {best_angle:.2f} degrees")
-        print(f"Best SNR: {best_snr:.2f} dB")
+        logger.info(
+            "\n[HOG RESULTS]\n"
+            "Frames processed: %s\n"
+            "Human detections: %s\n"
+            "Unique angles measured: %s\n"
+            "Best angle: %.2f degrees\n"
+            "Best SNR: %.2f dB",
+            frame_count,
+            frames_with_detections,
+            unique_poses,
+            best_angle,
+            best_snr,
+        )
 
         return {
             'local_coarse': local_angles,

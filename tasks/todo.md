@@ -715,3 +715,27 @@ Change budget: [files 2] [functions: OpenCV sweep diagnostics and validation dis
 - Assumptions invalidated: None.
 - Known debt (acknowledged): The vision stack still has a large amount of direct stdout output in `hog_sweep.py`.
 - Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/opencv_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
+
+## Task: Continue Phase 4 Logging Migration for HOG Vision Sweep
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the logging-only hunks in `controller/beamsweeping/algorithms/hog_sweep.py` and `tasks/todo.md`.
+Change budget: [files 2] [functions: HOG sweep diagnostics, adaptive-window logs, snapshot/result logging] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `controller/beamsweeping/algorithms/hog_sweep.py` — replace direct stdout diagnostics with module loggers
+- `tasks/todo.md` — record this migration slice
+
+### Steps
+- [x] Inspect all remaining `print()` call sites in `hog_sweep.py`
+- [x] Replace diagnostic stdout output with module loggers
+- [x] Verify targeted compilation and smoke coverage
+
+### Review
+- Completed: Replaced the HOG vision sweep’s direct stdout diagnostics with module loggers, including camera bootstrap notices, adaptive-window tracing, coordinate-transform details, snapshot summaries, and final result reporting, without changing its sweep result shape.
+- Out-of-scope flagged: `FUTURE.md` has unrelated local edits and remains untouched in this pass.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): There are still non-CLI `print()` calls elsewhere in miscellaneous utilities and demos, but the main vision sweep algorithms are now migrated.
+- Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/hog_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
