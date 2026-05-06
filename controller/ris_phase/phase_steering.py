@@ -21,11 +21,9 @@ class PhaseSteeringEngine:
     @staticmethod
     def _synthetic_element_positions(ris_array_size: int, wavelength: float) -> np.ndarray:
         """Create a centered λ/2-spaced planar grid used for phase synthesis."""
-        element_spacing = wavelength / 2.0
-        coords = np.arange(ris_array_size) - (ris_array_size - 1) / 2.0
-        xs, ys = np.meshgrid(coords, coords, indexing="ij")
-        positions = np.stack([xs, ys, np.zeros_like(xs)], axis=-1) * element_spacing
-        return positions.reshape(-1, 3)
+        from risnet.arrays.geometry import centered_planar_grid
+
+        return centered_planar_grid(ris_array_size, ris_array_size, wavelength / 2.0)
 
     @staticmethod
     def linear_steering_phases(
@@ -53,22 +51,19 @@ class PhaseSteeringEngine:
         Returns:
             Phase array (radians) for all N×N elements
         """
-        k = 2 * np.pi / wavelength
-        beam_angle_rad = np.radians(beam_angle_deg)
-        steering_dir = np.array([np.cos(beam_angle_rad), np.sin(beam_angle_rad), 0.0])
+        from risnet.arrays.steering import linear_steering_phases
 
+        array_center = ris_position
         if element_positions is None:
-            rel_positions = PhaseSteeringEngine._synthetic_element_positions(ris_array_size, wavelength)
-        else:
-            rel_positions = np.asarray(element_positions, dtype=float).copy()
-            if ris_position is not None:
-                rel_positions -= ris_position
-            else:
-                rel_positions -= np.mean(rel_positions, axis=0)
+            element_positions = PhaseSteeringEngine._synthetic_element_positions(ris_array_size, wavelength)
+            array_center = None
 
-        projections = rel_positions[:, 0] * steering_dir[0] + rel_positions[:, 1] * steering_dir[1]
-        steering_phases = (-k * projections) % (2 * np.pi)
-        return steering_phases
+        return linear_steering_phases(
+            beam_angle_deg,
+            wavelength,
+            element_positions,
+            array_center=array_center,
+        )
 
     @staticmethod
     def optimal_path_phases(

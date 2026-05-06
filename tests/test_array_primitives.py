@@ -62,6 +62,25 @@ def test_linear_steering_phases_match_existing_phase_engine(angle_deg):
     np.testing.assert_allclose(phases, legacy)
 
 
+def test_phase_engine_synthetic_positions_are_relative_to_array_center():
+    wavelength = 3e8 / 5.8e9
+
+    at_origin = PhaseSteeringEngine.linear_steering_phases(
+        25.0,
+        ris_position=np.array([0.0, 0.0, 0.0]),
+        wavelength=wavelength,
+        ris_array_size=4,
+    )
+    translated = PhaseSteeringEngine.linear_steering_phases(
+        25.0,
+        ris_position=np.array([15.0, -7.0, 2.0]),
+        wavelength=wavelength,
+        ris_array_size=4,
+    )
+
+    np.testing.assert_allclose(translated, at_origin)
+
+
 @pytest.mark.parametrize("target_angle_deg", [-45, 0, 30, 75])
 def test_normalized_array_factor_matches_existing_physics_helper(target_angle_deg):
     frequency = 10e9

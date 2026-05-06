@@ -50,16 +50,21 @@ class PhaseQuantizer:
         Returns:
             Array of discrete phase levels in radians
         """
-        return np.arange(self.num_levels) * self.phase_step
+        from risnet.arrays.quantization import uniform_phase_levels
+
+        return uniform_phase_levels(self.num_bits)
 
     def phase_to_state(self, phase_rad: float) -> int:
         """Convert phase to discrete state number."""
-        state = np.round(phase_rad / self.phase_step) % self.num_levels
-        return int(state)
+        from risnet.arrays.quantization import phase_to_state
+
+        return phase_to_state(phase_rad, self.num_bits)
 
     def state_to_phase(self, state: int) -> float:
         """Convert state number to phase value."""
-        return (state % self.num_levels) * self.phase_step
+        from risnet.arrays.quantization import state_to_phase
+
+        return state_to_phase(state, self.num_bits)
 
     def get_quantization_error(self, ideal_phase: float) -> float:
         """
@@ -101,14 +106,9 @@ class UniformQuantizer(PhaseQuantizer):
         Returns:
             Tuple of (quantized_phases, phase_states)
         """
-        # Normalize ideal phases to [0, 2π)
-        normalized = ideal_phases % (2 * np.pi)
+        from risnet.arrays.quantization import quantize_uniform_phases
 
-        # Round to nearest discrete level
-        states = np.round(normalized / self.phase_step).astype(int) % self.num_levels
-        quantized = states * self.phase_step
-
-        return quantized, states
+        return quantize_uniform_phases(ideal_phases, self.num_bits)
 
 
 class NonuniformQuantizer(PhaseQuantizer):
