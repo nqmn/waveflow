@@ -978,40 +978,92 @@ print("Nodes loaded:", list(net.nodes.keys()))
 
 ## Part 18 — Example Scripts Reference
 
-All runnable scripts live in `examples/script/`. Each maps to a TUTORIAL part and requires a specific dependency level.
-
-| Script | Level | TUTORIAL Part | What It Shows |
-|---|---|---|---|
-| `example_1_simple.py` | Beginner | Part 4 | High-level `RISnet` API: add nodes, connect, ping |
-| `example_2_topology.py` | Beginner | Part 4 | Load topology from JSON, multi-hop paths |
-| `example_3_custom_topology.py` | Beginner | Part 4 | Y-shaped topology with `Topology` subclass |
-| `example_4_obstacles.py` | Beginner | Part 6 | Walls, LoS blocking, attenuation |
-| `example_5_context_manager.py` | Beginner | Part 4 | `with RISnet() as net:` context manager |
-| `example_6_batch_testing.py` | Intermediate | Part 16 | Batch parameter sweep over array sizes |
-| `example_8_sdr_validation.py` | Intermediate | Part 11 | System-level vs waveform-level SNR |
-| `example_9_interactive_cli.py` | Beginner | Part 2 | Launches the interactive CLI |
-| `example_10_waveform_level.py` | Advanced | Part 11 | OFDM signal, multipath, RIS reflection, waveform comparison |
-| `example_11_ml_beam_prior.py` | Advanced | Part 12 | ML beam prediction (requires `[ml]` extra) |
-| `example_12_feedback_integration.py` | Advanced | Part 10 | UE→AP SNR feedback loop |
-| `example_13_adaptive_control.py` | Advanced | Part 10 | Adaptive power and MCS control |
-| `example_14_full_integration.py` | Advanced | Part 11 | Full cascade: AP TX → RIS → UE RX with UE receiver pipeline |
-| `example_15_video_streaming.py` | Advanced | — | Video bitstream simulation over RIS link |
-| `example_16_quantization_codebook.py` | Advanced | Part 9 | Phase quantization codebook analysis |
-| `example_17_beam_sweeping_trials.py` | Advanced | Part 8 | Beam sweep algorithm comparison trials |
-| `example_18_aruco_markers.py` | Advanced | — | ArUco marker generation for vision-based beam steering (requires `[vision]`) |
-| `example_19_hog_human_detection.py` | Advanced | — | HOG human detection with RIS beam steering (requires `[vision]` + webcam) |
-
-Run any script from the project root:
+All runnable scripts live in `examples/script/`. Run any of them from the project root:
 
 ```bash
+# If installed via pip install -e .
+python3 examples/script/example_1_simple.py
+
+# Without installing (development mode)
 PYTHONPATH=. python3 examples/script/example_1_simple.py
 ```
 
-**Notes:**
-- `example_11_ml_beam_prior.py` requires `pip install -e ".[ml]"` (scikit-learn/torch).
-- `example_15_video_streaming.py` expects a video file at `streaming/video.mp4`; the demo continues with simulated throughput if the file is absent.
-- `example_18_aruco_markers.py` and `example_19_hog_human_detection.py` require `pip install -e ".[vision]"` (opencv-python). Example 19 also requires a connected webcam or video source.
-- The two Jupyter notebooks in `examples/` (`RISNet_Jupyter_Example.ipynb`, `RISNet_Algorithm_Comparison.ipynb`) require `matplotlib` and `pandas` and are intended for interactive exploration.
+To run all non-interactive examples in sequence:
+
+```bash
+for f in examples/script/example_{1,2,3,4,5,6,8,10,12,13,14,15,16,17,18}_*.py; do
+    echo "--- $f ---"
+    PYTHONPATH=. python3 "$f"
+done
+```
+
+### Scripts, levels, and expected output
+
+| Script | Level | Deps | Expected last line / key output |
+|---|---|---|---|
+| `example_1_simple.py` | Beginner | core | `SNR: 73.3 dB` |
+| `example_2_topology.py` | Beginner | core | `ap1 -> ue3: SNR = 71.5 dB` |
+| `example_3_custom_topology.py` | Beginner | core | `ap1 -> ris3 -> ue3: SNR = ...` |
+| `example_4_obstacles.py` | Beginner | core | `SNR: 70.7 dB` (wall-attenuated) |
+| `example_5_context_manager.py` | Beginner | core | `Network auto-stopped` |
+| `example_6_batch_testing.py` | Intermediate | core | SNR table across array sizes |
+| `example_8_sdr_validation.py` | Intermediate | core | `RIS assisted  : SNR=59.75 dB` |
+| `example_9_interactive_cli.py` | Beginner | core | Opens interactive `waveflow>` shell |
+| `example_10_waveform_level.py` | Advanced | core | `All examples completed!` |
+| `example_11_ml_beam_prior.py` | Advanced | `[ml]` | Beam prediction results table |
+| `example_12_feedback_integration.py` | Advanced | core | `# All examples completed!` |
+| `example_13_adaptive_control.py` | Advanced | core | `# All examples completed successfully!` |
+| `example_14_full_integration.py` | Advanced | core | `All integration examples completed successfully!` |
+| `example_15_video_streaming.py` | Advanced | core | Throughput and capacity summary |
+| `example_16_quantization_codebook.py` | Advanced | core | Codebook SNR table |
+| `example_17_beam_sweeping_trials.py` | Advanced | core | Algorithm comparison results |
+| `example_18_aruco_markers.py` | Advanced | `[vision]` | `✓ Successfully saved: aruco_markers/aruco_id_0.png` |
+| `example_19_hog_human_detection.py` | Advanced | `[vision]` + webcam | Interactive menu (requires hardware) |
+
+### TUTORIAL part cross-reference
+
+| TUTORIAL Part | Relevant examples |
+|---|---|
+| Part 2 — Interactive CLI | `example_9` |
+| Part 4 — Python API | `example_1`, `example_2`, `example_3`, `example_5` |
+| Part 6 — Obstacles | `example_4` |
+| Part 8 — Beam Sweeping | `example_17` |
+| Part 9 — Physics | `example_16` |
+| Part 10 — Feedback | `example_12`, `example_13` |
+| Part 11 — Waveform | `example_8`, `example_10`, `example_14` |
+| Part 12 — ML | `example_11` |
+| Part 16 — Batch study | `example_6` |
+| Vision / hardware | `example_18`, `example_19` |
+| Streaming | `example_15` |
+
+### Dependency notes
+
+- **`[ml]` extra** (`example_11`): `pip install -e ".[ml]"` — requires scikit-learn / torch.
+- **`[vision]` extra** (`example_18`, `example_19`): `pip install -e ".[vision]"` — requires opencv-python. Example 19 also requires a connected webcam.
+- **`example_15`**: expects `streaming/video.mp4`; the demo runs with simulated throughput if the file is absent.
+- **`example_9`**: opens an interactive shell — exit with `quit` or Ctrl-D.
+
+### MATLAB examples
+
+Standalone MATLAB scripts live in `examples/matlab/`:
+
+| Script | What It Shows |
+|---|---|
+| `example_1_beam_pattern_3d.m` | 3D far-field beam pattern, 1D/polar cuts, phase heatmap |
+| `example_2_compare_steering_angles.m` | Side-by-side beam patterns for 6 steering angles |
+| `example_3_ris_phase_farfield.m` | Phase maps + 3D far-field (Python-matched parameters) |
+| `example_4_ris_phase_farfield_cst_style.m` | CST-style annotated 3D pattern with source/beam arrows |
+
+Run from MATLAB command window (from the `examples/matlab/` directory):
+
+```matlab
+>> cd examples/matlab
+>> example_1_beam_pattern_3d        % standalone, no Python needed
+>> example_3_ris_phase_farfield     % default params, or pass arguments:
+>> example_3_ris_phase_farfield(0, 5.8e9, 0.45, 0, 45, 0, 16, 16)
+```
+
+The `matlab_integration/scripts/` functions (`compute_beam_pattern`, `plot_ris_geometry`, etc.) are library functions called by the Python `MatlabBridge` — they are not intended to be run directly.
 
 ## Next Steps
 
