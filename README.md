@@ -62,6 +62,9 @@ waveflow> help
 # Run the full test suite
 waveflow ui testall
 
+# Run physics model validation suite
+waveflow ui testphysics
+
 # Connect nodes from a topology file
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 
@@ -185,10 +188,13 @@ python3 -m compileall core controller cli risnet waveflow config utils
 # Physics regression
 PYTHONPATH=. python3 tests/test_physics_fixes.py
 
+# Physics model validation suite (14 sections, 53 checks)
+waveflow ui testphysics
+
 # Full test suite (via terminal UI)
 waveflow ui testall
 
-# Full suite with pytest
+# Full suite with pytest (includes test_physics_core.py — 66 checks)
 pip install -e ".[dev]"
 pytest tests/ -v
 ```

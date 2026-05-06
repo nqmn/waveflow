@@ -527,6 +527,29 @@ fading = Physics.rician_fading(K_factor_dB=10)
 print(f"Fading coefficient: {fading:.4f}")
 ```
 
+### 9.5 Physics Validation Suite
+
+Run all 14 physics validation sections (53 checks) against analytically
+derived reference values:
+
+```bash
+# Terminal UI — coloured pass/fail per check
+waveflow ui testphysics
+
+# Interactive CLI
+waveflow
+> testphysics
+
+# pytest — 66 individual test cases
+pytest tests/test_physics_core.py -v
+```
+
+Sections covered: FSPL, atmospheric absorption, Rician fading, mutual
+coupling, quantization-with-state loss, per-element phase error, quantized
+beam angle, angle-loss penalty, SNR→EVM, multipath RIS gain, effective SNR
+with waveform distortion, RIS coupling loss, Shannon capacity, and
+quantization error validation.
+
 ---
 
 ## Part 10 — Feedback and Adaptive Control
@@ -794,6 +817,10 @@ waveflow ui load mynet.json
 
 # Run the comprehensive test suite
 waveflow ui testall
+
+# Run physics model validation suite (FSPL, atmospheric loss, Rician fading,
+# mutual coupling, quantization, SNR/EVM, Shannon capacity, and more)
+waveflow ui testphysics
 
 # Run any legacy CLI command non-interactively
 waveflow ui run signal AP1 R1 UE1 --breakdown
