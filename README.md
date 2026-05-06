@@ -81,6 +81,11 @@ waveflow ui shell
 waveflow ui --help
 ```
 
+CLI surfaces:
+- `python -m risnet` and the `waveflow` console entry point launch the canonical full interactive shell from `cli/main_shell.py`.
+- `waveflow ui ...` provides the Typer/Rich terminal command surface; `waveflow ui shell` bridges into that same full interactive shell.
+- `risnet/cli.py` remains in the repository as a legacy alternate shell implementation and is not the primary entry point.
+
 ### Python API
 
 ```python

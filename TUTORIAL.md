@@ -831,6 +831,10 @@ waveflow ui run ap AP1 show
 waveflow ui shell
 ```
 
+CLI relationship note:
+- The canonical full interactive shell lives in `cli/main_shell.py` and is what `python -m risnet`, the `waveflow` console entry point, and `waveflow ui shell` use today.
+- `risnet/cli.py` remains as a legacy alternate shell implementation and is not the primary user entry point.
+
 Each command has a `--help` flag:
 
 ```bash

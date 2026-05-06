@@ -1103,10 +1103,12 @@ complete yet.
 overlapping but non-identical behavior. Neither file documents its relationship
 to the other.
 
-Resolution: decide which is the canonical implementation before Phase 5 CLI
-expansion. The most likely outcome is that `risnet/cli.py` becomes the thin
-entry point and `cli/main_shell.py` is the full feature shell. Document this
-explicitly or consolidate.
+Resolution (documented 2026-05-06): `cli/main_shell.py` is the canonical full
+interactive shell used by `python -m risnet`, the `waveflow` console entry
+point, and `waveflow ui shell`. `risnet/cli.py` remains a legacy alternate
+shell surface and `waveflow/cli.py` remains a compatibility export wrapper.
+Consolidation is still optional future cleanup, but the current relationship is
+no longer ambiguous.
 
 ### Monolithic CLI Shell
 
@@ -1121,12 +1123,13 @@ lock down current CLI behavior.
 
 ### Broken Example: NetworkManager
 
-`examples/hog_human_detection_example.py` imports and instantiates
-`NetworkManager`, a class that does not exist anywhere in the codebase. The
-example will fail on import.
+Resolved 2026-05-06. The HOG human-detection example now lives at
+`examples/script/example_19_hog_human_detection.py`, uses the current
+`RISNetwork` + `SweepAlgorithmLoader` APIs, and is covered by the smoke suite.
 
-Resolution: update to the current `RISNetwork` + `RISController` API or remove
-the file. This should be done before Phase 5 example migration.
+Residual note: any remaining references to the old top-level example path
+should be treated as stale documentation/tests and repointed to the script
+example path.
 
 ### print() Throughout Library Code
 
@@ -1181,8 +1184,10 @@ Status as of 2026-05-06:
    ".[dev]"` so the test suite can run without `PYTHONPATH` hacks.
 3. ~~Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
    prerequisite before any refactoring).~~ — Done.
-4. Fix `examples/hog_human_detection_example.py` — remove or update the
-   `NetworkManager` reference to use the current `RISNetwork` API.
+4. ~~Fix `examples/hog_human_detection_example.py` — remove or update the
+   `NetworkManager` reference to use the current `RISNetwork` API.~~ — Done.
+   The maintained example now lives at
+   `examples/script/example_19_hog_human_detection.py`.
 5. ~~Add characterization regression tests for `RISNetwork.connect()` output
    shape, FOV errors, seeded fading, and active-link behavior (Phase 1).~~ —
    Done. Covered by `tests/test_connect_characterization.py`.
@@ -1202,8 +1207,11 @@ Status as of 2026-05-06:
    its public return shape (Phase 4).~~ — Mostly Done. The public facade is
    preserved and the major internal steps are extracted behind it.
 10. Replace `print()` with `logging` in all non-CLI library modules (Phase 4).
-11. Decide canonical CLI implementation and document or consolidate the
-    `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).
+11. ~~Decide canonical CLI implementation and document or consolidate the
+    `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).~~ —
+    Done for documentation. `cli/main_shell.py` is the canonical full shell;
+    `risnet/cli.py` is retained as a legacy alternate shell and
+    `waveflow/cli.py` is a compatibility wrapper.
 12. ~~Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).~~
     — Done. `ScenarioRunner` executes headless `connect`/`sweep` flows and
     ordered action sequences from code and JSON/YAML request documents.

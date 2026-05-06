@@ -561,3 +561,29 @@ Change budget: [files 7] [functions: core phase-engine registry, controller adap
 - Assumptions invalidated: None.
 - Known debt (acknowledged): The controller-backed phase implementation remains the default runtime provider behind the core registry, so the broader controller/core split is not fully complete yet.
 - Limitations: Focused verification passed for `tests/test_connect_characterization.py`, `tests/test_hybrid_mode.py`, and `tests/test_side_lobes.py`, and compile checks passed. The broader smoke subset was blocked by the pre-existing missing example file.
+
+## Task: Document Canonical CLI Relationship
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the documentation-only hunks in `FUTURE.md`, `README.md`, `TUTORIAL.md`, and `tasks/todo.md`.
+Change budget: [files 4] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `FUTURE.md` — resolve the duplicate-CLI ambiguity by documenting the current canonical shell
+- `README.md` — state which CLI surface is primary
+- `TUTORIAL.md` — state which CLI surface is primary
+- `tasks/todo.md` — record this docs-only pass
+
+### Steps
+- [x] Inspect the actual CLI entry wiring and shell usage points
+- [x] Update the roadmap and user docs to name the canonical shell explicitly
+- [x] Review the diff for scope and consistency
+
+### Review
+- Completed: Documented `cli/main_shell.py` as the canonical full interactive shell used by `python -m risnet`, the `waveflow` console entry point, and `waveflow ui shell`, while clarifying that `risnet/cli.py` remains a legacy alternate shell and `waveflow/cli.py` is a compatibility wrapper.
+- Out-of-scope flagged: This pass did not consolidate or delete any CLI implementations.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The duplicate shell code still exists; this only removes ambiguity about which path is primary.
