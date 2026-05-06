@@ -401,3 +401,27 @@ Change budget: [files 2] [functions: N/A] [interfaces: none] [state mutations: r
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: This pass only aligned roadmap status text; it did not resolve any underlying technical debt items.
+
+## Task: Test suite reference cleanup
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the `tasks/test-suite.md` and task-log hunks if the wording proves inaccurate.
+Change budget: [files 2] [functions: N/A] [interfaces: none] [state mutations: docs text only]
+
+### Scope
+- `tasks/test-suite.md` — clarify suitability for the current Waveflow repo and align its authority wording with `AGENTS.md`
+- `tasks/todo.md` — record this docs-only cleanup
+
+### Steps
+- [x] Review the current test-suite reference against the repo state
+- [x] Update runner classification, execution guidance, and source-of-truth wording
+- [x] Review the diff for scope and accuracy
+
+### Review
+- Completed: Clarified runner types, split execution guidance by baseline vs manual/direct execution, removed the missing `VALIDATION.md` dependency from the gap/tolerance wording, and restored authoritative wording so the document matches `AGENTS.md`.
+- Out-of-scope flagged:
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This pass aligns wording and guidance only; it does not convert the remaining manual or weak tests into stronger automated coverage.

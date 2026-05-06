@@ -1,41 +1,65 @@
 # Waveflow Test Suite Reference
 
 > This document is the authoritative map of what is tested, what is not, and
-> what each test file covers. Read before adding tests or making changes that
-> affect validated behavior. Update whenever tests are added, removed, or
-> significantly changed.
+> what each test file covers in the current Waveflow repository. Read before
+> adding tests or making changes that affect validated behavior. Update
+> whenever tests are added, removed, or significantly changed.
 
 ---
 
 ## 1. Test File Inventory
 
-| File | Category | Status |
-|---|---|---|
-| `test_smoke.py` | Import, CLI, entry points | Active |
-| `test_connect_characterization.py` | `RISNetwork.connect()` contract | Active |
-| `test_physics_fixes.py` | Physics equations, SNR bounds | Active |
-| `test_array_primitives.py` | Array geometry and steering vectors | Active |
-| `test_array_quantization.py` | Phase quantization helpers | Active |
-| `test_link_budget_channel.py` | `LinkBudgetChannel` adapter | Active |
-| `test_scenarios.py` | Headless scenario runner | Active |
-| `test_side_lobes.py` | RIS sidelobe suppression | Active |
-| `test_hybrid_mode.py` | Hybrid phase engine | Active |
-| `test_de_localization_sweep.py` | DE beam sweep algorithm | Active |
-| `test_de_accuracy_loop.py` | DE convergence loop | Active |
-| `test_fixes.py` | Legacy physics regression | Active (TEST 3 stale — see note) |
-| `test_adaptive_with_ml.py` | ML adaptive beam tracking | Active (ML extras required) |
-| `test_sweep_with_ml.py` | ML sweep algorithms | Active (ML extras required) |
-| `test_sweep_coarse_step.py` | Sweep coarse step behavior | Active |
-| `debug_ml.py` | ML debug scripts | Not a test runner — manual only |
-| `debug_ml_detailed.py` | ML debug scripts | Not a test runner — manual only |
-| `evaluate_model_performance.py` | ML model benchmarks | Manual benchmark — not CI |
-| `train_custom_dataset.py` | ML dataset generation | Manual tool — not CI |
-| `test_custom_model.py` | Custom ML model | Active (ML extras required) |
-| `test_new_model.py` | New ML model | Active (ML extras required) |
+Three runner types are used. **pytest** files are discovered and run
+automatically by `pytest tests/`. **dual-mode** files contain normal
+`def test_*` functions and are also directly executable through an optional
+`if __name__ == "__main__"` runner. **manual** files are diagnostics,
+benchmarks, or dataset tools that are not intended for automated pytest runs.
+
+| File | Runner | Tests | Category | Notes |
+|---|---|---|---|---|
+| `test_smoke.py` | pytest | 7 | Import, CLI, entry points | |
+| `test_connect_characterization.py` | pytest | 13 | `RISNetwork.connect()` contract | |
+| `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
+| `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
+| `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
+| `test_link_budget_channel.py` | pytest | 8 | `LinkBudgetChannel` adapter | |
+| `test_scenarios.py` | pytest | 11 | Headless scenario runner | |
+| `test_side_lobes.py` | dual-mode | 1 | RIS sidelobe suppression | pytest-compatible `def test_*` with `assert` |
+| `test_hybrid_mode.py` | dual-mode | 4 | Hybrid phase engine | pytest-compatible `def test_*` with `assert` |
+| `test_de_localization_sweep.py` | dual-mode | 3 | DE beam sweep algorithm | pytest-compatible `def test_*` with `assert` |
+| `test_de_accuracy_loop.py` | dual-mode | 1 | DE convergence loop | **No assertions** — prints results only; pytest passes vacuously |
+| `test_fixes.py` | dual-mode | 3 | Legacy physics regression | pytest-compatible `def test_*` with `assert`; TEST 3 stale |
+| `test_adaptive_with_ml.py` | manual | 0 | ML adaptive beam tracking | `run_adaptive_comparison()` only — not pytest-discoverable |
+| `test_sweep_with_ml.py` | manual | 0 | ML sweep comparison | `run_sweep_comparison()` only — not pytest-discoverable |
+| `test_sweep_coarse_step.py` | manual | 0 | Sweep coarse step behavior | `run_coarse_sweep_comparison()` only — not pytest-discoverable |
+| `test_custom_model.py` | — | 0 | Custom ML model | Empty — no functions |
+| `test_new_model.py` | — | 0 | New ML model | Empty — no functions |
+| `debug_ml.py` | manual | — | ML debug | Manual only |
+| `debug_ml_detailed.py` | manual | — | ML debug | Manual only |
+| `evaluate_model_performance.py` | manual | — | ML model benchmarks | Manual benchmark |
+| `train_custom_dataset.py` | manual | — | ML dataset generation | Manual tool |
+
+**Issues requiring attention**:
+
+1. `test_de_accuracy_loop.py` — `test_de_accuracy_multiple_positions()` has no
+   `assert` statements. pytest collects and runs it but cannot fail on wrong
+   results. It is a print-only diagnostic masquerading as a test.
+
+2. `test_adaptive_with_ml.py`, `test_sweep_with_ml.py`, `test_sweep_coarse_step.py`
+   — named `test_*.py` but contain no pytest-discoverable `def test_*` functions.
+   pytest silently collects zero tests from them. They are manual benchmark scripts.
+
+3. `test_custom_model.py`, `test_new_model.py` — empty files. Placeholder or
+   leftover. Not providing any coverage.
+
+4. `test_physics_fixes.py`, `test_hybrid_mode.py`, `test_side_lobes.py`,
+   `test_fixes.py`, `test_de_localization_sweep.py` — use `def test_*` with
+   `assert` but also have `if __name__ == "__main__"` runners. They work under
+   both pytest and direct execution. Keep this dual-mode pattern.
 
 **Known stale failure**: `test_fixes.py` TEST 3 (RMS Phase Error with Angle
-Wrapping) has a stale expected value. It reports one failure in the current
-implementation. Fix target: Phase 1 (see `FUTURE.md`).
+Wrapping) has a stale expected value. One failure is expected until Phase 1
+resolves it. Do not suppress with `xfail`; fix the expectation.
 
 ---
 
@@ -193,7 +217,8 @@ implementation. Fix target: Phase 1 (see `FUTURE.md`).
 
 ## 3. Not Yet Tested (Validation Gaps)
 
-The following items appear in `VALIDATION.md` but have no automated test coverage:
+The following items are intended validation targets for Waveflow but do not yet
+have automated test coverage in the current repo:
 
 | Area | Gap |
 |---|---|
@@ -217,41 +242,66 @@ These are future test targets, ordered by proximity to current implementation.
 
 ## 4. Running the Test Suite
 
-### Minimum (no extras required)
+### Compile check (no extras required)
 
 ```bash
-# Compile check
 python3 -m compileall core controller cli risnet waveflow config utils
+```
 
-# Physics regression
-PYTHONPATH=. python3 tests/test_physics_fixes.py
+### Baseline automated suite (dev extras required)
 
-# Full baseline
+These files are fully pytest-native and will fail correctly on wrong results:
+
+```bash
 pip install -e ".[dev]"
-pytest tests/test_smoke.py tests/test_connect_characterization.py \
-       tests/test_physics_fixes.py tests/test_array_primitives.py \
-       tests/test_array_quantization.py tests/test_link_budget_channel.py \
+pytest tests/test_smoke.py \
+       tests/test_connect_characterization.py \
+       tests/test_physics_fixes.py \
+       tests/test_array_primitives.py \
+       tests/test_array_quantization.py \
+       tests/test_link_budget_channel.py \
        tests/test_scenarios.py -v
 ```
 
-### Terminal UI
+### Direct-execution checks (no optional extras required)
+
+```bash
+PYTHONPATH=. python3 tests/test_physics_fixes.py
+PYTHONPATH=. python3 tests/test_hybrid_mode.py
+PYTHONPATH=. python3 tests/test_side_lobes.py
+PYTHONPATH=. python3 tests/test_de_localization_sweep.py
+PYTHONPATH=. python3 tests/test_fixes.py
+```
+
+### Manual benchmark scripts (not for CI)
+
+```bash
+PYTHONPATH=. python3 tests/test_sweep_coarse_step.py
+PYTHONPATH=. python3 tests/test_adaptive_with_ml.py   # requires [ml]
+PYTHONPATH=. python3 tests/test_sweep_with_ml.py      # requires [ml]
+PYTHONPATH=. python3 tests/test_de_accuracy_loop.py   # prints only, no assertions
+```
+
+### Terminal UI test suite
 
 ```bash
 waveflow ui testall
 ```
 
-### Full suite (all extras)
+### Full pytest run (collects all discoverable automated tests)
 
 ```bash
 pip install -e ".[all]"
 pytest tests/ -v
+# Note: test_adaptive_with_ml, test_sweep_with_ml, test_sweep_coarse_step
+# will show "no tests ran" — expected, they are script-mode benchmarks.
 ```
 
 ### Known expected failure
 
-`tests/test_fixes.py::test_rms_phase_error` — stale expected value. One failure
-is expected until Phase 1 resolves it. Do not suppress with `xfail`; fix the
-expectation.
+`tests/test_fixes.py` TEST 3 (`test_rms_phase_error`) — stale expected value.
+One failure is expected until Phase 1 resolves it. Do not suppress with
+`xfail`; fix the expectation.
 
 ---
 
@@ -268,7 +318,7 @@ expectation.
 
 ## 6. Tolerance Reference
 
-From `VALIDATION.md` — current targets:
+Current Waveflow validation targets referenced by this document:
 
 | Metric | Target |
 |---|---|
