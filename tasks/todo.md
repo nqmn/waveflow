@@ -75,3 +75,27 @@ Change budget: files 4 functions: ChannelModel.evaluate, LinkBudgetChannel.evalu
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Adapter delegates to RISNetwork.connect; it is not a new physics implementation. Environment walls are characterized but not applied to connect link budget in this phase.
+
+## Task: Phase 4 Extract Connect Node Lookup
+Mode: Standard
+Risk: High
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert core/network.py and the focused test additions for this task.
+Change budget: files 2 functions: RISNetwork._resolve_connect_nodes, RISNetwork.connect interfaces: no public interface changes state mutations: None
+
+### Scope
+- core/network.py - extract the existing connect node lookup and missing-node error branch.
+- tests/test_connect_characterization.py - add focused coverage for the extracted helper's success/error behavior.
+
+### Steps
+- [x] Extract node lookup helper without changing the public connect facade
+- [x] Add service-level helper tests
+- [x] Run focused and full verification
+
+### Review
+- Completed: Extracted connect node lookup into a helper and added direct helper coverage.
+- Out-of-scope flagged: TUTORIAL.md remains modified but unrelated.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Only the node lookup branch was extracted in this slice.

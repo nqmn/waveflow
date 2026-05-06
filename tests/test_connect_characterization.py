@@ -152,6 +152,29 @@ def test_missing_node_error_lists_missing_and_available_names():
     assert "Available nodes: ap1, ris1, ue1" in message
 
 
+def test_resolve_connect_nodes_returns_canonical_nodes():
+    net = build_line_network()
+
+    ap, ris, ue = net._resolve_connect_nodes("ap1", "ris1", "ue1")
+
+    assert ap is net.get("ap1")
+    assert ris is net.get("ris1")
+    assert ue is net.get("ue1")
+
+
+def test_resolve_connect_nodes_uses_current_missing_node_error():
+    net = build_line_network()
+
+    with pytest.raises(ValueError) as exc_info:
+        net._resolve_connect_nodes("missing-ap", "missing-ris", "ue1")
+
+    message = str(exc_info.value)
+    assert "Invalid node name" in message
+    assert "AP 'missing-ap'" in message
+    assert "RIS 'missing-ris'" in message
+    assert "Available nodes: ap1, ris1, ue1" in message
+
+
 def test_fov_rejects_opposite_direction_line_with_default_ris_fov():
     net = build_line_network(max_angle_deg=60)
 

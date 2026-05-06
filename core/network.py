@@ -207,6 +207,25 @@ class RISNetwork:
         """
         return self.feedback_channels.get_network_statistics()
 
+    def _resolve_connect_nodes(self, ap_name, ris_name, ue_name):
+        """Resolve AP, RIS, and UE names for the connect compatibility facade."""
+        ap_node = self.get(ap_name)
+        ris_node = self.get(ris_name)
+        ue_node = self.get(ue_name)
+
+        if ap_node is None or ris_node is None or ue_node is None:
+            missing = []
+            if ap_node is None:
+                missing.append(f"AP '{ap_name}'")
+            if ris_node is None:
+                missing.append(f"RIS '{ris_name}'")
+            if ue_node is None:
+                missing.append(f"UE '{ue_name}'")
+            available = ", ".join(self.nodes.keys()) if self.nodes else "none"
+            raise ValueError(f"Invalid node name(s): {', '.join(missing)}. Available nodes: {available}")
+
+        return ap_node, ris_node, ue_node
+
     # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
@@ -243,20 +262,7 @@ class RISNetwork:
         if seed is not None:
             np.random.seed(seed)
 
-        ap_node = self.get(ap_name)
-        ris_node = self.get(ris_name)
-        ue_node = self.get(ue_name)
-
-        if ap_node is None or ris_node is None or ue_node is None:
-            missing = []
-            if ap_node is None:
-                missing.append(f"AP '{ap_name}'")
-            if ris_node is None:
-                missing.append(f"RIS '{ris_name}'")
-            if ue_node is None:
-                missing.append(f"UE '{ue_name}'")
-            available = ", ".join(self.nodes.keys()) if self.nodes else "none"
-            raise ValueError(f"Invalid node name(s): {', '.join(missing)}. Available nodes: {available}")
+        ap_node, ris_node, ue_node = self._resolve_connect_nodes(ap_name, ris_name, ue_name)
 
         # Use isolated clones by default to prevent cross-node state pollution
         if use_isolated_copy:
