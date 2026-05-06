@@ -203,3 +203,28 @@ Change budget: [files 2] [functions: RISNetwork.connect, new internal phase help
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Verification ran through `.venv` because the system Python environment is externally managed.
+
+## Task: Phase 4 connect tail extraction
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the tail helper extraction in `core/network.py` and rerun the focused connect and channel pytest suites.
+Change budget: [files 2] [functions: RISNetwork.connect, new result/persistence helpers, targeted tests only if required] [interfaces: none] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `core/network.py` — extract result assembly and persistence/update tail from `RISNetwork.connect()` while preserving behavior
+- `tests/test_connect_characterization.py` — only if direct helper assertions become necessary
+
+### Steps
+- [x] Append task metadata and rollback notes
+- [x] Extract result assembly helper
+- [x] Extract metadata persistence and active-link/last-result update helpers
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Extracted `_build_connect_result()`, `_persist_connect_feedback_measurement()`, `_persist_connect_metadata()`, `_resolve_connect_reported_snr()`, `_store_connect_active_link()`, and `_store_last_connect_result()` while preserving the current ordering and compatibility behavior.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification ran through `.venv` because the system Python environment is externally managed.

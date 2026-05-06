@@ -367,6 +367,127 @@ class RISNetwork:
 
         return phase_data
 
+    def _build_connect_result(self, *, snr_dB, pwr_dBm, gain_linear, gain_dBi, quant_loss_dB,
+                              beam_angle_deg, beam_angle_requested_deg, ris_normal,
+                              local_deflection, target_angle, beam_hits_ue, phase_data, rssi_dBm):
+        """Assemble the public connect result payload without changing compatibility keys."""
+        result = {
+            "snr_dB": float(snr_dB),
+            "pwr_dBm": float(pwr_dBm),
+            "rssi_dBm": float(rssi_dBm),
+            "gain_linear": float(gain_linear),
+            "gain_dBi": float(gain_dBi),
+            "quant_loss_dB": float(quant_loss_dB),
+            "beam_angle": float(beam_angle_deg),
+            "beam_angle_requested_deg": float(beam_angle_requested_deg),
+            "evm_percent": float(Physics.snr_to_evm(snr_dB)),
+            "ris_normal_angle_deg": float(ris_normal),
+            "local_deflection_deg": float(local_deflection),
+            "target_angle_deg": float(target_angle),
+            "ue_present": bool(beam_hits_ue),
+            **phase_data
+        }
+        result["no_ue_detected"] = not beam_hits_ue
+        return result
+
+    def _persist_connect_feedback_measurement(self, result, ue_name):
+        """Persist feedback-loop SNR measurement back to the canonical UE node when available."""
+        if not result.get("feedback_info") or "final_snr_dB" not in result["feedback_info"]:
+            return
+
+        final_measured_snr = result["feedback_info"]["final_snr_dB"]
+        if final_measured_snr is None:
+            return
+
+        ue_node = self.get(ue_name)
+        if ue_node is not None:
+            ue_node.snr_measurement_dB = float(final_measured_snr)
+
+    def _persist_connect_metadata(self, ue_node, *, ap_key, ris_key, ue_key, ap, total_loss_dB,
+                                  total_gain_dBi, bandwidth_MHz, noise_figure_dB,
+                                  beam_angle_deg, beam_angle_requested_deg, target_angle,
+                                  quant_loss_dB, gain_dBi, ap_antenna_gain_dBi,
+                                  ue_antenna_gain_dBi, pwr_dBm, beam_hits_ue, snr_computed_dB):
+        """Persist pre-query computed metadata on the canonical UE node for later consumers."""
+        metadata = {
+            'ap_name': ap_key,
+            'ris_name': ris_key,
+            'ue_name': ue_key,
+            'tx_power_dBm': float(ap.power_dBm),
+            'total_loss_dB': float(total_loss_dB),
+            'total_gain_dBi': float(total_gain_dBi),
+            'bandwidth_MHz': float(bandwidth_MHz),
+            'noise_figure_dB': float(noise_figure_dB),
+            'beam_angle_deg': float(beam_angle_deg),
+            'beam_angle_requested_deg': float(beam_angle_requested_deg),
+            'target_angle_deg': float(target_angle),
+            'quant_loss_dB': float(quant_loss_dB),
+            'gain_dBi': float(gain_dBi),
+            'ap_antenna_gain_dBi': float(ap_antenna_gain_dBi),
+            'ue_antenna_gain_dBi': float(ue_antenna_gain_dBi),
+            'pwr_dBm': float(pwr_dBm),
+            'ue_present': bool(beam_hits_ue)
+        }
+        if ue_node is not None:
+            ue_node.snr_measurement_dB = float(snr_computed_dB)
+            ue_node.store_link_metadata(ap_key, ris_key, dict(metadata))
+
+    def _resolve_connect_reported_snr(self, *, use_get_snr, ue_key, ris_key, ap_key, snr_computed_dB):
+        """Return the externally reported SNR after optional messaging query override."""
+        should_use_get_snr = use_get_snr or self.use_get_snr_global
+        if should_use_get_snr and self.snr_messaging is not None:
+            queried_snr = self.snr_messaging.get_snr(ue_key, ris_key, ap_name=ap_key)
+            if queried_snr is not None:
+                return queried_snr
+        return snr_computed_dB
+
+    def _store_connect_active_link(self, *, store_in_active_links, ap_key, ris_key, ue_key,
+                                   result, local_deflection, beam_angle_deg, ris_normal):
+        """Persist the compatibility active-link snapshot for successful connect calls."""
+        if not store_in_active_links:
+            return
+
+        link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"
+        self.active_links[link_key] = {
+            'ap': ap_key,
+            'ris': ris_key,
+            'ue': ue_key,
+            'snr_dB': result['snr_dB'],
+            'pwr_dBm': result['pwr_dBm'],
+            'beam_angle_local': float(result.get('deflection_angle_deg', local_deflection)),
+            'beam_angle_absolute': float(beam_angle_deg),
+            'ris_normal_angle': float(ris_normal),
+            'gain_dBi': result.get('gain_dBi', 0.0),
+            'quant_loss_dB': result.get('quant_loss_dB', 0.0),
+            'source': 'connect',
+            'current_phases': result.get('current_phases', None),
+            'quantized_phases': result.get('quantized_phases', None),
+            'phase_states': result.get('phase_states', None),
+            'deflection_angle_deg': result.get('deflection_angle_deg', None),
+            'incident_azimuth_deg': result.get('incident_azimuth_deg', None),
+            'reflected_azimuth_deg': result.get('reflected_azimuth_deg', None),
+        }
+
+    def _store_last_connect_result(self, *, ap_key, ris_key, ue_key, beam_angle_deg,
+                                   compute_phases, bandwidth_MHz, seed, enable_feedback,
+                                   max_feedback_iterations, result):
+        """Persist the compatibility snapshot of the most recent connect call."""
+        self.last_connect_result = {
+            'ap': ap_key,
+            'ris': ris_key,
+            'ue': ue_key,
+            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+            'parameters': {
+                'beam_angle_deg': float(beam_angle_deg),
+                'compute_phases': bool(compute_phases),
+                'bandwidth_MHz': float(bandwidth_MHz) if bandwidth_MHz is not None else None,
+                'seed': seed,
+                'enable_feedback': bool(enable_feedback),
+                'max_feedback_iterations': int(max_feedback_iterations)
+            },
+            'metrics': dict(result)
+        }
+
     # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
@@ -610,24 +731,21 @@ class RISNetwork:
         else:
             rssi_dBm = float(pwr_dBm)
 
-        result = {
-            "snr_dB": float(snr_dB),
-            "pwr_dBm": float(pwr_dBm),
-            "rssi_dBm": float(rssi_dBm),
-            "gain_linear": float(gain_linear),
-            "gain_dBi": float(gain_dBi),
-            "quant_loss_dB": float(quant_loss_dB),
-            "beam_angle": float(beam_angle_deg),
-            "beam_angle_requested_deg": float(beam_angle_requested_deg),
-            "evm_percent": float(Physics.snr_to_evm(snr_dB)),
-            # Beam steering metadata
-            "ris_normal_angle_deg": float(ris_normal),
-            "local_deflection_deg": float(local_deflection),
-            "target_angle_deg": float(target_angle),
-            "ue_present": bool(beam_hits_ue),
-            **phase_data
-        }
-        result["no_ue_detected"] = not beam_hits_ue
+        result = self._build_connect_result(
+            snr_dB=snr_dB,
+            pwr_dBm=pwr_dBm,
+            gain_linear=gain_linear,
+            gain_dBi=gain_dBi,
+            quant_loss_dB=quant_loss_dB,
+            beam_angle_deg=beam_angle_deg,
+            beam_angle_requested_deg=beam_angle_requested_deg,
+            ris_normal=ris_normal,
+            local_deflection=local_deflection,
+            target_angle=target_angle,
+            beam_hits_ue=beam_hits_ue,
+            phase_data=phase_data,
+            rssi_dBm=rssi_dBm,
+        )
 
         # Automatic CSI feedback and closed-loop adaptation
         if enable_feedback:
@@ -637,94 +755,64 @@ class RISNetwork:
                 store_in_active_links=store_in_active_links
             )
 
-            # OPTION A: Persist UE measurement back to network node for future queries
-            # This allows the messaging system to return measured SNR on subsequent connect() calls
-            if result["feedback_info"] and "final_snr_dB" in result["feedback_info"]:
-                final_measured_snr = result["feedback_info"]["final_snr_dB"]
-                if final_measured_snr is not None:
-                    # Update the actual network UE node with the measured SNR
-                    ue_node = self.get(ue_name)
-                    if ue_node is not None:
-                        ue_node.snr_measurement_dB = float(final_measured_snr)
+            self._persist_connect_feedback_measurement(result, ue_name)
 
-        metadata = {
-            'ap_name': ap_key,
-            'ris_name': ris_key,
-            'ue_name': ue_key,
-            'tx_power_dBm': float(ap.power_dBm),
-            'total_loss_dB': float(total_loss_dB),
-            'total_gain_dBi': float(total_gain_dBi),
-            'bandwidth_MHz': float(bandwidth_MHz),
-            'noise_figure_dB': float(noise_figure_dB),
-            'beam_angle_deg': float(beam_angle_deg),
-            'beam_angle_requested_deg': float(beam_angle_requested_deg),
-            'target_angle_deg': float(target_angle),
-            'quant_loss_dB': float(quant_loss_dB),
-            'gain_dBi': float(gain_dBi),
-            'ap_antenna_gain_dBi': float(ap_antenna_gain_dBi),
-            'ue_antenna_gain_dBi': float(ue_antenna_gain_dBi),
-            'pwr_dBm': float(pwr_dBm),
-            'ue_present': bool(beam_hits_ue)
-        }
-        if ue_node is not None:
-            ue_node.snr_measurement_dB = float(snr_computed_dB)
-            ue_node.store_link_metadata(ap_key, ris_key, dict(metadata))
+        self._persist_connect_metadata(
+            ue_node,
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            ap=ap,
+            total_loss_dB=total_loss_dB,
+            total_gain_dBi=total_gain_dBi,
+            bandwidth_MHz=bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB,
+            beam_angle_deg=beam_angle_deg,
+            beam_angle_requested_deg=beam_angle_requested_deg,
+            target_angle=target_angle,
+            quant_loss_dB=quant_loss_dB,
+            gain_dBi=gain_dBi,
+            ap_antenna_gain_dBi=ap_antenna_gain_dBi,
+            ue_antenna_gain_dBi=ue_antenna_gain_dBi,
+            pwr_dBm=pwr_dBm,
+            beam_hits_ue=beam_hits_ue,
+            snr_computed_dB=snr_computed_dB,
+        )
 
-        # Use get_snr() via messaging system AFTER persisting metadata.
-        # Check both the parameter and the global network setting.
-        should_use_get_snr = use_get_snr or self.use_get_snr_global
-        if should_use_get_snr and self.snr_messaging is not None:
-            queried_snr = self.snr_messaging.get_snr(ue_key, ris_key, ap_name=ap_key)
-            if queried_snr is not None:
-                snr_dB = queried_snr
-            else:
-                snr_dB = snr_computed_dB
-        else:
-            snr_dB = snr_computed_dB
+        snr_dB = self._resolve_connect_reported_snr(
+            use_get_snr=use_get_snr,
+            ue_key=ue_key,
+            ris_key=ris_key,
+            ap_key=ap_key,
+            snr_computed_dB=snr_computed_dB,
+        )
 
         if ue_node is not None:
             ue_node.snr_measurement_dB = float(snr_dB)
 
-        # Track active link (only if not an intermediate sweep measurement)
-        if store_in_active_links:
-            link_key = f"{ap_key}→{ris_key}→{ue_key} (Connect)"
-            self.active_links[link_key] = {
-                'ap': ap_key,
-                'ris': ris_key,
-                'ue': ue_key,
-                'snr_dB': result['snr_dB'],
-                'pwr_dBm': result['pwr_dBm'],
-                'beam_angle_local': float(result.get('deflection_angle_deg', local_deflection)),  # RIS deflection angle (θ_out - θ_in)
-                'beam_angle_absolute': float(beam_angle_deg),  # ABSOLUTE angle (world/global reference)
-                'ris_normal_angle': float(ris_normal),  # RIS normal angle (for coordinate conversion)
-                'gain_dBi': result.get('gain_dBi', 0.0),
-                'quant_loss_dB': result.get('quant_loss_dB', 0.0),
-                'source': 'connect',
-                # Store phase data for retrieval by phases command
-                'current_phases': result.get('current_phases', None),
-                'quantized_phases': result.get('quantized_phases', None),
-                'phase_states': result.get('phase_states', None),
-                # Store phase metadata (deflection angle and azimuths) for new format display
-                'deflection_angle_deg': result.get('deflection_angle_deg', None),
-                'incident_azimuth_deg': result.get('incident_azimuth_deg', None),
-                'reflected_azimuth_deg': result.get('reflected_azimuth_deg', None),
-            }
+        self._store_connect_active_link(
+            store_in_active_links=store_in_active_links,
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            result=result,
+            local_deflection=local_deflection,
+            beam_angle_deg=beam_angle_deg,
+            ris_normal=ris_normal,
+        )
 
-        self.last_connect_result = {
-            'ap': ap_key,
-            'ris': ris_key,
-            'ue': ue_key,
-            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
-            'parameters': {
-                'beam_angle_deg': float(beam_angle_deg),
-                'compute_phases': bool(compute_phases),
-                'bandwidth_MHz': float(bandwidth_MHz) if bandwidth_MHz is not None else None,
-                'seed': seed,
-                'enable_feedback': bool(enable_feedback),
-                'max_feedback_iterations': int(max_feedback_iterations)
-            },
-            'metrics': dict(result)
-        }
+        self._store_last_connect_result(
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            beam_angle_deg=beam_angle_deg,
+            compute_phases=compute_phases,
+            bandwidth_MHz=bandwidth_MHz,
+            seed=seed,
+            enable_feedback=enable_feedback,
+            max_feedback_iterations=max_feedback_iterations,
+            result=result,
+        )
 
         return result
 
