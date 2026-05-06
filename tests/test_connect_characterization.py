@@ -175,6 +175,28 @@ def test_resolve_connect_nodes_uses_current_missing_node_error():
     assert "Available nodes: ap1, ris1, ue1" in message
 
 
+def test_resolve_connect_geometry_reports_default_target_alignment():
+    net = build_line_network()
+    ap, ris, ue = net._resolve_connect_nodes("ap1", "ris1", "ue1")
+
+    geometry = net._resolve_connect_geometry(ap, ris, ue)
+
+    assert geometry["beam_angle_deg"] == pytest.approx(0.0)
+    assert geometry["beam_angle_requested_deg"] == pytest.approx(0.0)
+    assert geometry["target_angle"] == pytest.approx(0.0)
+    assert geometry["beam_hits_ue"] is True
+
+
+def test_resolve_connect_geometry_marks_missed_beam_as_absent():
+    net = build_line_network()
+    ap, ris, ue = net._resolve_connect_nodes("ap1", "ris1", "ue1")
+
+    geometry = net._resolve_connect_geometry(ap, ris, ue, beam_angle_deg=90.0)
+
+    assert geometry["beam_angle_requested_deg"] == pytest.approx(90.0)
+    assert geometry["beam_hits_ue"] is False
+
+
 def test_fov_rejects_opposite_direction_line_with_default_ris_fov():
     net = build_line_network(max_angle_deg=60)
 

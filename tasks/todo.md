@@ -153,3 +153,53 @@ Change budget: files 3 functions: risnet.__main__.main, risnet.terminal_cli.run 
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Legacy cmd.Cmd shell remains the default CLI; Typer/Rich is additive.
+
+## Task: Phase 4 connect facade decomposition
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the helper extraction in `core/network.py` and rerun connect characterization tests.
+Change budget: [files 2] [functions: RISNetwork.connect, new internal helpers, targeted tests only if required] [interfaces: none] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `core/network.py` — extract a cohesive internal step from `RISNetwork.connect()` while preserving public behavior
+- `tests/test_connect_characterization.py` — only if existing characterization coverage needs a narrow addition
+
+### Steps
+- [x] Capture task metadata and approved risk
+- [x] Inspect connect internals and choose the smallest safe extraction
+- [x] Implement the extraction behind the existing public facade
+- [x] Verify targeted behavior and review diff scope
+
+### Review
+- Completed: Extracted beam/geometry/FOV preparation into `_resolve_connect_geometry()` and kept `RISNetwork.connect()` as the public compatibility facade.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: `pytest` is not installed in the current environment, so verification used `compileall` and direct runtime assertions instead of the full characterization runner.
+
+## Task: Phase 4 connect phase extraction
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the phase helper extraction in `core/network.py` and rerun the focused connect and channel pytest suites.
+Change budget: [files 2] [functions: RISNetwork.connect, new internal phase helpers, targeted tests only if required] [interfaces: none] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `core/network.py` — extract phase computation and phase payload persistence from `RISNetwork.connect()` while preserving behavior
+- `tests/test_connect_characterization.py` — only if a direct helper assertion becomes necessary
+
+### Steps
+- [x] Append task metadata and rollback notes
+- [x] Extract phase computation helper
+- [x] Extract phase payload/persistence helper
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Extracted `_compute_connect_phases()` and `_collect_connect_phase_data()` from `RISNetwork.connect()` while keeping the public result shape and canonical RIS-node persistence behavior unchanged.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification ran through `.venv` because the system Python environment is externally managed.

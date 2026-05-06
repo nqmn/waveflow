@@ -47,6 +47,20 @@ FOV rejection because the AP sits at 180° behind the RIS normal of 0°. The
 snippet has been corrected below to use geometry that passes the default ±60°
 FOV check.
 
+## Current Implementation Snapshot
+
+These pieces already exist and should be treated as current foundations, not
+future-only ideas:
+
+- Typer/Rich terminal commands are available through `waveflow ui ...`.
+- `ChannelModel` and `LinkBudgetChannel` already provide a channel adapter
+  layer.
+- Array-related primitives already exist under `risnet/arrays`.
+- Packaging, entry points, and base imports are already working.
+
+The next roadmap sections should therefore focus on expansion and migration, not
+on reintroducing these foundations from scratch.
+
 ## Vision
 
 Waveflow should evolve from:
@@ -470,8 +484,9 @@ Planned tools:
 
 Implementation note:
 
-The current CLI is `cmd.Cmd`-based and large. Add Typer commands beside the
-current CLI first, then gradually route old commands through new service APIs.
+The legacy interactive CLI is `cmd.Cmd`-based. A Typer/Rich terminal surface
+already exists as `waveflow ui ...`; the next step is to expand that surface and
+gradually route shared operations through service APIs.
 
 ### 11. Plugin Ecosystem
 
@@ -757,19 +772,9 @@ Exit gate:
 
 Current status (verified 2026-05-06):
 
-- Complete: `pyproject.toml` package discovery includes all implementation
-  packages (`app*`, `cli*`, `config*`, `controller*`, `core*`, `utils*`,
-  `risnet*`).
-- Complete: `risnet/__main__.py` exists and backs both `python -m risnet` and
-  the `risnet` console entry point.
-- Complete: `setup.py` remains a compatibility shim aligned with
-  `pyproject.toml`.
+- Complete: packaging and import wiring are in place.
 - Complete: heavyweight dependencies (OpenCV, CVXPY, ML, visualization) are in
   optional extras.
-- Complete: `from core import RISNetwork` and `from risnet import RISnet` import
-  successfully from within the repository root.
-- Complete: `python3 -m compileall core controller cli risnet app config utils`
-  passes with no errors.
 - Incomplete: `pytest` is not installed in the system environment. Tests must
   currently be run via `PYTHONPATH=. python3 tests/<file>.py`. A virtual
   environment with `pip install -e ".[dev]"` is needed before pytest-based CI

@@ -226,6 +226,147 @@ class RISNetwork:
 
         return ap_node, ris_node, ue_node
 
+    def _resolve_connect_geometry(self, ap, ris, ue, beam_angle_deg=None, fixed_ris_normal=None):
+        """Prepare beam steering geometry and validate RIS/UE field-of-view constraints."""
+        if beam_angle_deg is None:
+            vec_tgt = ue.pos - ris.pos
+            beam_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
+
+        d_ap_ris = np.linalg.norm(ris.pos - ap.pos)
+        d_ris_ue = np.linalg.norm(ue.pos - ris.pos)
+        target_angle = np.degrees(np.arctan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0]))
+
+        max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        if fixed_ris_normal is not None:
+            ris_normal = fixed_ris_normal
+        else:
+            ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
+
+        ap_to_ris_vec = ap.pos - ris.pos
+        ap_angle = np.degrees(np.arctan2(ap_to_ris_vec[1], ap_to_ris_vec[0]))
+
+        ue_to_ris_vec = ue.pos - ris.pos
+        ue_angle = np.degrees(np.arctan2(ue_to_ris_vec[1], ue_to_ris_vec[0]))
+
+        ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
+        ue_offset = compute_offset_from_normal(target_angle, ris_normal)
+
+        if not is_within_fov(ap_offset, max_angle) or not is_within_fov(ue_offset, max_angle):
+            ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
+            ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
+            ue_offset = compute_offset_from_normal(target_angle, ris_normal)
+
+        if not is_within_fov(ap_offset, max_angle):
+            raise ValueError(
+                f"AP outside RIS FOV: AP is at {ap_angle:.2f}° (absolute), "
+                f"{ap_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
+                f"but RIS FOV is ±{max_angle}°. "
+                f"RIS cannot serve AP from this direction."
+            )
+
+        if not is_within_fov(ue_offset, max_angle):
+            raise ValueError(
+                f"UE outside RIS FOV: UE is at {target_angle:.2f}° (absolute), "
+                f"{ue_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
+                f"but RIS FOV is ±{max_angle}°. "
+                f"RIS cannot serve UE from this direction."
+            )
+
+        ideal_local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
+        beam_angle_requested_deg = float(beam_angle_deg)
+        clamped_local_deflection = clamp_offset_to_fov(ideal_local_deflection, max_angle)
+
+        if abs(clamped_local_deflection - ideal_local_deflection) > 0.01:
+            beam_angle_deg = compute_absolute_angle_from_offset(ris_normal, clamped_local_deflection)
+
+        beam_hits_ue = True
+        ue_max_angle = getattr(ue, 'max_angle_deg', 180.0)
+        ue_normal = getattr(ue, 'normal_angle_deg', 0.0)
+        beam_offset_to_ue = compute_offset_from_normal(beam_angle_requested_deg, ue_normal)
+
+        if not is_within_fov(beam_offset_to_ue, ue_max_angle):
+            beam_hits_ue = False
+
+        angle_to_ue = target_angle
+        angular_distance_to_ue = abs((beam_angle_requested_deg - angle_to_ue + 180) % 360 - 180)
+        presence_tol = getattr(self, 'presence_detection_tolerance_deg', 5.0)
+        if angular_distance_to_ue > presence_tol:
+            beam_hits_ue = False
+
+        return {
+            "beam_angle_deg": float(beam_angle_deg),
+            "beam_angle_requested_deg": float(beam_angle_requested_deg),
+            "beam_hits_ue": bool(beam_hits_ue),
+            "d_ap_ris": float(d_ap_ris),
+            "d_ris_ue": float(d_ris_ue),
+            "max_angle": float(max_angle),
+            "ris_normal": float(ris_normal),
+            "target_angle": float(target_angle),
+        }
+
+    def _compute_connect_phases(self, ap, ris, ue, beam_angle_deg, compute_phases=True):
+        """Compute RIS phase configuration for the connect compatibility facade."""
+        if not compute_phases:
+            return {}
+
+        vec_tgt = ue.pos - ris.pos
+        actual_ue_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
+        angle_diff_from_ue = abs((beam_angle_deg - actual_ue_angle_deg + 180) % 360 - 180)
+
+        if angle_diff_from_ue > 0.1:
+            d_ris_ue = np.linalg.norm(vec_tgt)
+            beam_angle_rad = np.radians(beam_angle_deg)
+            virtual_target_pos = np.array([
+                ris.pos[0] + d_ris_ue * np.cos(beam_angle_rad),
+                ris.pos[1] + d_ris_ue * np.sin(beam_angle_rad),
+                ue.pos[2]
+            ])
+            ris.compute_phases(ap.pos, virtual_target_pos)
+        else:
+            ris.compute_phases(ap.pos, ue.pos)
+
+        ris.quantize_phases()
+        return ris.phase_metadata if ris.phase_metadata else {}
+
+    def _collect_connect_phase_data(self, ris, ris_node, beam_angle_deg, compute_phases=True):
+        """Build phase payload and persist canonical RIS phase state for downstream tools."""
+        phase_data = {}
+        if not compute_phases or ris.current_phases is None:
+            return phase_data
+
+        phase_data = {
+            "current_phases": ris.current_phases.tolist() if hasattr(ris.current_phases, 'tolist') else ris.current_phases,
+            "quantized_phases": ris.quantized_phases.tolist() if ris.quantized_phases is not None and hasattr(ris.quantized_phases, 'tolist') else ris.quantized_phases,
+            "phase_states": ris.phase_states.tolist() if ris.phase_states is not None and hasattr(ris.phase_states, 'tolist') else ris.phase_states,
+            "phase_grid": ris.get_phase_grid() if hasattr(ris, 'get_phase_grid') else None
+        }
+
+        if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
+            phase_data.update({
+                "deflection_angle_deg": float(ris.phase_metadata.get('deflection_angle_deg', 0)),
+                "deflection_angle_clamped_deg": float(ris.phase_metadata.get('deflection_angle_clamped_deg', 0)),
+                "fov_clamped": bool(ris.phase_metadata.get('fov_clamped', False)),
+                "incident_azimuth_deg": float(ris.phase_metadata.get('incident_azimuth_deg', 0)),
+                "reflected_azimuth_deg": float(ris.phase_metadata.get('reflected_azimuth_deg', 0)),
+                "angle_diff_deg": float(ris.phase_metadata.get('angle_diff_deg', 0)),
+                "source_height_m": float(ris.phase_metadata.get('source_height_m', 0)),
+            })
+
+        if ris_node is not None:
+            ris_node.current_phases = np.array(ris.current_phases, copy=True)
+            ris_node.quantized_phases = (np.array(ris.quantized_phases, copy=True)
+                                         if ris.quantized_phases is not None else None)
+            ris_node.phase_states = (np.array(ris.phase_states, copy=True)
+                                     if ris.phase_states is not None else None)
+            ris_node.current_beam_angle = float(beam_angle_deg) if beam_angle_deg is not None else None
+            ris_node.specular_angle_deg = getattr(ris, 'specular_angle_deg', None)
+            ris_node.abs_beam_angle_deg = getattr(ris, 'abs_beam_angle_deg', None)
+            ris_node.local_beam_deflection_deg = getattr(ris, 'local_beam_deflection_deg', None)
+            if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
+                ris_node.phase_metadata = ris.phase_metadata
+
+        return phase_data
+
     # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
@@ -282,59 +423,35 @@ class RISNetwork:
             # Reset to uniform if explicitly requested or default
             ris.element_weights = np.ones(ris.N * ris.N)
 
-        # Auto-compute beam angle if not provided
-        if beam_angle_deg is None:
-            # Use the absolute angle from RIS to UE as the beam target direction
-            # This will be converted to local deflection later via compute_offset_from_normal()
-            vec_tgt = ue.pos - ris.pos
-            beam_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
-
         # Canonical node names for metadata/storage
         ap_key = ap.name if ap else ap_name
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
 
+        geometry = self._resolve_connect_geometry(
+            ap,
+            ris,
+            ue,
+            beam_angle_deg=beam_angle_deg,
+            fixed_ris_normal=fixed_ris_normal,
+        )
+        beam_angle_deg = geometry["beam_angle_deg"]
+        beam_angle_requested_deg = geometry["beam_angle_requested_deg"]
+        beam_hits_ue = geometry["beam_hits_ue"]
+        d_ap_ris = geometry["d_ap_ris"]
+        d_ris_ue = geometry["d_ris_ue"]
+        max_angle = geometry["max_angle"]
+        ris_normal = geometry["ris_normal"]
+        target_angle = geometry["target_angle"]
+
         # Compute RIS phase configuration using HybridPhaseEngine (formula_hybrid.md)
-        phase_metadata = {}
-        if compute_phases:
-            # Use ris.compute_phases() which implements formula_hybrid.md:
-            # - TX phase: spherical or plane wave (configurable via ris.plane_tx)
-            # - RX phase: steering (plane) or focusing (spherical) (configurable via ris.plane_rx)
-            # - Total phase: φ(i,j) = φ_tx(i,j) + φ_rx(i,j)
-            #
-            # CRITICAL FIX: For beam sweeps, we need to compute phases that steer
-            # towards beam_angle_deg, not always towards the actual UE position.
-            # Create a virtual target position at the beam_angle_deg direction.
-            # The SNR is then evaluated at the actual UE position to see how well
-            # the beam (steered to beam_angle_deg) illuminates the UE.
-            #
-            # Original code always used ue.pos, which meant all sweep angles
-            # had the same (optimal) phases, giving nearly identical SNR values.
-            vec_tgt = ue.pos - ris.pos
-            actual_ue_angle_deg = np.degrees(np.arctan2(vec_tgt[1], vec_tgt[0]))
-
-            # Check if beam_angle_deg differs from actual UE angle (sweep mode)
-            angle_diff_from_ue = abs((beam_angle_deg - actual_ue_angle_deg + 180) % 360 - 180)
-
-            if angle_diff_from_ue > 0.1:  # Sweep mode: beam_angle differs from UE direction
-                # Create virtual target position at beam_angle_deg direction
-                # Use same distance as RIS-to-UE for consistency
-                d_ris_ue = np.linalg.norm(vec_tgt)
-                beam_angle_rad = np.radians(beam_angle_deg)
-                virtual_target_pos = np.array([
-                    ris.pos[0] + d_ris_ue * np.cos(beam_angle_rad),
-                    ris.pos[1] + d_ris_ue * np.sin(beam_angle_rad),
-                    ue.pos[2]  # Keep same height as UE
-                ])
-                ris.compute_phases(ap.pos, virtual_target_pos)
-            else:
-                # Direct connect mode: steer towards actual UE
-                ris.compute_phases(ap.pos, ue.pos)
-
-            ris.quantize_phases()
-
-            # Get metadata from the HybridPhaseEngine computation
-            phase_metadata = ris.phase_metadata if ris.phase_metadata else {}
+        phase_metadata = self._compute_connect_phases(
+            ap,
+            ris,
+            ue,
+            beam_angle_deg,
+            compute_phases=compute_phases,
+        )
 
         # Calculate link SNR using physics models
         if bandwidth_MHz is None:
@@ -345,105 +462,13 @@ class RISNetwork:
             ris.freq = ap.freq
 
         # AP -> RIS
-        d_ap_ris = np.linalg.norm(ris.pos - ap.pos)
         pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
 
         # RIS -> UE (with beam steering)
-        d_ris_ue = np.linalg.norm(ue.pos - ris.pos)
         pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
 
         # RIS gain (total elements = N × N)
         N_total = ris.N * ris.N
-        target_angle = np.degrees(np.arctan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0]))
-
-        # Determine RIS normal angle
-        max_angle = getattr(ris, 'max_angle_deg', 60.0)
-        if fixed_ris_normal is not None:
-            # Use provided fixed RIS normal for consistent sweep measurements
-            ris_normal = fixed_ris_normal
-        else:
-            ris_normal = getattr(ris, 'normal_angle_deg', 0.0)
-
-        # Compute angles from RIS perspective for FOV checking
-        ap_to_ris_vec = ap.pos - ris.pos  # Vector from RIS toward AP
-        ap_angle = np.degrees(np.arctan2(ap_to_ris_vec[1], ap_to_ris_vec[0]))
-
-        ue_to_ris_vec = ue.pos - ris.pos  # Vector from RIS toward UE
-        ue_angle = np.degrees(np.arctan2(ue_to_ris_vec[1], ue_to_ris_vec[0]))
-
-        # Check if RIS's current normal can serve both AP and UE
-        ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
-        ue_offset = compute_offset_from_normal(target_angle, ris_normal)
-
-        # If current RIS normal doesn't work for both AP and UE, calculate optimal bisector
-        if not is_within_fov(ap_offset, max_angle) or not is_within_fov(ue_offset, max_angle):
-            # RIS normal needs adjustment - calculate optimal bisector
-            ris_normal = compute_optimal_ris_normal(ap_angle, ue_angle)
-
-            # Recalculate offsets with new normal
-            ap_offset = compute_offset_from_normal(ap_angle, ris_normal)
-            ue_offset = compute_offset_from_normal(target_angle, ris_normal)
-
-        # Final validation - AP must be in FOV
-        if not is_within_fov(ap_offset, max_angle):
-            raise ValueError(
-                f"AP outside RIS FOV: AP is at {ap_angle:.2f}° (absolute), "
-                f"{ap_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
-                f"but RIS FOV is ±{max_angle}°. "
-                f"RIS cannot serve AP from this direction."
-            )
-
-        # Final validation - UE must be in FOV
-        if not is_within_fov(ue_offset, max_angle):
-            raise ValueError(
-                f"UE outside RIS FOV: UE is at {target_angle:.2f}° (absolute), "
-                f"{ue_offset:.2f}° relative to RIS normal of {ris_normal:.2f}°, "
-                f"but RIS FOV is ±{max_angle}°. "
-                f"RIS cannot serve UE from this direction."
-            )
-
-        # Clamp local deflection to RIS FOV constraint (native RIS capability)
-        # Calculate the ideal local deflection needed to reach the target
-        ideal_local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
-        beam_angle_requested_deg = float(beam_angle_deg)
-        # Clamp to RIS maximum steering angle
-        clamped_local_deflection = clamp_offset_to_fov(ideal_local_deflection, max_angle)
-
-        # If clamping occurred, the actual beam angle changes
-        if abs(clamped_local_deflection - ideal_local_deflection) > 0.01:  # Allow small numerical error
-            # RIS steers to the clamped position
-            beam_angle_deg = compute_absolute_angle_from_offset(ris_normal, clamped_local_deflection)
-            # Note: We don't raise an error; RIS simply steers to nearest reachable position
-
-        # Track whether a physical UE is illuminated by this beam
-        beam_hits_ue = True
-
-        # Check UE can receive from RIS (based on FINAL beam angle after clamping)
-        # This validation uses the offset angle, not raw RIS direction
-        ue_max_angle = getattr(ue, 'max_angle_deg', 180.0)  # Default: 180° FOV (nearly omnidirectional)
-        ue_normal = getattr(ue, 'normal_angle_deg', 0.0)
-
-        # From UE's perspective, the final beam comes from angle beam_angle_deg
-        # We need to check if UE can receive from that direction
-        beam_offset_to_ue = compute_offset_from_normal(beam_angle_requested_deg, ue_normal)
-
-        if not is_within_fov(beam_offset_to_ue, ue_max_angle):
-            beam_hits_ue = False
-
-        # NOTE: With array factor integration, beam_hits_ue is now computed implicitly
-        # via Physics.compute_array_factor(). The array factor naturally models
-        # main lobe (~0 dB at steering direction) and sidelobes (~-10 to -30 dB).
-        # This provides physically-accurate SNR across all angles without artificial cutoff.
-        #
-        # The old binary beam_hits_ue check is retained here for backward compatibility
-        # and logging, but the SNR calculation in the array factor section replaces
-        # the hard floor logic that was previously applied below.
-        angle_to_ue = target_angle  # Where the UE actually is
-        angular_distance_to_ue = abs((beam_angle_requested_deg - angle_to_ue + 180) % 360 - 180)  # Shortest angle
-
-        presence_tol = getattr(self, 'presence_detection_tolerance_deg', 5.0)
-        if angular_distance_to_ue > presence_tol:
-            beam_hits_ue = False
 
         angle_loss = Physics.angle_loss_dB(beam_angle_deg, target_angle)
         # Track beam metadata on RIS for visualization
@@ -565,41 +590,12 @@ class RISNetwork:
         gain_linear = 10 ** (gain_dBi / 10)
 
         # Add phase data to result if computed
-        phase_data = {}
-        if compute_phases and ris.current_phases is not None:
-            phase_data = {
-                "current_phases": ris.current_phases.tolist() if hasattr(ris.current_phases, 'tolist') else ris.current_phases,
-                "quantized_phases": ris.quantized_phases.tolist() if ris.quantized_phases is not None and hasattr(ris.quantized_phases, 'tolist') else ris.quantized_phases,
-                "phase_states": ris.phase_states.tolist() if ris.phase_states is not None and hasattr(ris.phase_states, 'tolist') else ris.phase_states,
-                "phase_grid": ris.get_phase_grid() if hasattr(ris, 'get_phase_grid') else None
-            }
-
-            # Add phase computation metadata (deflection angle, azimuths, FOV clamping) if available
-            if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
-                phase_data.update({
-                    "deflection_angle_deg": float(ris.phase_metadata.get('deflection_angle_deg', 0)),
-                    "deflection_angle_clamped_deg": float(ris.phase_metadata.get('deflection_angle_clamped_deg', 0)),
-                    "fov_clamped": bool(ris.phase_metadata.get('fov_clamped', False)),
-                    "incident_azimuth_deg": float(ris.phase_metadata.get('incident_azimuth_deg', 0)),
-                    "reflected_azimuth_deg": float(ris.phase_metadata.get('reflected_azimuth_deg', 0)),
-                    "angle_diff_deg": float(ris.phase_metadata.get('angle_diff_deg', 0)),
-                    "source_height_m": float(ris.phase_metadata.get('source_height_m', 0)),
-                })
-
-            # Persist phase configuration on canonical RIS node for downstream tools (e.g., ris_panel shell)
-            if ris_node is not None:
-                ris_node.current_phases = np.array(ris.current_phases, copy=True)
-                ris_node.quantized_phases = (np.array(ris.quantized_phases, copy=True)
-                                             if ris.quantized_phases is not None else None)
-                ris_node.phase_states = (np.array(ris.phase_states, copy=True)
-                                         if ris.phase_states is not None else None)
-                ris_node.current_beam_angle = float(beam_angle_deg) if beam_angle_deg is not None else None
-                ris_node.specular_angle_deg = getattr(ris, 'specular_angle_deg', None)
-                ris_node.abs_beam_angle_deg = getattr(ris, 'abs_beam_angle_deg', None)
-                ris_node.local_beam_deflection_deg = getattr(ris, 'local_beam_deflection_deg', None)
-                # Also persist phase metadata
-                if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
-                    ris_node.phase_metadata = ris.phase_metadata
+        phase_data = self._collect_connect_phase_data(
+            ris,
+            ris_node,
+            beam_angle_deg,
+            compute_phases=compute_phases,
+        )
 
         # Calculate local deflection from RIS normal
         local_deflection = compute_offset_from_normal(beam_angle_deg, ris_normal)
