@@ -1,0 +1,60 @@
+"""Focused tests for the additive headless scenario runner."""
+
+from pathlib import Path
+
+import pytest
+
+from risnet import ScenarioRunResult, ScenarioRunner
+
+
+EXAMPLE_SIMPLE = Path("examples/json/example_1_simple.json")
+
+
+def test_scenario_runner_loads_json_topology_without_flask_or_cli():
+    runner = ScenarioRunner()
+
+    net = runner.load_topology(EXAMPLE_SIMPLE)
+
+    assert sorted(net.nodes) == ["AP1", "R1", "UE1"]
+    assert type(net.get("AP1")).__name__ == "AccessPoint"
+    assert type(net.get("R1")).__name__ == "RIS"
+    assert type(net.get("UE1")).__name__ == "UE"
+
+
+def test_scenario_runner_executes_connect_with_auto_resolved_names(tmp_path):
+    topology_path = tmp_path / "headless_connect.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Headless Connect",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+
+    runner = ScenarioRunner()
+
+    run = runner.run_connect(topology_path, seed=42, use_get_snr=False)
+
+    assert isinstance(run, ScenarioRunResult)
+    assert run.ap_name == "AP1"
+    assert run.ris_name == "R1"
+    assert run.ue_name == "UE1"
+    assert "snr_dB" in run.result
+    assert run.result["ue_present"] is True
+    assert run.network.last_connect_result["ap"] == "AP1"
+
+
+def test_scenario_runner_reports_missing_required_node_types():
+    runner = ScenarioRunner()
+    net = runner.load_topology(EXAMPLE_SIMPLE)
+    del net.nodes["R1"]
+
+    with pytest.raises(ValueError) as exc_info:
+        runner._resolve_connect_names(net, None, None, None)
+
+    assert "No RIS nodes available" in str(exc_info.value)

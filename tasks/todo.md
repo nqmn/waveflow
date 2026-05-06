@@ -253,3 +253,28 @@ Change budget: [files 2] [functions: RISNetwork.connect, new path-loss/gain/SNR 
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Verification ran through `.venv` because the system Python environment is externally managed.
+
+## Task: Phase 5 minimal scenario runner
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive scenario runner module and its focused tests.
+Change budget: [files 3] [functions: new scenario runner API, targeted tests, additive export if required] [interfaces: additive risnet scenario surface only] [state mutations: none beyond existing network/load/connect side effects]
+
+### Scope
+- `risnet/scenarios.py` — additive headless scenario runner for JSON topologies
+- `risnet/__init__.py` — only if a public export is needed
+- `tests/test_scenarios.py` — focused headless runner coverage
+
+### Steps
+- [x] Add minimal scenario runner API on top of `NetworkIO` and `RISNetwork.connect()`
+- [x] Add focused tests for loading topology JSON and executing a connect request
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Added `ScenarioRunner`/`ScenarioRunResult` for loading JSON topologies and executing a headless connect workflow, plus focused tests for load, run, and missing-node behavior.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: The stock `example_1_simple.json` topology is not directly connectable under default RIS FOV, so the execution test now uses a valid temporary topology while keeping the stock file for load-only coverage.
+- Known debt (acknowledged):
+- Limitations: This first slice supports JSON topology loading and a single headless connect flow; batch scenarios and richer scenario schemas remain future work.
