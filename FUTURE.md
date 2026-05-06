@@ -487,6 +487,232 @@ The legacy interactive CLI is `cmd.Cmd`-based. A Typer/Rich terminal surface
 already exists as `waveflow ui ...`; the next step is to expand that surface and
 gradually route shared operations through service APIs.
 
+### 10a. Rich-Powered RIS Sweep UX
+
+`rich` is a strong fit for RIS research workflows because it can visualize live
+parameter sweeps without forcing users into a heavy GUI stack. For phase
+sweeps, beam steering, frequency sweeps, angle scans, and codebook exploration,
+the terminal can become a first-class research surface rather than a secondary
+debug tool.
+
+Useful live terminal capabilities:
+
+- progress bars for long RIS sweep jobs
+- real-time metric dashboards for SNR, gain, path loss, AoA, AoD, and best
+  candidate tracking
+- spectrum-like bar views for frequency or resonance sweeps
+- pseudo-heatmaps for beam patterns, phase states, or power maps
+- status panels for scenario state, current sweep target, and convergence state
+- multi-worker monitoring for parallel sweep or optimization jobs
+- convergence tracking for Bayesian optimization, genetic search, or adaptive
+  beam tuning
+
+Example sweep progress:
+
+```python
+from rich.progress import track
+import time
+
+for phase in track(range(360), description="Sweeping RIS phase..."):
+    time.sleep(0.01)
+```
+
+Example live metrics table:
+
+```python
+from rich.live import Live
+from rich.table import Table
+import random
+import time
+
+def make_table():
+    table = Table(title="RIS Sweep")
+    table.add_column("Iteration")
+    table.add_column("Gain (dB)")
+    table.add_column("AoA")
+    table.add_column("AoD")
+
+    for i in range(5):
+        table.add_row(
+            str(i),
+            f"{random.uniform(10,30):.2f}",
+            f"{random.uniform(-90,90):.1f}",
+            f"{random.uniform(-90,90):.1f}",
+        )
+
+    return table
+
+with Live(make_table(), refresh_per_second=4) as live:
+    for _ in range(20):
+        time.sleep(0.5)
+        live.update(make_table())
+```
+
+Example ASCII-style visualization targets:
+
+```text
+Beam Intensity
+
+███░░░░░░
+█████░░░░
+███████░░
+█████████
+██████░░░
+```
+
+```text
+RIS Phase Matrix
+
+[  0][ 45][ 90][135]
+[180][225][270][315]
+```
+
+```text
+2.4GHz  ████████░░
+2.5GHz  ██████████
+2.6GHz  ████░░░░░░
+```
+
+This is especially valuable for HPC, SSH, remote cluster execution, scripted
+batch studies, and notebook-adjacent experimentation where reproducibility and
+automation matter more than point-and-click interaction.
+
+Implementation note:
+
+Keep the terminal layer as a thin presentation surface over headless sweep and
+optimization services. `rich` should render structured state emitted by core
+services, not own RF logic directly.
+
+Suggested command families:
+
+```text
+cli/
+    sweep
+    visualize
+    benchmark
+    export
+
+ui/
+    notebook/
+    web/
+```
+
+Suggested stack:
+
+- CLI rendering: Rich
+- command surface: Typer
+- scientific compute: NumPy + SciPy
+- GPU and ML: PyTorch
+- richer plotting: Plotly
+- notebook workflows: Jupyter
+- structured config: YAML + Pydantic
+- parallel sweeps: Ray or Dask
+
+Strategic direction:
+
+Waveflow should not try to clone MATLAB or CST-style GUI workflows. The more
+defensible niche is a programmable RF experimentation framework that is
+automation-first, CLI-native, notebook-native, reproducible, and ready for
+AI-assisted optimization.
+
+### 10b. Localization, Sensing, and Diagnostics UX
+
+The same terminal-first UX principles should extend beyond RIS sweeping into
+localization, radar, ISAC, calibration, and debugging workflows. Researchers
+need fast feedback during algorithm development, but they also need the output
+to remain scriptable, comparable across runs, and usable over SSH.
+
+Important UX targets:
+
+- localization dashboards showing estimated position, ground truth, error,
+  covariance, and confidence region drift
+- anchor and path visibility summaries for AoA, ToF, TDoA, RSSI, and fused
+  estimators
+- live tracking views for mobile UE trajectories and filter state evolution
+- diagnostics panels for failed links, blocked paths, FOV rejection, phase
+  quantization, and channel-estimation instability
+- calibration workflows for array alignment, timing offset, phase offset, and
+  synchronization health
+- sensing views for radar returns, occupancy hints, and target tracks
+- experiment comparison views for baseline versus optimized runs
+- structured export paths for logs, tables, traces, and publication-ready data
+
+Example terminal-localization outputs:
+
+```text
+Localization Status
+
+UE-07     est=(4.12, 8.44) m
+truth     gt =(4.30, 8.02) m
+error     0.46 m
+method    AoA + RIS-assisted refinement
+status    converged
+```
+
+```text
+Anchor Health
+
+AP-1   LOS   AoA lock     SNR 24.1 dB
+AP-2   NLOS  weak path    SNR 11.8 dB
+RIS-1  OK    assist path  Gain +7.4 dB
+```
+
+```text
+Tracker Residuals
+
+t=01  ███░░░░░░
+t=02  ████░░░░░
+t=03  ██░░░░░░░
+```
+
+Example future CLI:
+
+```bash
+waveflow ris sweep run config.yaml
+waveflow loc track run indoor_lab.yaml
+waveflow loc replay logs run_042.json
+waveflow sense scan mmwave_corridor.yaml
+waveflow diag links urban_ris.yaml
+waveflow diag phases experiment_17.yaml
+waveflow export metrics run_042 --format parquet
+```
+
+Implementation note:
+
+Every UX surface should be backed by typed result objects and event streams from
+shared simulation services. A localization solver, sweep engine, or sensing
+pipeline should run identically in batch mode, notebook mode, and terminal
+mode, with only the presentation layer changing.
+
+Recommended service layout:
+
+```text
+services/
+    sweep/
+    localization/
+    sensing/
+    diagnostics/
+    calibration/
+    export/
+```
+
+Recommended UX layers:
+
+```text
+ui/
+    cli/
+    notebook/
+    web/
+    reports/
+```
+
+Strategic direction:
+
+The product should feel like an RF experimentation operating system rather than
+just a simulator shell. The value is not only accurate physics. The value is a
+repeatable workflow for sweep, inspect, localize, diagnose, compare, and export
+without leaving programmable environments.
+
 ### 11. Plugin Ecosystem
 
 Waveflow should evolve toward a universal plugin architecture.
