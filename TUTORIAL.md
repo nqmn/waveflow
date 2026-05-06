@@ -976,6 +976,39 @@ print("Nodes loaded:", list(net.nodes.keys()))
 
 ---
 
+## Part 18 — Example Scripts Reference
+
+All runnable scripts live in `examples/script/`. Each maps to a TUTORIAL part and requires a specific dependency level.
+
+| Script | Level | TUTORIAL Part | What It Shows |
+|---|---|---|---|
+| `example_1_simple.py` | Beginner | Part 4 | High-level `RISnet` API: add nodes, connect, ping |
+| `example_2_topology.py` | Beginner | Part 4 | Load topology from JSON, multi-hop paths |
+| `example_3_custom_topology.py` | Beginner | Part 4 | Y-shaped topology with `Topology` subclass |
+| `example_4_obstacles.py` | Beginner | Part 6 | Walls, LoS blocking, attenuation |
+| `example_5_context_manager.py` | Beginner | Part 4 | `with RISnet() as net:` context manager |
+| `example_6_batch_testing.py` | Intermediate | Part 16 | Batch parameter sweep over array sizes |
+| `example_8_sdr_validation.py` | Intermediate | Part 11 | System-level vs waveform-level SNR |
+| `example_9_interactive_cli.py` | Beginner | Part 2 | Launches the interactive CLI |
+| `example_10_waveform_level.py` | Advanced | Part 11 | OFDM signal, multipath, RIS reflection, waveform comparison |
+| `example_11_ml_beam_prior.py` | Advanced | Part 12 | ML beam prediction (requires `[ml]` extra) |
+| `example_12_feedback_integration.py` | Advanced | Part 10 | UE→AP SNR feedback loop |
+| `example_13_adaptive_control.py` | Advanced | Part 10 | Adaptive power and MCS control |
+| `example_14_full_integration.py` | Advanced | Part 11 | Full cascade: AP TX → RIS → UE RX with UE receiver pipeline |
+| `example_15_video_streaming.py` | Advanced | — | Video bitstream simulation over RIS link |
+| `example_16_quantization_codebook.py` | Advanced | Part 9 | Phase quantization codebook analysis |
+| `example_17_beam_sweeping_trials.py` | Advanced | Part 8 | Beam sweep algorithm comparison trials |
+
+Run any script from the project root:
+
+```bash
+PYTHONPATH=. python3 examples/script/example_1_simple.py
+```
+
+**Notes:**
+- `example_11_ml_beam_prior.py` requires `pip install -e ".[ml]"` (scikit-learn/torch).
+- `example_15_video_streaming.py` expects a video file at `streaming/video.mp4`; the demo continues with simulated throughput if the file is absent.
+
 ## Next Steps
 
 - Run example scripts in `examples/script/` for complete end-to-end demonstrations
