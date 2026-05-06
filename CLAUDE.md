@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-RISNet v2.0 is an advanced Reconfigurable Intelligent Surface (RIS) network simulator with modular architecture, beam sweeping algorithms, pathfinding, and MATLAB integration for electromagnetic analysis.
+Waveflow v2.0 is an advanced wireless propagation, waveform, and RIS-assisted network simulator. The package was formerly published as RISNet; the `risnet` package name is retained as a backward-compatibility alias. Core physics, beam sweeping algorithms, pathfinding, OFDM waveform simulation, and MATLAB integration are all included.
 
 ## Build, Test, and Run Commands
 
@@ -16,25 +16,35 @@ pip install -e .
 # Install with ML support
 pip install -e ".[ml]"
 
+# Install with web interface
+pip install -e ".[web]"
+
+# Install with Typer/Rich terminal UI
+pip install -e ".[terminal]"
+
 # Install all dependencies (including dev tools)
 pip install -e ".[all]"
 ```
 
 ### Running the Simulator
 ```bash
-# CLI mode (interactive)
-risnet
-python main.py --cli
+# CLI mode (interactive, default)
+waveflow
+waveflow --cli
+risnet          # backward-compatible alias
 
 # Web interface (http://127.0.0.1:5000)
-risnet --web
-python main.py --web
+waveflow --web
+
+# Modern Typer/Rich terminal commands
+waveflow --terminal status
+waveflow ui demo-connect
 
 # Load topology on startup
-python main.py --cli --topology examples/json/example_1_simple.json
+waveflow --cli --topology examples/json/example_1_simple.json
 
-# Run direct command
-risnet testall
+# Run direct command and exit
+waveflow testall --exec-only
 ```
 
 ### Testing & Code Quality
@@ -68,9 +78,14 @@ python examples/script/example_14_full_integration.py
 - `physics.py` - Propagation models (FSPL, atmosphere, Rician, quantization loss, array gain)
 - `environment.py` - Walls, obstacles, line-of-sight checking
 - `waveform.py` - OFDM signal generation and channel simulation
-- `waveform_controller.py` - OFDM SNR computation, waveform-level beam sweep
 - `feedback_channel.py` - UE→AP feedback modeling
 - `validation.py` - Topology and physics validators
+- `angle_utils.py` - Angle normalization, FOV checking, offset conversion
+- `signal_processor.py` - Signal processing utilities
+- `snr_messaging.py` - SNR message passing
+- `ue_receiver.py` - UE receiver model
+- `arq_handler.py` - ARQ (Automatic Repeat reQuest) handler
+- `adaptive_impairments.py` - Adaptive impairment models
 - `quantization/` - (Optional plugin system for custom quantizers)
 
 **`controller/`** - High-level orchestration and algorithms
@@ -82,14 +97,33 @@ python examples/script/example_14_full_integration.py
 - **`pathfinding/`** - Routing algorithms (registry-based)
   - `base.py`, `dijkstra.py`, `astar.py`, `greedy.py`, `exhaustive.py`
   - `registry.py` - Algorithm factory
-  - `plugins/` - Custom algorithm plugins
 - **`beamsweeping/`** - Beam sweep algorithms (registry-based)
-  - `algorithms/` - Linear, adaptive, DE, ML-guided, etc.
+  - `algorithms/` - All sweep implementations
   - `base.py`, `registry.py` - Framework
-  - `ml/` - ML predictors (RF, XGBoost, SVR, MLP)
+  - `ml/` - ML predictors (RF, XGBoost, SVR, MLP, GMF, VGMF, LGBM, etc.)
   - `common.py` - Shared utilities
+- **`beamforming/`** - Beamforming engine (`engine.py`)
+- **`beamtracking/`** - Beam tracking module
+- **`ris_phase/`** - RIS phase management
+  - `phase_steering.py` - Geometric phase computation
+  - `phase_optimization.py` - CVXPY-based optimization
+  - `phase_hybrid.py` - Hybrid phase approach
+  - `phase_manager.py` - Phase manager orchestrator
+  - `phase_quantization.py` - Phase quantization utilities
 
-**`app/`** - Web interface (Flask-based)
+**`risnet/`** - High-level clean API (primary public interface)
+- `__init__.py` - `RISnet` class, `Topology` — user-facing API
+- `__main__.py` - Entry point for both `waveflow` and `risnet` CLI commands
+- `cli.py` - Cmd-based interactive shell
+- `terminal_cli.py` - Optional Typer/Rich terminal command surface
+- `arrays/` - Array geometry, quantization, steering helpers
+- `channels/` - Channel base classes and link budget
+
+**`waveflow/`** - Forward-looking package alias
+- Re-exports everything from `risnet` for the new package name
+- `arrays/`, `channels/` - Mirrors `risnet` subpackages
+
+**`app/`** - Web interface (Flask-based, optional `[web]` extra)
 - `__init__.py` - Flask app factory
 - `api/bp.py` - REST API endpoints (/api/*)
 - `web/bp.py` - HTML UI templates
@@ -97,40 +131,53 @@ python examples/script/example_14_full_integration.py
 - `state_manager.py` - Network state persistence
 - `validators.py` - Input validation
 
-**`cli/`** - Interactive command-line interface
-- `__init__.py` - CLI module initialization
+**`cli/`** - Legacy interactive command-line interface (Cmd-based)
+- `main_shell.py` - Main shell, `RISNetCLI` class
+- `connection_handler.py` - Connection orchestration
+- `helpers.py` - Shared CLI utilities
 - `ap_shell.py` - Access Point-specific commands
+- `ris_shell.py` - RIS-specific commands
 - `ue_shell.py` - User Equipment-specific commands
+- `matlab_commands.py` - MATLAB bridge commands
 - `test_suite.py` - Built-in test suite (testall, etc.)
 - `video_stream.py` - Video streaming simulation
 
+**`utils/`** - Shared utilities
+- `link_budget.py` - Link budget calculations
+- `csi.py` - Channel State Information helpers
+- `rssi.py` - RSSI utilities
+- `snr.py` - SNR helpers
+- `metric_selector.py` - Metric selection logic
+- `aruco_utils.py` - ArUco marker utilities
+- `cam_oa_marker.py`, `cam_oa_server.py`, `camera_stream_server.py` - Camera/streaming tools
+
 **`config/`** - Configuration management
 - `config.py` - Config loader and schema
-- Environment defaults
 
 **`risformula/`** - Standalone formula and pattern implementations
-- Phase computation formulas
-- Pattern generation tools
+- `localization_de.py` - DE localization formulas
+- `pattern_gen_hybrid.py` - Hybrid pattern generation
 - `archived/` - Legacy implementations
 
 ## Key Concepts
 
 ### Beam Sweeping Algorithm Plugin System
-Located in `controller/beamsweeping/`, uses registry pattern for dynamic discovery:
-
-**Architecture**:
-1. **Base class**: `SweepAlgorithmBase` - Common interface for all sweeps
-2. **Registry**: `registry.py` - Decorator-based algorithm registration
-3. **Algorithms**: `algorithms/` - Individual implementations (linear, adaptive, DE, ML-guided, etc.)
-4. **Loaders**: Auto-discovery from algorithms/ folder or explicit plugins/
+Located in `controller/beamsweeping/`, uses registry pattern for dynamic discovery.
 
 **Available algorithms**:
-- `linear` / `brute-force` - Uniform angle steps, coarse→fine refinement
-- `adaptive` / `center-out` - Specular angle-centered search (~30% faster)
-- `de` / `differential-evolution` - Population-based optimization
-- `ml` / `ml-guided` - ML predictor (RF, XGBoost, SVR) with refinement
-- `edge-center` - Directional exhaustive search
-- `prime` - PRIME localization
+
+| Name | Aliases | Description |
+|---|---|---|
+| `linear` | `brute-force` | Uniform angle steps |
+| `coarse-fine` | `two-phase`, `center-out`, `adaptive` | Coarse then fine refinement (default) |
+| `de` | `differential-evolution`, `de-localization` | Differential Evolution optimization |
+| `ml` | `ml-guided`, `gmf` | ML predictor with refinement |
+| `edge` | `edge-center`, `directional-search`, `exhaustive` | Directional exhaustive search |
+| `hierarchical` | `hierarchical-sweep`, `hierarchical-refinement` | Hierarchical multi-resolution sweep |
+| `adaptive-directional` | `directional`, `refinement`, `adaptive-refinement` | Adaptive directional refinement |
+| `prime` | `prime-inference`, `power-ris-estimation`, `anm` | PRIME localization |
+| `hog` | `human`, `hog_human` | HOG human detection sweep |
+| `opencv` | `vision`, `aruco` | OpenCV/ArUco vision sweep |
 
 **All algorithms return**:
 ```python
@@ -150,9 +197,9 @@ Located in `controller/beamsweeping/`, uses registry pattern for dynamic discove
 2. Inherit from `SweepAlgorithmBase`, set `name` and `description` properties
 3. Implement `sweep(ap_name, ris_name, ue_name, fov=60, step=10, **kwargs) -> Dict`
 4. Decorate class with `@register_algorithm("my-algo", aliases=("alias",))`
-5. Import in `__init__.py` or place in plugins/ for auto-discovery
+5. Import in `algorithms/__init__.py`
 
-**Reference**: See `controller/beamsweeping/README.md` for detailed template and examples.
+**Reference**: See `controller/beamsweeping/ALGORITHM_TEMPLATE.md` for detailed template.
 
 ### Network Connection Flow
 ```python
@@ -169,13 +216,12 @@ Located in `controller/beamsweeping/`, uses registry pattern for dynamic discove
 ```
 
 ### Pathfinding
-Located in `controller/pathfinding/`, uses similar registry pattern:
-- `dijkstra` - Optimal SNR paths (Dijkstra's algorithm)
-- `astar` - A* with heuristics (optimal with admissible heuristic)
-- `greedy` - Fast approximations (no optimality guarantee)
+Located in `controller/pathfinding/`, uses registry pattern:
+- `dijkstra` - Optimal SNR paths
+- `astar` - A* with heuristics
+- `greedy` - Fast approximations
 - `exhaustive` - Brute-force all paths (small networks only)
 
-Usage:
 ```python
 from controller.pathfinding import get_algorithm
 algo = get_algorithm('dijkstra')
@@ -183,40 +229,43 @@ result = algo.find_path(graph, source, target, node_positions)
 ```
 
 ### RIS Phase Management
-Two separate systems:
-1. **Phase Steering** (`controller/ris_phase/phase_steering.py`) - Geometric phase computation
-2. **Phase Optimization** (`controller/ris_phase/phase_optimization.py`) - CVXPY-based optimization
+Located in `controller/ris_phase/`:
+1. `phase_steering.py` - Geometric phase computation
+2. `phase_optimization.py` - CVXPY-based optimization
+3. `phase_hybrid.py` - Hybrid approach combining steering and optimization
+4. `phase_manager.py` - Orchestrates phase subsystems
+5. `phase_quantization.py` - Quantization of phase states
 
 ### MATLAB Integration Pattern
-The MATLAB bridge uses lazy loading to avoid startup cost:
 ```python
 from matlab_integration import MatlabBridge
-bridge = MatlabBridge.get_instance()  # Only starts MATLAB on first use
-bridge.plot_beam_pattern(...)  # Engine starts here if not already running
+bridge = MatlabBridge.get_instance()  # Lazy-loaded; MATLAB starts on first use
+bridge.plot_beam_pattern(...)
 ```
 
 ### Network State Management
 - **CLI mode**: Saves/loads from `.risnet_network.json`
 - **Web mode**: Uses `WebStateManager` for persistence
-- State includes nodes, positions, and active links
 
 ### ML Beam Prediction
 Located in `controller/beamsweeping/ml/`:
-- `rf.py` - Random Forest predictor (best performance)
-- `xgb.py` - XGBoost (not yet implemented)
+- `rf.py` - Random Forest
+- `xgb.py` / `vxgb.py` - XGBoost variants
 - `svr.py` - Support Vector Regression
-- `mlp.py` - Neural network (PyTorch)
+- `gmf.py` / `vgmf.py` / `kgmf.py` - GMF variants
+- `lgbm.py` - LightGBM
+- `knn.py` - K-Nearest Neighbours
+- `lr.py` - Linear Regression
+- `trivial.py` - Trivial baseline
+- `smart_predictor.py` - Auto-selects best predictor
+- `dt.py` - Decision Tree
 - `base.py` - Base predictor interface
 - Models stored in `controller/beamsweeping/ml/models/`
 
 ### Angle Conventions
-**CRITICAL**: The codebase uses two angle reference systems:
+**CRITICAL**: Two angle reference systems are in use:
 1. **Absolute angles** - Global coordinate system (0° = +X axis, CCW positive)
 2. **Offset angles** - Relative to node's `normal_angle_deg` (boresight direction)
-
-RIS and UE nodes have:
-- `normal_angle_deg` - Antenna boresight direction (absolute)
-- `max_angle_deg` - Field of view (±FOV from normal)
 
 Helper functions in `core/angle_utils.py`:
 - `normalize_angle_to_pm180()` - Normalize to [-180, 180]
@@ -225,70 +274,80 @@ Helper functions in `core/angle_utils.py`:
 - `compute_absolute_angle_from_offset()` - Convert offset to absolute
 
 ### Waveform-Level Simulation
-`core/waveform.py` and `controller/waveform_controller.py` provide OFDM simulation:
+`core/waveform.py` and `controller/waveform_controller.py`:
 - 256-subcarrier OFDM with QPSK modulation
 - Channel models: AWGN, 3GPP-UMi, custom multipath
 - RIS reflection with mutual coupling
-- System vs waveform cross-validation
 - Reproducible with `set_deterministic_seeds()`
 
 ## Important Implementation Details
 
+### Entry Points
+`pyproject.toml` defines two CLI entry points:
+```toml
+[project.scripts]
+waveflow = "waveflow.__main__:main"   # Primary (new name)
+risnet   = "risnet.__main__:main"     # Backward-compatible alias
+```
+Both resolve to the same `main()` function in `risnet/__main__.py`.
+
+### High-Level API (`risnet` / `waveflow`)
+```python
+from risnet import RISnet, Topology   # or: from waveflow import RISnet
+
+net = RISnet()
+ap  = net.addAP('ap1', position=(0, 0))
+ris = net.addRIS('ris1', position=(5, 0))
+ue  = net.addUE('ue1', position=(10, 3))
+net.start()
+paths  = net.findPaths(ap, ue)
+result = net.connect(ap, ris, ue)
+net.stop()
+```
+
+### Low-Level API (`core` / `controller`)
+```python
+from core import RISNetwork
+from controller.ris_controller import RISController
+
+net = RISNetwork()
+controller = RISController(net, net.environment)
+net.set_controller(controller)
+
+net.add_ap('AP1', x=0, y=0)
+net.add_ris('R1', x=5, y=0, N=16, bits=2)
+net.add_ue('UE1', x=10, y=3)
+
+paths = controller.find_all_paths('AP1', 'UE1', algorithm='dijkstra')
+```
+
 ### Connect Command
-The `connect` command supports multiple modes:
 ```bash
-# Basic connection (auto beam angle)
-connect AP1 RIS1 UE1
-
-# With explicit beam angle
-connect AP1 RIS1 UE1 --beam 45.2
-
-# With beam sweep (algorithm defaults to 'coarse-fine')
-connect AP1 RIS1 UE1 --sweep 60 10
-
-# With specific sweep algorithm
-connect AP1 RIS1 UE1 --sweep 60 10 --algo de
-
-# ML-guided sweep
+connect AP1 RIS1 UE1                            # Auto beam angle
+connect AP1 RIS1 UE1 --beam 45.2               # Explicit beam angle
+connect AP1 RIS1 UE1 --sweep 60 10             # Sweep (default algo: coarse-fine)
+connect AP1 RIS1 UE1 --sweep 60 10 --algo de   # Specific sweep algorithm
 connect AP1 RIS1 UE1 --sweep 60 10 --algo ml-guided --ml-predictor rf
 ```
 
 ### Sweep Command Arguments
-When adding sweep algorithm parameters in CLI:
-- Use `--sweep FOV STEP` for sweep range
-- Use `--algo NAME` to select algorithm
-- Additional algorithm-specific kwargs passed as `key=value` pairs
-- Example: `sweep AP1 RIS1 UE1 60 10 --algo de M=32 target_snr_db=25`
+```bash
+sweep AP1 RIS1 UE1 60 10 --algo de M=32 target_snr_db=25
+```
 
 ### Adding New CLI Commands
 1. Add `do_commandname()` method to `cli/main_shell.py`
 2. Add docstring for help text
-3. Parse arguments (use `shlex` for complex parsing)
+3. Parse arguments with `shlex`
 4. Call network or controller methods
 5. Format and print results
 
 ### Thread Safety in Web Mode
-All network access in web mode must go through `ThreadSafeNetwork`:
-- Wraps `RISNetwork` with locks
+All network access in web mode must go through `ThreadSafeNetwork` and `ThreadSafeController`:
+- Wraps `RISNetwork` / `RISController` with locks
 - Used automatically by Flask app
-- CLI mode uses direct network access (no locking needed)
-
-### Git Workflow
-The repository uses standard git workflow:
-- Main branch: `main`
-- Recent commit shows DE localization sweep implementation
-- Modified file: `controller/beamsweeping/algorithms/de_localization_sweep.py`
-
-### Python Entry Points
-The package defines CLI entry point in `pyproject.toml`:
-```toml
-[project.scripts]
-risnet = "risnet.__main__:main"
-```
-This allows `risnet` command after `pip install -e .`
 
 ### Topology Files
-JSON topology format in `examples/json/`:
 ```json
 {
   "nodes": {
@@ -302,111 +361,20 @@ JSON topology format in `examples/json/`:
 }
 ```
 
-## Common Workflows
+## Physics Models (`core/physics.py`)
 
-### Adding a Beam Sweep Algorithm
-See `controller/beamsweeping/README.md` for comprehensive guide.
-
-Quick template:
-```python
-# File: controller/beamsweeping/algorithms/my_algorithm.py
-from ..base import SweepAlgorithmBase
-from ..registry import register_algorithm
-
-@register_algorithm("my-algo", aliases=("my-alias",))
-class MyAlgorithmSweep(SweepAlgorithmBase):
-    @property
-    def name(self) -> str:
-        return "My Algorithm"
-
-    @property
-    def description(self) -> str:
-        return "My algorithm description"
-
-    def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, **kwargs):
-        # Sweep logic here
-        ap, ris, ue = self.network.get(ap_name), self.network.get(ris_name), self.network.get(ue_name)
-        # ... compute angles and SNR ...
-        return {
-            'local_coarse': angles,
-            'snr_coarse': snrs,
-            'pwr_coarse': powers,
-            'local_fine': [...],
-            'snr_fine': [...],
-            'best_local_fine': float(best_angle),
-            'best_snr_fine': float(best_snr)
-        }
-```
-
-Usage: `risnet> sweep AP1 R1 UE1 60 10 --algo my-algo`
-
-### Network Initialization (Python API)
-```python
-from core import RISNetwork
-from controller.ris_controller import RISController
-
-net = RISNetwork()
-controller = RISController(net, net.environment)
-net.set_controller(controller)
-
-# Add nodes
-net.add_ap('AP1', x=0, y=0)
-net.add_ris('R1', x=5, y=0, N=16, bits=2)
-net.add_ue('UE1', x=10, y=3)
-
-# Find paths
-paths = controller.find_all_paths('AP1', 'UE1', algorithm='dijkstra')
-print(f"Found {len(paths)} paths")
-```
-
-### Adding New CLI Commands
-1. Add `do_commandname()` method to main shell class (in `risnet/cli.py` or `risnet_cli.py`)
-2. First parameter is always `self`, subsequent parameters become command arguments
-3. Parse arguments using `shlex.split()` for complex input
-4. Call network/controller methods
-5. Format and print results
-
-```python
-def do_mycommand(self, args):
-    """My command help text"""
-    if not args:
-        print("Usage: mycommand <node> <value>")
-        return
-
-    parts = args.split()
-    node_name = parts[0]
-    # ... implementation ...
-```
-
-### Phase Quantization
-RIS nodes support configurable quantization:
-- `bits` parameter in `add_ris()` - Number of phase bits (1, 2, 3, etc.)
-- Quantization loss computed in `core/physics.py:quantization_loss_dB()`
-- Loss estimated from theoretical RMS (uniform quantizer: σ = Δφ/√12)
-- Actual phase states stored in RIS node after sweep
-
-### Physics Models (`core/physics.py`)
-Core propagation calculations used in both system-level and waveform-level simulations:
 - `path_loss_dB(distance, freq_GHz)` - Free space path loss (FSPL)
-- `atmospheric_loss_dB(distance, freq_GHz)` - Atmospheric absorption (ITU models)
+- `atmospheric_loss_dB(distance, freq_GHz)` - Atmospheric absorption (ITU)
 - `rician_fading(K_factor_dB)` - Rician fading with K-factor
 - `quantization_loss_dB(bits)` - Phase shifter quantization loss (RMS-based)
-- `array_gain_dBi(N_elements)` - Antenna array gain (directivity + per-element gain)
-- `compute_snr_dB(...)` - Full link budget: TX power - path loss - atmospheric loss ± gains - quantization - noise figure
+- `array_gain_dBi(N_elements)` - Antenna array gain
+- `compute_snr_dB(...)` - Full link budget
 
 **SNR Two-Level Approach**:
-1. **System-level** (`network.connect()`): Simplified link budget, quick calculations
-2. **Waveform-level** (`waveform_controller.compute_waveform_snr()`): Full OFDM with multipath, per-subcarrier, reproducible with seed locking
-
-Both approaches validated to produce consistent results (see `examples/script/example_5_context_manager.py`).
+1. **System-level** (`network.connect()`): Simplified link budget, quick
+2. **Waveform-level** (`waveform_controller.compute_waveform_snr()`): Full OFDM, per-subcarrier
 
 ## Debugging Tips
-
-### Enable Verbose Output
-```python
-# In network.py, many methods accept verbose=True
-result = network.connect(ap, ris, ue, verbose=True)
-```
 
 ### Check Registered Algorithms
 ```python
@@ -414,107 +382,77 @@ from controller.beamsweeping import list_registered_algorithms
 print(list_registered_algorithms())
 ```
 
-### MATLAB Bridge Status
+### Enable Verbose Output
 ```python
-from matlab_integration import MatlabBridge
-bridge = MatlabBridge.get_instance()
-print(bridge._connected)  # Check if engine is running
+result = network.connect(ap, ris, ue, verbose=True)
 ```
 
 ### Network State Inspection
 ```bash
-# CLI command
-list  # Shows all nodes
+list   # CLI command — shows all nodes
+```
 
-# Or in Python
-net.list_nodes()
-print(net.nodes)  # Dict of all nodes
+### MATLAB Bridge Status
+```python
+from matlab_integration import MatlabBridge
+bridge = MatlabBridge.get_instance()
+print(bridge._connected)
 ```
 
 ### Common Issues
-1. **MATLAB not found**: MATLAB integration is optional, will fail gracefully if not installed
-2. **Import errors**: Ensure you're in project root or installed with `pip install -e .`
-3. **Sweep algorithm not found**: Check spelling and that algorithm is imported in `__init__.py`
-4. **Angle FOV errors**: Check that beam angle is within node's `max_angle_deg` FOV
-
-## Project Status & Recent Changes
-
-### Current State (v2.0+)
-- **Main branch**: All core systems integrated and stable
-- **Recent work**: DE (Differential Evolution) localization sweep algorithm (see `controller/beamsweeping/algorithms/de_localization_sweep.py`)
-- **Modified files**: Check `git status` for uncommitted work
-- **Test coverage**: Unit tests in `tests/`, example scripts in `examples/script/`
-
-### Known Considerations
-1. **Angle conventions**: Codebase mixes absolute (global) and relative (node-centric) angles. Always check context - RIS/UE use `normal_angle_deg` and `max_angle_deg` FOV
-2. **Quantization**: RMS-based loss model (uniform quantizer, per-element). Coupling effects are configurable (typically off)
-3. **ML predictors**: Require pre-trained models (RF, XGBoost, SVR). Auto-loaded if available in `controller/beamsweeping/ml/models/`
-4. **MATLAB bridge**: Optional, lazy-loaded. Will fail gracefully if MATLAB not installed
-5. **Web thread safety**: Must use `ThreadSafeNetwork` wrapper in Flask app, not direct network access
+1. **MATLAB not found**: Optional — fails gracefully if not installed
+2. **Import errors**: Ensure `pip install -e .` from project root
+3. **Sweep algorithm not found**: Check spelling; verify import in `algorithms/__init__.py`
+4. **Angle FOV errors**: Beam angle must be within node's `max_angle_deg` FOV
+5. **Web dependencies missing**: Install with `pip install -e ".[web]"` — flask/waitress are optional
 
 ## Code Conventions
 
 ### Naming
-- **Modules**: `snake_case.py` (e.g., `ris_controller.py`)
-- **Classes**: `PascalCase` (e.g., `RISNetwork`, `SweepAlgorithmBase`)
-- **Functions**: `snake_case()` (e.g., `compute_snr_dB()`)
-- **Constants**: `UPPER_CASE` (e.g., `DEFAULT_FREQ_GHZ`)
+- **Modules**: `snake_case.py`
+- **Classes**: `PascalCase`
+- **Functions**: `snake_case()`
+- **Constants**: `UPPER_CASE`
 - **Test files**: `test_*.py` in `tests/`
 - **Examples**: `example_N_topic.py` in `examples/script/`
 
 ### Code Style
-- **Format**: Black (100-character lines, see `pyproject.toml`)
+- **Format**: Black (100-character lines)
 - **Imports**: isort-compatible grouping (stdlib, third-party, local)
 - **Type hints**: Recommended but not enforced
 - **Docstrings**: Google-style for public APIs
-
-### Comments
-- Avoid emojis in comments (per project guidelines in `.claude/CLAUDE.md`)
-- Explain *why* not *what* - code should be self-documenting
-- Flag architectural decisions with `# NOTE:` or `# WARNING:`
+- **Comments**: Avoid emojis; explain *why* not *what*; flag decisions with `# NOTE:` or `# WARNING:`
 
 ## Dependencies
 
-**Core** (required, see `pyproject.toml`):
-- `numpy` - Numerical computation
-- `flask` - Web framework
-- `waitress` - Production WSGI server
+**Core** (always installed):
+- `numpy`, `scipy` - Numerical computation
 - `pyyaml` - Configuration files
-- `opencv-python` - Computer vision for ArUco/HOG sweep modes
-- `cvxpy`, `scs` - Convex optimization for phase tuning
 
-**Optional ML** (`pip install -e ".[ml]"`):
-- `torch>=1.9.0` - Neural network (MLP predictor)
-- `scikit-learn` - RF, SVR, LGBM predictors, utilities
-
-**Development** (`pip install -e ".[all]"`):
-- `pytest`, `pytest-cov` - Test framework
-- `black`, `flake8`, `mypy` - Code quality
+**Optional extras**:
+- `[web]` - `flask`, `waitress`
+- `[vision]` - `opencv-python`
+- `[optimization]` - `cvxpy`, `scs`
+- `[plot]` - `matplotlib`
+- `[terminal]` - `typer`, `rich`
+- `[ml]` - `torch>=1.9.0`, `scikit-learn`
+- `[dev]` - `pytest`, `pytest-cov`, `black`, `flake8`, `mypy`, `matplotlib`
 
 ## Testing & Validation
 
-### Test Execution
 ```bash
-# Run all tests
 pytest tests/ -v
-
-# Run specific test with verbose output
 pytest tests/test_physics_fixes.py::test_name -vv
-
-# With coverage report
 pytest --cov=core --cov=controller --cov=app tests/
-
-# Run example validation
-python examples/script/example_10_waveform_level.py
 ```
 
 ### Test Categories
-- **Physics validation**: `test_physics_fixes.py` - FSPL, quantization, array gain
-- **Adaptive systems**: `test_adaptive_with_ml.py` - Adaptive controller + ML integration
-- **ML benchmarks**: `evaluate_model_performance.py` - Predictor accuracy
-- **Integration**: `example_14_full_integration.py` - End-to-end workflow
+- **Physics validation**: `test_physics_fixes.py`
+- **Adaptive systems**: `test_adaptive_with_ml.py`
+- **ML benchmarks**: `evaluate_model_performance.py`
+- **DE sweep**: `test_de_localization_sweep.py`
+- **Link budget**: `test_link_budget_channel.py`
+- **Smoke tests**: `test_smoke.py`
 
 ### Reproducibility
-- Use `set_deterministic_seeds()` before waveform experiments (global seed lock)
-- Locks NumPy, Python `random`, and other RNG modules
-- Critical for validating cross-module consistency (system vs waveform SNR)
+Use `set_deterministic_seeds()` before waveform experiments — locks NumPy, Python `random`, and other RNG modules.
