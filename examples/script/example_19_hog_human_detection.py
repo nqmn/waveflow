@@ -1,23 +1,19 @@
 #!/usr/bin/env python3
 """
-Example: HOG Human Detection Beam Steering
+Example 19: HOG Human Detection Beam Steering
 
-This example demonstrates how to use HOG (Histogram of Oriented Gradients)
-to detect humans and automatically steer RIS beams to optimize signal reception.
-
-Usage:
-    python examples/hog_human_detection_example.py
+Demonstrates how to use HOG (Histogram of Oriented Gradients) to detect humans
+and automatically steer RIS beams to optimize signal reception.
 
 Requirements:
-    - Webcam connected to system
-    - OpenCV installed (pip install opencv-python)
-    - RISNet installed and working
+    - pip install -e ".[vision]"  (opencv-python)
+    - Webcam connected to system (or simulated video source)
 """
 
 import sys
 import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 

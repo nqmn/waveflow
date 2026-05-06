@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 """
-Example script demonstrating ArUco marker generation utilities
+Example 18: ArUco Marker Generation for Vision-Based Beam Steering
 
-This script shows various ways to use the aruco_utils module to generate
-and manage ArUco markers for vision-based beam sweep testing.
+Demonstrates how to use aruco_utils to generate and manage ArUco markers
+used in camera-based pose estimation and RIS beam steering.
+
+Requirements: pip install -e ".[vision]"  (opencv-python)
 """
 
 import sys
 import os
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from utils.aruco_utils import (
-    generate_aruco_marker,
-    save_aruco_marker,
-    save_aruco_markers,
-    create_marker_grid,
-    get_dictionary_info,
-    validate_marker_id,
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "aruco_utils",
+    os.path.join(os.path.dirname(__file__), '..', '..', 'utils', 'aruco_utils.py')
 )
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+generate_aruco_marker = _mod.generate_aruco_marker
+save_aruco_marker = _mod.save_aruco_marker
+save_aruco_markers = _mod.save_aruco_markers
+create_marker_grid = _mod.create_marker_grid
+get_dictionary_info = _mod.get_dictionary_info
+validate_marker_id = _mod.validate_marker_id
 
 try:
     import cv2

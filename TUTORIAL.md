@@ -998,6 +998,8 @@ All runnable scripts live in `examples/script/`. Each maps to a TUTORIAL part an
 | `example_15_video_streaming.py` | Advanced | — | Video bitstream simulation over RIS link |
 | `example_16_quantization_codebook.py` | Advanced | Part 9 | Phase quantization codebook analysis |
 | `example_17_beam_sweeping_trials.py` | Advanced | Part 8 | Beam sweep algorithm comparison trials |
+| `example_18_aruco_markers.py` | Advanced | — | ArUco marker generation for vision-based beam steering (requires `[vision]`) |
+| `example_19_hog_human_detection.py` | Advanced | — | HOG human detection with RIS beam steering (requires `[vision]` + webcam) |
 
 Run any script from the project root:
 
@@ -1008,6 +1010,8 @@ PYTHONPATH=. python3 examples/script/example_1_simple.py
 **Notes:**
 - `example_11_ml_beam_prior.py` requires `pip install -e ".[ml]"` (scikit-learn/torch).
 - `example_15_video_streaming.py` expects a video file at `streaming/video.mp4`; the demo continues with simulated throughput if the file is absent.
+- `example_18_aruco_markers.py` and `example_19_hog_human_detection.py` require `pip install -e ".[vision]"` (opencv-python). Example 19 also requires a connected webcam or video source.
+- The two Jupyter notebooks in `examples/` (`RISNet_Jupyter_Example.ipynb`, `RISNet_Algorithm_Comparison.ipynb`) require `matplotlib` and `pandas` and are intended for interactive exploration.
 
 ## Next Steps
 
