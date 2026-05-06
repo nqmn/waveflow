@@ -208,7 +208,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `python -m risnet --help` and `waveflow --help` exit cleanly
 - `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
 - Minimal `RISNetwork.connect()` smoke run
-- `examples/hog_human_detection_example.py` imports successfully and builds a demo network using current public APIs
+- `examples/script/example_19_hog_human_detection.py` imports successfully and builds a demo network using current public APIs
 
 ---
 

@@ -4,6 +4,7 @@ Node classes for RIS network simulation
 import numpy as np
 from typing import Dict, Optional
 import copy
+from .phase_engine import get_phase_engine
 from .physics import C, Physics
 from utils.csi import generate_csi_report
 
@@ -394,36 +395,7 @@ class RIS(Node):
         Returns:
             phase_array: Ideal phases in radians (N×N grid, flattened)
         """
-        if self.use_hybrid_engine:
-            # Use new hybrid phase engine (Approach B - flag-based control)
-            from controller.ris_phase.phase_hybrid import HybridPhaseEngine
-
-            phases, metadata = HybridPhaseEngine.compute_hybrid_pattern(
-                source_pos=ap_pos,
-                ris_center_pos=self.pos,
-                target_pos=ue_pos,
-                frequency=self.freq,
-                array_size=self.N,
-                plane_tx=self.plane_tx,  # None (auto), True (plane), False (spherical)
-                plane_rx=self.plane_rx,  # None (auto), True (plane), False (spherical)
-                max_angle_deg=self.max_angle_deg,
-                ris_normal_deg=self.normal_angle_deg
-            )
-        else:
-            # Legacy: Use original deflection-based calculation (formula.md algorithm)
-            from controller.ris_phase.phase_steering import PhaseSteeringEngine
-
-            wavelength = C / self.freq
-
-            phases, metadata = PhaseSteeringEngine.phase_pattern_from_deflection(
-                source_pos=ap_pos,
-                ris_center_pos=self.pos,
-                target_pos=ue_pos,
-                wavelength=wavelength,
-                ris_array_size=self.N,
-                max_angle_deg=self.max_angle_deg,
-                ris_normal_deg=self.normal_angle_deg
-            )
+        phases, metadata = get_phase_engine().compute_ris_phases(self, ap_pos, ue_pos)
 
         # Store ideal phases
         self.current_phases = phases
@@ -509,10 +481,9 @@ class RIS(Node):
         return info
 
     def _get_phase_manager(self):
-        """Lazy-load phase manager from controller module"""
+        """Lazy-load phase manager through the registered phase engine."""
         if self._phase_manager is None:
-            from controller.ris_phase import RISPhaseManager
-            self._phase_manager = RISPhaseManager(self)
+            self._phase_manager = get_phase_engine().create_phase_manager(self)
         return self._phase_manager
 
     def quantize_phases(self):

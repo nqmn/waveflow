@@ -8,6 +8,8 @@ Comprehensive RIS phase management including:
 - Unified phase manager interface
 """
 
+from . import core_adapter as _core_adapter
+
 from .phase_steering import PhaseSteeringEngine, BeamSteeringController
 from .phase_quantization import (
     PhaseQuantizer, UniformQuantizer, NonuniformQuantizer, OptimizedQuantizer,

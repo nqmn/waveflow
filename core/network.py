@@ -17,7 +17,7 @@ from .angle_utils import (
 )
 from .feedback_channel import FeedbackChannelManager, FeedbackChannel
 from .snr_messaging import SNRMessagingSystem
-from controller.ris_phase.phase_steering import PhaseSteeringEngine
+from .phase_engine import get_phase_engine
 from utils.rssi import compute_rssi_dBm
 
 
@@ -646,9 +646,8 @@ class RISNetwork:
 
         # Apply tapering if requested (calculate weights)
         if tapering != 'uniform':
-            # Calculate weights using PhaseSteeringEngine
             # Assuming square array for now (N x N)
-            weights_2d = PhaseSteeringEngine.apply_tapering(ris.N, ris.N, window=tapering)
+            weights_2d = get_phase_engine().apply_tapering(ris.N, ris.N, window=tapering)
             ris.element_weights = weights_2d.flatten()
         else:
             # Reset to uniform if explicitly requested or default

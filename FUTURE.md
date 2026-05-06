@@ -1085,15 +1085,16 @@ migration phases where resolution is blocked or required.
 
 ### Circular Import: core → controller
 
-`core/network.py:20` imports `controller.ris_phase.phase_steering` at module
-level. `core/nodes.py:399,414` imports `controller.ris_phase.phase_hybrid` and
-`controller.ris_phase.phase_steering` at runtime via lazy imports. Core should
-not depend on controller. The lazy imports in `nodes.py` defer the failure but
-do not fix the architectural violation.
+Resolved 2026-05-06 for the direct-import portion of the issue. `core/`
+now owns a `PhaseEngine` abstraction and registry, while
+`controller/ris_phase/core_adapter.py` registers the existing controller-backed
+implementation. `core/network.py` and `core/nodes.py` no longer import
+controller phase classes directly.
 
-Resolution: introduce a `PhaseEngine` abstract base class in `core/` and pass
-concrete implementations from the controller layer via dependency injection.
-This is a prerequisite for Phase 4 decomposition.
+Residual debt: the controller-backed implementation is still the default
+runtime provider behind the core registry. That is compatible with the current
+architecture migration, but the broader controller/core separation is not fully
+complete yet.
 
 ### Duplicate CLI Implementations
 
@@ -1185,8 +1186,10 @@ Status as of 2026-05-06:
 5. ~~Add characterization regression tests for `RISNetwork.connect()` output
    shape, FOV errors, seeded fading, and active-link behavior (Phase 1).~~ —
    Done. Covered by `tests/test_connect_characterization.py`.
-6. Introduce a `PhaseEngine` abstract base in `core/` and remove the
-   `core/network.py:20` controller import (prerequisite for Phase 4).
+6. ~~Introduce a `PhaseEngine` abstract base in `core/` and remove the
+   `core/network.py:20` controller import (prerequisite for Phase 4).~~ —
+   Done. Core now routes phase operations through `core.phase_engine`, and the
+   controller implementation is registered via a compatibility adapter.
 7. ~~Add a small `arrays/` module with ULA/UPA geometry and steering vector
    tests (Phase 2).~~ — Done. Additive array primitives are in
    `risnet/arrays`, routed through the low-risk legacy call sites, and covered

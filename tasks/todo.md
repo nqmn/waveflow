@@ -533,3 +533,31 @@ Change budget: [files 10] [functions: shared array-factor and quantization deleg
 - Assumptions invalidated: Importing shared channel helpers through the `risnet` package created a circular import during test collection; the final implementation keeps `utils/link_budget.py` as the low-level source of truth and uses `risnet.channels` as a compatibility re-export layer.
 - Known debt (acknowledged):
 - Limitations: Verification for this slice was focused to `tests/test_array_primitives.py`, `tests/test_array_quantization.py`, `tests/test_link_budget_channel.py`, and `tests/test_smoke.py`; it did not rerun the full repository suite.
+
+## Task: Introduce Core PhaseEngine Abstraction
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the additive phase-engine abstraction and adapter files plus the `core/network.py`, `core/nodes.py`, and roadmap/task-log hunks for this task.
+Change budget: [files 7] [functions: core phase-engine registry, controller adapter registration, core node/network phase-engine call sites, roadmap/task record] [interfaces: additive `core.phase_engine` only] [state mutations: none]
+
+### Scope
+- `core/phase_engine.py` — add a core-owned phase-engine abstraction and registry
+- `controller/ris_phase/core_adapter.py` and `controller/ris_phase/__init__.py` — register the existing controller-backed implementation
+- `core/network.py` — replace direct controller tapering import with the core phase-engine service
+- `core/nodes.py` — replace direct controller phase-computation and phase-manager imports with the core phase-engine service
+- `FUTURE.md` and `tasks/todo.md` — record the roadmap/task status for item 6
+
+### Steps
+- [x] Inspect the remaining core-to-controller phase-engine dependency points
+- [x] Add the core abstraction and controller compatibility adapter
+- [x] Redirect the current core call sites through the abstraction without changing public behavior
+- [x] Run focused verification and review diff scope
+
+### Review
+- Completed: Added `core.phase_engine`, registered the existing controller-backed implementation through `controller/ris_phase/core_adapter.py`, and removed the direct controller phase imports from `core/network.py` and `core/nodes.py`.
+- Out-of-scope flagged: The unrelated stale smoke test reference to `examples/hog_human_detection_example.py` is currently broken because that file is absent from the worktree; this task did not modify it.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The controller-backed phase implementation remains the default runtime provider behind the core registry, so the broader controller/core split is not fully complete yet.
+- Limitations: Focused verification passed for `tests/test_connect_characterization.py`, `tests/test_hybrid_mode.py`, and `tests/test_side_lobes.py`, and compile checks passed. The broader smoke subset was blocked by the pre-existing missing example file.
