@@ -32,7 +32,7 @@ def example_full_cascade_basic():
     # Setup network
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=20, freq=10e9, bandwidth_MHz=100)
-    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9)
+    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     print("\nNetwork Configuration:")
@@ -163,7 +163,7 @@ def example_system_vs_full_waveform():
     # Setup network
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=20, freq=10e9, bandwidth_MHz=100)
-    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9)
+    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     print("\nNetwork Configuration:")
@@ -238,7 +238,7 @@ def example_varying_ris_bits():
     for bits in [1, 2, 4, 8]:
         # Create RIS with specific bit resolution
         ris_name = f'R_{bits}bit'
-        net.add_ris(ris_name, 5, 0, 0, N=8, bits=bits, freq=10e9)
+        net.add_ris(ris_name, 5, 0, 0, N=8, bits=bits, freq=10e9, max_angle_deg=90)
 
         # Simulate
         result = controller.simulate_full_cascade(

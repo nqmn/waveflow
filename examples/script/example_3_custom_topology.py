@@ -24,10 +24,10 @@ def run():
             # Center AP
             self.addAP('ap1', position=(0, 0))
 
-            # Three RIS branches
-            self.addRIS('ris1', position=(5, 5), N=16, bits=2)
-            self.addRIS('ris2', position=(5, 0), N=16, bits=2)
-            self.addRIS('ris3', position=(5, -5), N=16, bits=2)
+            # Three RIS branches (max_angle_deg=180 covers all AP directions)
+            self.addRIS('ris1', position=(5, 5), N=16, bits=2, max_angle_deg=180)
+            self.addRIS('ris2', position=(5, 0), N=16, bits=2, max_angle_deg=180)
+            self.addRIS('ris3', position=(5, -5), N=16, bits=2, max_angle_deg=180)
 
             # Three UEs
             self.addUE('ue1', position=(10, 5))

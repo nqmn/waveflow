@@ -247,7 +247,7 @@ def example_system_vs_waveform(system_result=None):
     # Setup network
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=20, freq=10e9)
-    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9)
+    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     print(f"\nNetwork Setup:")
@@ -348,7 +348,7 @@ def example_validation(system_result=None):
     # Setup network (matching Example 5 configuration for consistency)
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=20, freq=10e9)
-    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9)
+    net.add_ris('R1', 5, 0, 0, N=8, bits=2, freq=10e9, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     # Validate topology
