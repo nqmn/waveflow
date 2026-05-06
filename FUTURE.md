@@ -694,19 +694,28 @@ Recommended minimum verification after every phase:
 
 ```bash
 python3 -m compileall core controller cli risnet app config utils
-python3 -m pytest tests/test_fixes.py tests/test_physics_fixes.py
+PYTHONPATH=. python3 tests/test_physics_fixes.py
 python3 - <<'PY'
 from core import RISNetwork
 from risnet import RISnet
+# ap1 at (0,2), ris1 at (5,2) with default normal=0 and max_angle=90,
+# ue1 at (10,5) -- both AP and UE within RIS FOV
 net = RISNetwork(enable_messaging=False)
-net.add_ap("ap1", 0, 0)
-net.add_ris("ris1", 5, 0)
-net.add_ue("ue1", 10, 0)
+net.add_ap("ap1", 0, 2)
+net.add_ris("ris1", 5, 2, max_angle_deg=90)
+net.add_ue("ue1", 10, 5)
 result = net.connect("ap1", "ris1", "ue1", use_get_snr=False)
-assert "snr_dB" in result
+assert "snr_dB" in result, f"Missing snr_dB, got: {list(result.keys())}"
 assert RISnet is not None
+print("Baseline OK — snr_dB:", result["snr_dB"])
 PY
 ```
+
+Note: `tests/test_fixes.py` TEST 3 (RMS Phase Error with Angle Wrapping) has a
+stale expected value and will report one failure until Phase 1 resolves it. All
+other checks in that file pass. `pytest` requires installation; use
+`PYTHONPATH=. python3 tests/<file>.py` as the fallback runner until a virtual
+environment is established.
 
 If optional dependencies are missing in a local environment, skip only the tests
 that require those optional extras and document the skip reason in the phase
@@ -746,21 +755,31 @@ Exit gate:
 - `python -m risnet` or the `risnet` console command reaches the CLI entry point.
 - Baseline tests and compile checks pass.
 
-Current status:
+Current status (verified 2026-05-06):
 
-- Complete: package discovery includes the implementation packages.
-- Complete: `risnet/__main__.py` backs both `python -m risnet` and the console
-  script.
+- Complete: `pyproject.toml` package discovery includes all implementation
+  packages (`app*`, `cli*`, `config*`, `controller*`, `core*`, `utils*`,
+  `risnet*`).
+- Complete: `risnet/__main__.py` exists and backs both `python -m risnet` and
+  the `risnet` console entry point.
 - Complete: `setup.py` remains a compatibility shim aligned with
   `pyproject.toml`.
-- Complete: heavyweight web, vision, optimization, plotting, and ML dependencies
-  are grouped into optional extras.
-- Complete: `Makefile` provides `compile`, `smoke`, `test-core`, `test`, and
-  `verify` targets.
-- Complete: smoke tests cover imports, minimal AP -> RIS -> UE connection,
-  module help, and console help from outside the repository root.
-- Remaining decision before large migrations: whether top-level packages stay
-  top-level long term or move under `risnet/`.
+- Complete: heavyweight dependencies (OpenCV, CVXPY, ML, visualization) are in
+  optional extras.
+- Complete: `from core import RISNetwork` and `from risnet import RISnet` import
+  successfully from within the repository root.
+- Complete: `python3 -m compileall core controller cli risnet app config utils`
+  passes with no errors.
+- Incomplete: `pytest` is not installed in the system environment. Tests must
+  currently be run via `PYTHONPATH=. python3 tests/<file>.py`. A virtual
+  environment with `pip install -e ".[dev]"` is needed before pytest-based CI
+  can run.
+- Incomplete: `tests/test_fixes.py` TEST 3 (RMS Phase Error with Angle
+  Wrapping) fails due to a stale expected value. Must be fixed in Phase 1.
+- Incomplete: the baseline verification snippet in this document used broken
+  collinear geometry (AP behind RIS FOV). Fixed above.
+- Remaining decision: whether top-level packages stay top-level long term or
+  migrate under `risnet/` as part of the v3 folder structure.
 
 ### Phase 1 - Characterization Tests for Current Behavior
 
@@ -1009,16 +1028,24 @@ Exit gate:
 
 ## Immediate Action Items
 
-The next practical engineering tasks are:
+Status as of 2026-05-06:
 
-1. Fix packaging and entry points.
-2. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests.
-3. Extract a `ChannelModel` interface and wrap current link-budget behavior.
-4. Split `RISNetwork.connect()` into smaller internal services without changing
-   its public return shape.
-5. Add a scenario runner that can execute AP -> RIS -> UE through the new
-   service layer.
-6. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
+1. ~~Fix packaging and entry points.~~ — Done. All packages discoverable,
+   `risnet/__main__.py` exists, imports verified.
+2. Set up a virtual environment and install `pytest` via `pip install -e
+   ".[dev]"` so the test suite can run without `PYTHONPATH` hacks.
+3. Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
+   prerequisite before any refactoring).
+4. Add characterization regression tests for `RISNetwork.connect()` output
+   shape, FOV errors, seeded fading, and active-link behavior (Phase 1).
+5. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests
+   (Phase 2).
+6. Extract a `ChannelModel` interface and wrap current link-budget behavior
+   (Phase 3).
+7. Split `RISNetwork.connect()` into smaller internal services without changing
+   its public return shape (Phase 4).
+8. Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).
+9. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
 
 ## Risks
 

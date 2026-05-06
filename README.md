@@ -1,809 +1,145 @@
-# RISNet v2.0 - Advanced RIS Network Simulator
+# RISNet v2.0
 
-A modular, full-featured Reconfigurable Intelligent Surface (RIS) network simulator with advanced pathfinding algorithms, beam sweeping, and environment modeling.
+Advanced Reconfigurable Intelligent Surface (RIS) network simulator with modular architecture, beam sweeping algorithms, spatial channel modeling, and ML-guided optimization.
 
-## Features
+## What is RISNet?
 
-### 🎯 Core Capabilities
-- **Multi-Algorithm Pathfinding**: Dijkstra, A*, Greedy, Exhaustive search
-- **Advanced Beam Sweeping**: Greedy adaptive search with CFAR detection
-- **Environment Modeling**: Walls, obstacles, line-of-sight checking
-- **Centralized Controller**: Intelligent network orchestration
-- **Modular Architecture**: Clean, stackable Python modules
-
-### 📊 Physics Models
-- Free Space Path Loss (FSPL)
-- Atmospheric absorption
-- Rician fading
-- RIS array gain with quantization loss
-- Mutual coupling effects
-- Beam steering angle loss
-
-### 🌐 Web Interface
-- Interactive 2D visualization
-- Real-time metrics dashboard
-- Drag-and-drop node positioning
-- Path visualization
-- Controller statistics
-
-## Quick Links
-
-- **[Quick Start](docs/QUICKSTART.md)** - Get started in 30 seconds
-- **[Architecture](docs/ARCHITECTURE.md)** - Technical deep-dive
-- **[Project Structure](docs/STRUCTURE.md)** - File organization
-- **[Development Guide](docs/CLAUDE.md)** - For developers using Claude Code
-
-## Architecture
-
-```
-risnet/
-├── main.py             # Web interface + CLI entry point
-├── risnet.py           # High-level Python API
-│
-├── core/               # Core physics & nodes
-│   ├── nodes.py        # Node classes (AP, RIS, UE)
-│   ├── network.py      # Network manager
-│   ├── physics.py      # Propagation models
-│   ├── environment.py  # Walls/obstacles
-│   ├── waveform.py     # Waveform-level operations
-│   └── quantization/   # ✓ Modular phase quantization (NEW)
-│       ├── base.py
-│       ├── uniform.py  # Standard quantization (default)
-│       ├── legacy.py   # Backward compatible
-│       ├── registry.py # Plugin registry & loader
-│       └── plugins/    # Custom quantizers
-│
-├── controller/         # Control & decision-making
-│   ├── ris_controller.py
-│   ├── waveform_controller.py
-│   │
-│   ├── pathfinding/    # ✓ Pathfinding algorithms (MOVED HERE)
-│   │   ├── base.py
-│   │   ├── dijkstra.py
-│   │   ├── astar.py
-│   │   ├── greedy.py
-│   │   ├── exhaustive.py
-│   │   ├── engine.py
-│   │   ├── registry.py
-│   │   └── plugins/    # Custom algorithms
-│   │
-│   └── beamforming/    # ✓ Beamforming engines (MOVED HERE)
-│       ├── engine.py
-│       └── plugins/    # Custom beamformers
-│
-├── config/             # Configuration management
-├── examples/           # Example scripts
-├── tests/              # Test suite
-├── docs/               # Documentation
-└── requirements.txt    # Dependencies
-```
-
-### Architecture Improvements (v2.0+)
-
-**✓ Clean Separation of Concerns:**
-- `core/` = Low-level physics and network nodes
-- `controller/` = High-level control decisions and algorithms
-- `core/quantization/` = Modular, plugin-based phase quantization
-- `controller/pathfinding/` = Semantic placement of routing algorithms
-- `controller/beamforming/` = Semantic placement of beam optimization
-
-**✓ Plugin System:**
-- All major components support custom plugins
-- `core/quantization/plugins/` - Add custom quantizers
-- `controller/pathfinding/plugins/` - Add custom pathfinding algorithms
-- `controller/beamforming/plugins/` - Add custom beamforming methods
-
-**✓ Modular & Extensible:**
-- Easy to add new quantization methods without modifying core
-- Registry-based algorithm discovery
-- Plugin auto-loading from folders
-
-## Installation & Quick Start
-
-### 1. Install RISNet
-
-```bash
-# Clone or navigate to the repository
-cd risnet
-
-# Install as a command-line tool
-pip install -e .
-```
-
-### 2. Run the Simulator
-
-```bash
-# Option 1a: Interactive CLI (default)
-risnet
-
-# Option 1b: Direct command (non-interactive)
-risnet testall                          # Quick test
-risnet add ap ap1 0 0                   # Add access point
-risnet help                             # Show commands
-
-# Option 2: Web interface
-risnet --web
-
-# Then open browser to: http://127.0.0.1:5000
-
-# Option 3: Use Python API
-from risnet import RISnet
-net = RISnet()
-# ... your code
-```
-
-### 3. CLI Commands
-
-You can use these commands either:
-- **Interactively**: Type `risnet` then enter commands
-- **Directly**: `risnet <command> [args]`
-
-```bash
-# Interactive mode
-risnet
-risnet> testall                                    # Quick test
-risnet> add ap ap1 0 0                             # Add access point
-risnet> add ris ris1 5 0 0 16 2                    # Add RIS surface
-risnet> add ue ue1 10 3                            # Add user equipment
-risnet> list                                       # List all nodes
-risnet> connect ap1 ris1 ue1                       # Connect with beam sweep
-risnet> signal ap1 ris1 ue1                        # Report Tx/Rx powers and apparent link loss
-risnet> sweep ap1 ris1 ue1 60 10                   # Perform beam sweeping
-risnet> waveform_snr ap1 ris1 ue1 10               # Waveform-level SNR
-risnet> waveform_compare ap1 ris1 ue1              # System vs Waveform comparison
-risnet> waveform_beam_sweep ap1 ris1 ue1 30 10     # Waveform-level beam sweep
-risnet> waveform_validate                          # Validate topology & physics
-risnet> help                                       # Show all commands
-risnet> quit                                       # Exit
-
-# Direct command mode (non-interactive)
-risnet testall                          # Quick test
-risnet waveform_snr ap1 ris1 ue1        # Run waveform SNR calculation
-risnet help                             # Show all commands
-```
-
-### Waveform-Level Commands (System ↔ Waveform Cross-Validation)
-
-**Both CLI and web interface** support identical waveform-level operations:
-
-| Command | CLI | Web API | Purpose |
-|---------|-----|---------|---------|
-| `waveform_snr` | ✓ | `/api/waveform/snr` | OFDM-based SNR with quantization effects |
-| `waveform_compare` | ✓ | `/api/waveform/compare` | Compare system-level vs waveform-level |
-| `waveform_beam_sweep` | ✓ | `/api/waveform/beam_sweep` | Per-angle SNR evaluation |
-| `waveform_validate` | ✓ | `/api/waveform/validate` | Topology & physics validation |
-
-**Example Usage:**
-
-```bash
-# CLI: Interactive setup and test
-$ risnet
-risnet> add ap AP1 0 0 0
-risnet> add ris R1 5 0 0 8 2
-risnet> add ue UE1 10 0 0
-risnet> waveform_snr AP1 R1 UE1 20           # 20 OFDM symbols
-risnet> waveform_beam_sweep AP1 R1 UE1 30 5  # ±30° sweep, 5° steps
-
-# CLI: Direct command
-$ risnet waveform_compare ap1 ris1 ue1
-
-# Web: Access via browser
-$ risnet --web
-# Then POST to http://127.0.0.1:5000/api/waveform/snr
-# with JSON: {"ap": "ap1", "ris": "ris1", "ue": "ue1", "num_symbols": 10}
-```
-
-### testall Command Example
-
-```bash
-$ risnet
-Welcome to RISNet CLI. Type help or ? to list commands.
-risnet> testall
-
-============================================================
-Testing Network Connectivity
-============================================================
-
-*** Setting up test network...
-  Adding AP...
-  Adding RIS...
-  Adding UE...
-
-*** Network nodes:
-ap1        AccessPoint('ap1', pos=[0.0, 0.0, 0.0])
-ris1       RIS('ris1', pos=[5.0, 0.0, 0.0])
-ue1        UE('ue1', pos=[10.0, 3.0, 0.0])
-
-*** Testing connectivity (AP -> RIS -> UE)...
-
-✓ Connection successful!
-  Path: ap1 -> ris1 -> ue1
-  Distances:
-    AP to RIS: 5.00 m
-    RIS to UE: 5.83 m
-    Total: 10.83 m
-  SNR: 24.8 dB
-  Power: -66.1 dBm
-  Beam Angle: 31.0°
-
-============================================================
-```
-
-### 4. Command Reference
-
-```bash
-# Show help
-risnet --help
-
-# Run CLI mode (default - interactive)
-risnet
-risnet --cli
-
-# Run web interface
-risnet --web
-
-# Run with custom config
-risnet --web --config config.yaml
-
-# Use Python API
-python -c "from risnet import RISnet; net = RISnet()"
-
-# Run examples
-python examples/run_all.py
-```
+RISNet simulates wireless networks where passive RIS panels reflect signals from an Access Point (AP) to User Equipment (UE). It models the full link budget: path loss, RIS array gain, phase quantization, fading, and FOV constraints.
 
 ## Quick Start
 
-### Example 1: Basic Setup
+```bash
+git clone https://github.com/nqmn/risnet
+cd risnet
+pip install -e .
+risnet
+```
+
+Full installation options and troubleshooting: **[INSTALL.md](INSTALL.md)**
+
+Step-by-step tutorials from basic to advanced: **[TUTORIAL.md](TUTORIAL.md)**
+
+## Features
+
+| Category | Capability |
+|---|---|
+| Physics | FSPL, atmospheric loss, Rician fading, RIS array gain, phase quantization |
+| Beam sweeping | Linear, adaptive, DE, ML-guided, hierarchical, PRIME |
+| Pathfinding | Dijkstra, A\*, Greedy, Exhaustive |
+| Channel | OFDM waveform, multipath, per-subcarrier SNR |
+| ML | Random Forest, XGBoost, SVR, MLP beam predictors |
+| Interface | Interactive CLI, REST API (Flask), Python API |
+| Feedback | UE→AP SNR feedback loop with adaptive beam tracking |
+
+## Project Structure
+
+```
+risnet/
+├── core/               # Physics, nodes, network, waveform
+├── controller/         # Beam sweeping, pathfinding, ML, RL controller
+├── app/                # Flask REST API and web UI
+├── cli/                # Interactive shell
+├── config/             # Configuration management
+├── utils/              # Link budget, SNR, RSSI helpers
+├── risnet/             # Package root and high-level RISnet API
+├── matlab_integration/ # MATLAB bridge and .m scripts
+├── examples/
+│   ├── script/         # Runnable Python examples
+│   └── json/           # Topology fixture files
+├── tests/              # Test suite
+├── docs/               # Architecture notes and assets
+├── INSTALL.md          # Installation guide
+├── TUTORIAL.md         # Tutorials: basic to advanced
+└── FUTURE.md           # v3 architecture roadmap
+```
+
+## Interfaces
+
+### Interactive CLI
+
+```bash
+risnet
+risnet> add ap ap1 0 0
+risnet> add ris ris1 5 0 0 16 2
+risnet> add ue ue1 10 3
+risnet> connect ap1 ris1 ue1
+risnet> sweep ap1 ris1 ue1 60 10 --algo de
+risnet> help
+```
+
+### Python API (low-level)
 
 ```python
-from core import RISNetwork, AccessPoint, RIS, UE
-from controller import RISController
+from core import RISNetwork
 
-# Create network
 net = RISNetwork()
+net.add_ap('ap1', 0, 0)
+net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)
+net.add_ue('ue1', 10, 3)
 
-# Add nodes
-net.add_ap('ap1', x=0, y=0)
-net.add_ris('ris1', x=5, y=0, N=16, bits=2)
-net.add_ue('ue1', x=10, y=3)
-
-# Create controller
-controller = RISController(net)
-net.set_controller(controller)
-
-# Find paths
-paths = controller.find_all_paths('ap1', 'ue1', algorithm='dijkstra')
-print(f"Found {len(paths)} paths")
+result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
+print(f"SNR: {result['snr_dB']:.1f} dB")
 ```
 
-### Example 2: With Environment
+### Python API (high-level)
 
 ```python
-# Add walls
-net.add_wall(start=[2, -2], end=[2, 2], attenuation_dB=20)
+from risnet import RISnet
 
-# Find paths (will avoid walls)
-paths = controller.find_all_paths('ap1', 'ue1', algorithm='astar')
+net = RISnet()
+ap  = net.addAP('ap1',  position=(0, 0))
+ris = net.addRIS('ris1', position=(5, 0), N=16, bits=2)
+ue  = net.addUE('ue1',  position=(10, 3))
+net.start()
+
+result = net.ping(ap, ue)
+print(f"SNR: {result['snr_dB']:.1f} dB, hops: {result['hops']}")
 ```
 
-### Example 3: Beam Sweeping
+### Web interface
 
-```python
-from controller.beamforming import BeamformingEngine
-from controller.beamsweeping import compute_snr  # Shared calibrated helper
-import numpy as np
-
-# Perform greedy beam sweep (uses compute_snr by default, but passed here explicitly)
-result = BeamformingEngine.greedy_beam_sweep(
-    pos1=np.array([0, 0, 0]),
-    pos2=np.array([10, 3, 0]),
-    node1='ris1',
-    node2='ue1',
-    compute_snr_fn=compute_snr,
-    ap_pos=np.array([-5, 0, 0]),
-    max_angle_deg=60
-)
-
-print(f"Best angle: {result['best_angle']:.1f}°")
-print(f"Best SNR: {result['best_snr_dB']:.1f} dB")
-```
-`compute_snr_fn` now defaults to `controller.beamsweeping.compute_snr`, so you can omit the argument unless you need a custom propagation model.
-
-## API Reference
-
-### REST API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/nodes` | GET | Get all nodes |
-| `/api/add` | POST | Add node (AP/RIS/UE) |
-| `/api/connect` | GET | Legacy AP→RIS→UE connection |
-| `/api/sweep` | GET | Legacy beam sweep |
-| `/api/find_paths` | GET | Find paths with algorithm |
-| `/api/update_position` | POST | Update node position |
-| `/api/walls/add` | POST | Add wall |
-| `/api/walls/clear` | POST | Clear all walls |
-| `/api/config` | GET/POST | Get/update configuration |
-
-### Pathfinding Algorithms
-
-Load algorithms dynamically through the registry so each class is defined once:
-
-```python
-from controller.pathfinding import get_algorithm
-
-algo = get_algorithm('dijkstra')
-result = algo.find_path(graph, source, target, node_positions)
+```bash
+risnet --web
+# Open http://127.0.0.1:5000
 ```
 
-- `dijkstra`: optimal SNR paths (O(E log V))
-- `astar`: heuristic-driven search that remains optimal with admissible heuristics
-- `greedy`: fast approximations, no optimality guarantees
-- `exhaustive`: brute-force paths for small networks (configurable max hops)
+## Beam Sweep Algorithms
 
-### Configuration
-
-```yaml
-# config.yaml
-controller:
-  enabled: true
-  algorithm: dijkstra  # dijkstra, astar, greedy, exhaustive
-  strategy: max-snr    # max-snr, min-hops, min-loss
-  use_beam_sweep: true
-
-environment:
-  frequency_GHz: 5.8
-  bandwidth_MHz: 20
-  tx_power_dBm: 20
-  noise_figure_dB: 10
-
-ris:
-  default_N: 16
-  default_bits: 2
-  default_max_angle_deg: 60
-  active_mode: false
-  amplifier_gain: 1.0
+```bash
+# From CLI
+risnet> sweep ap1 ris1 ue1 60 10 --algo linear
+risnet> sweep ap1 ris1 ue1 60 10 --algo adaptive
+risnet> sweep ap1 ris1 ue1 60 10 --algo de
+risnet> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
 ```
 
-## Module Documentation
-
-### Core Modules
-
-#### `core.physics.Physics`
-Physical propagation models:
-- `path_loss_dB(distance, freq)` - Free space path loss
-- `atmospheric_loss_dB(distance, freq_GHz)` - Atmospheric absorption
-- `rician_fading(K_factor_dB)` - Rician fading channel
-- `quantization_loss_dB(phase_bits)` - Phase quantization loss
-- `compute_snr_dB(...)` - SNR calculation
-
-#### `core.nodes`
-- `Node` - Base node class
-- `AccessPoint` - AP with transmit power
-- `RIS` - RIS surface with phase control
-- `UE` - User equipment
-
-#### `core.environment.Environment`
-- `add_wall(start, end, attenuation_dB)` - Add obstacle
-- `check_line_of_sight(pos1, pos2)` - LOS check
-- `get_blocked_paths(pos1, pos2)` - Get blocking walls
-
-### Algorithm Modules
-
-#### `controller.pathfinding`
-- `get_algorithm(name)` - Load `Dijkstra`, `AStar`, `Greedy`, or `Exhaustive`
-- `list_algorithms()` - Enumerate registered names
-- `Dijkstra`, `AStar`, `Greedy`, `Exhaustive` - `PathfindingAlgorithm` implementations
-
-#### `controller.beamforming.BeamformingEngine`
-- `greedy_beam_sweep(...)` - Adaptive beam search
-- `cfar_detection(measurements, peak_idx)` - CFAR validation
-- `simple_beam_sweep(...)` - Legacy uniform sweep
-
-### Quantization Module
-
-#### `core.quantization` (NEW - Modular Plugin System)
-- `UniformQuantizer` - Standard uniform quantization (default)
-- `LegacyQuantizer` - Original RISNet formula (backward compatible)
-- `get_quantizer(name)` - Get quantizer by name
-- `list_quantizers()` - List all available quantizers
-- `load_quantizers_from_folder(path)` - Load custom quantizer plugins
-- Plugin system allows easy addition of custom quantization methods
-
-### Controller Module
-
-#### `controller.RISController`
-- `find_all_paths(ap, ue, algorithm)` - Find all viable paths
-- `select_best_path(paths, strategy)` - Select optimal path
-- Controller statistics tracking
-
-## Performance
-
-### Benchmarks (1 AP, 5 RIS, 1 UE)
-
-| Algorithm | Time | Paths Found | Optimal? |
-|-----------|------|-------------|----------|
-| Dijkstra | 12 ms | 1 | ✓ |
-| A* | 8 ms | 1 | ✓ |
-| Greedy | 2 ms | 1 | ✗ |
-| Exhaustive | 45 ms | 32 | ✓ |
-
-## Comparison: HTML vs Python
-
-| Feature | HTML Simulator | main-web-v2.py |
-|---------|----------------|----------------|
-| **Architecture** | Single-file JS | Modular Python |
-| **Pathfinding** | ✓ | ✓ |
-| **Beam Sweeping** | ✓ (CFAR) | ✓ (CFAR) |
-| **Walls/Obstacles** | ✓ | ✓ |
-| **Extensibility** | ✗ Limited | ✓ Easy |
-| **ML Integration** | ✗ Hard | ✓ Easy |
-| **Testing** | ✗ Hard | ✓ Easy (pytest) |
-| **Scalability** | ✗ Browser-limited | ✓ Server-side |
-| **API** | ✗ None | ✓ REST API |
-| **Database** | ✗ None | ✓ Easy to add |
+| Algorithm | Key | Notes |
+|---|---|---|
+| Linear brute-force | `linear` | Uniform steps, coarse→fine |
+| Adaptive center-out | `adaptive` | ~30% faster than linear |
+| Differential Evolution | `de` | Population-based global search |
+| ML-guided | `ml-guided` | RF/XGBoost/SVR/MLP predictor + refinement |
+| Hierarchical | `hierarchical` | Multi-resolution |
+| PRIME localization | `prime` | Localization-assisted |
 
 ## Testing
 
 ```bash
-# Run tests (when implemented)
-pytest tests/
+# Compile check
+python3 -m compileall core controller cli risnet app config utils
 
-# With coverage
-pytest --cov=core --cov=algorithms --cov=controller tests/
+# Physics regression
+PYTHONPATH=. python3 tests/test_physics_fixes.py
+
+# Full suite (requires dev install)
+pip install -e ".[dev]"
+pytest tests/ -v
 ```
-
-## Extending the Simulator
-
-### Adding a Custom Quantizer (Plugin System)
-
-**New modular approach - no core modification needed!**
-
-```python
-# File: core/quantization/plugins/my_quantizer/quantizer.py
-import numpy as np
-from core.quantization.base import BaseQuantizer
-
-class Quantizer(BaseQuantizer):
-    """My custom quantization strategy"""
-
-    def __init__(self):
-        super().__init__(
-            name='my_quantizer',
-            description='My custom quantization method'
-        )
-
-    def quantize(self, ideal_phases, bits):
-        # Your quantization logic here
-        num_levels = 2 ** bits
-        phase_step = 2 * np.pi / num_levels
-
-        quantized = np.round(ideal_phases / phase_step) * phase_step
-        quantized = np.mod(quantized, 2 * np.pi)
-        states = (quantized / phase_step).astype(int) % num_levels
-
-        return quantized, states
-```
-
-Then load and use it:
-```python
-from core.quantization import load_quantizers_from_folder
-
-load_quantizers_from_folder('core/quantization/plugins')
-ris = RIS('R1', x=5, y=5, quantizer_name='my_quantizer')
-```
-
-### Adding a Custom Pathfinding Algorithm (Plugin System)
-
-**New modular approach - controller plugin system!**
-
-```python
-# File: controller/pathfinding/plugins/my_algorithm/algorithm.py
-from controller.pathfinding.base import PathfindingAlgorithm
-
-class MyAlgorithm(PathfindingAlgorithm):
-    """My custom pathfinding algorithm"""
-
-    name = "my_algorithm"
-    description = "My custom pathfinding method"
-
-    @staticmethod
-    def find_path(graph, source, target, node_positions):
-        # Your algorithm implementation
-        path = [source, ..., target]
-        total_loss = ...
-        total_length = ...
-
-        return {
-            'path': path,
-            'totalLoss': total_loss,
-            'totalLength': total_length
-        }
-```
-
-### Adding Custom Physics Models
-
-```python
-# core/physics.py
-
-class Physics:
-    @staticmethod
-    def custom_loss_model(distance, freq, ...):
-        # Your model here
-        return loss_dB
-```
-
-### Adding New Node Types
-
-```python
-# core/nodes.py
-
-class Relay(Node):
-    def __init__(self, name, x, y, z=0.0, gain_dB=10):
-        super().__init__(name, x, y, z)
-        self.gain_dB = gain_dB
-```
-
-## Troubleshooting
-
-### Import Errors
-```bash
-# Make sure you're in the risimulator directory
-cd /path/to/risimulator
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Port Already in Use
-```python
-# Change port in main-web-v2.py or:
-python main-web-v2.py --web --port 8080  # (if implemented)
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Add tests for new features
-4. Submit pull request
-
-## License
-
-MIT License - see LICENSE file
-
-## Citation
-
-If you use this simulator in your research, please cite:
-
-```bibtex
-@software{risnet_v2,
-  title = {RISNet v2.0: Advanced RIS Network Simulator},
-  author = {Your Name},
-  year = {2024},
-  url = {https://github.com/yourusername/risimulator}
-}
-```
-
-## Acknowledgments
-
-- Original concept from RIS Simulator v1.5.0 (HTML version)
-- Physics models based on ITU recommendations
-- Pathfinding algorithms from computer science literature
-
-## Machine Learning Integration
-
-### ML-Based Beam Prediction
-
-RISNet v2.1 includes integrated machine learning models for intelligent beam angle prediction, reducing sweep time and improving convergence.
-
-#### Available ML Predictors
-
-| Predictor | Model | Uncertainty | Performance |
-|-----------|-------|-------------|-------------|
-| **Random Forest** | Ensemble tree | ±2.5° | Best (R²=0.9438) |
-| **XGBoost** | Gradient boosting | ±3.0° | Excellent |
-| **SVR** | Support vector regression | ±3.5° | Good (R²=0.8830) |
-| **MLP** | Neural network | ±4.0° | Moderate |
-
-#### Usage
-
-```bash
-# ML-guided sweep (ML suggestions + refinement)
-connect AP1 RIS1 UE1 --sweep 60 10 --algo ml-guided --ml-predictor rf
-
-# ML-only sweep (test only predicted angles)
-connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor xgb
-
-# Try different predictors
-connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor svr
-connect AP1 RIS1 UE1 --sweep 60 10 --algo ml --ml-predictor mlp
-```
-
-#### Metrics
-
-Each prediction includes:
-- **Prediction Time**: How fast the model makes predictions (ms)
-- **Uncertainty**: Expected variance based on model accuracy (±degrees)
-- **Error Bounds**: Confidence interval for the prediction (±degrees)
-- **Confidence**: Accuracy metric based on actual vs predicted angles (0-100%)
-
-#### Example Output
-
-```
-ML PREDICTOR RESULTS:
-----------------------------------------------------------------------
-Predictor: Random Forest Beam Prior
-Suggestions: [-5.0°, 0.0°, 5.0°]
-Prediction Time: 0.234 ms | Uncertainty: ±2.5° | Model: ✓ Loaded
-Error Bounds: ±3.8°
-
-Suggestion (°)     SNR (dB)        Power (dBm)
-----------------------------------------------------------------------
-  -5.0             -12.45          -85.20
-   0.0             -10.23          -82.50 <-- BEST IN ML
-   5.0             -15.67          -87.30
-```
-
-#### Training ML Models
-
-Train your own models using the provided dataset generator:
-
-```bash
-# Generate training dataset
-python controller/beamsweeping/ml/tools/dataset_builder.py --output beam_dataset.csv
-
-# Train Random Forest
-python controller/beamsweeping/ml/tools/train_rf.py --data beam_dataset.csv
-
-# Train XGBoost
-python controller/beamsweeping/ml/tools/train_xgb.py --data beam_dataset.csv
-
-# Train SVR
-python controller/beamsweeping/ml/tools/train_svr.py --data beam_dataset.csv
-
-# Train MLP (PyTorch)
-python controller/beamsweeping/ml/tools/train_mlp.py --data beam_dataset.csv
-```
-
-#### Python API Usage
-
-```python
-from controller.beamsweeping.ml import MLPredictorLoader
-
-# Load a predictor
-predictor = MLPredictorLoader.get_predictor('rf', network)
-
-# Get prediction with metrics
-angles, metrics = predictor.predict_with_metrics(
-    'AP1', 'RIS1', 'UE1', fov=60, top_k=3
-)
-
-print(f"Predicted angles: {angles}")
-print(f"Prediction time: {metrics['prediction_time_ms']:.3f} ms")
-print(f"Uncertainty: ±{metrics['uncertainty']:.1f}°")
-print(f"Error bounds: ±{metrics['error_bounds']:.1f}°")
-
-# Compute confidence when actual angle is known
-actual_angle = 5.2  # measured/true angle
-confidence = predictor.compute_confidence(angles[0], actual_angle, fov=60.0)
-print(f"Confidence: {confidence:.1%}")
-```
-
-#### List Available Predictors
-
-```python
-from controller.beamsweeping.ml import MLPredictorLoader
-
-predictors = MLPredictorLoader.list_predictors()
-for name, info in predictors.items():
-    print(f"{name}: {info['class_name']}")
-    print(f"  {info['description']}")
-```
-
-## Waveform-Level Simulation
-
-### Waveform Examples
-
-Run comprehensive waveform-level examples demonstrating OFDM, multipath propagation, and RIS-assisted communication:
-
-```bash
-python examples/script/example_waveform_level.py
-```
-
-This script demonstrates:
-1. **OFDM Signal Generation** - 256-subcarrier OFDM with QPSK modulation
-2. **Multipath Channel Modeling** - AWGN, 3GPP-UMi, and custom models
-3. **RIS Reflection with Coupling** - 8×8 array with 2-bit phase shifters
-4. **Antenna Array Patterns** - ULA/UPA gain and beamwidth analysis
-5. **System vs Waveform Comparison** - Reproducible cross-validation
-6. **Beam Optimization** - Angle-dependent SNR sweeping
-7. **Physics Validation** - Topology and propagation verification
-
-### Key Improvements (Recent)
-
-#### ✓ Reproducible Results
-- Global random seed lock (`set_deterministic_seeds()`)
-- Locks NumPy, Python `random`, and other RNG modules
-- System SNR computed once and reused across examples (13.95 dB)
-
-#### ✓ Physics Clarity
-- **ULA 3dB Beamwidth**: Numeric array factor (~6.3°) documented vs. approximate formula (~6.8°)
-- **Array Gain**: Clarifies per-element gain (~2.8 dBi) + directivity (~12 dB for 16 elements) = ~14.8 dBi
-- **Quantization RMS**: Per-element (26.08°) distinguished from effective aperture RMS (32.93°)
-
-#### ✓ Beam Sweep SNR Variation
-- Fixed steering phase computation per angle
-- Plausible variation observed: 39.10 dB (±15°) → 38.97 dB (±5°)
-- Symmetric geometry produces symmetric SNR (e.g., -15° ≈ +15°)
-
-#### ✓ Waveform Controller Enhancements
-- Added `beam_angle_deg` parameter to `compute_waveform_snr()`
-- Per-angle RIS phase shifts now applied in beam sweep
-- Optional path vs. steering-based phase computation
-
-### Example Output (Seed=42)
-
-```
-RISNet v2.0 - Waveform-Level Simulation Examples
-(Random seed: 42 — results are reproducible across all modules)
-
-EXAMPLE 3: RIS Reflection Model with Coupling
-  RMS quantization error (per-element, uniform phases): 26.08°
-    → Matches theory: Δφ/√12 = 90°/√12 ≈ 25.98°
-
-EXAMPLE 4: Antenna Array Radiation Patterns
-  ULA 3dB beamwidth (numeric from AF): ~6.3°
-  Note: Numeric value from array factor ≈ 6.3°; approximate formula ≈ 6.8°
-
-EXAMPLE 5: System-Level vs Waveform-Level Comparison
-  System-level SNR: 13.95 dB (computed once, reused in Example 7)
-  Quantization error RMS: 32.93° (effective aperture RMS with coupling)
-
-EXAMPLE 6: RIS Beam Optimization
-  Angle  -15.0°: SNR =   39.10 dB <-- BEST
-  Angle   -5.0°: SNR =   38.97 dB
-  Angle    5.0°: SNR =   38.97 dB
-  Angle   15.0°: SNR =   39.10 dB
-
-EXAMPLE 7: Validation and Reporting
-  System-level SNR: 13.95 dB (matches Example 5 for consistency)
-```
-
-### Mathematical Notes
-
-#### 3dB Beamwidth (HPBW)
-For ULA with N elements and spacing d:
-- **Approximate formula**: HPBW ≈ 0.886 × λ / L (where L = N × d × λ)
-- **Numeric array factor**: Compute full AF and find −3 dB points (more accurate)
-- **Example**: 16 elements, d = 0.5λ, L = 8λ → HPBW ≈ 6.8° (formula) vs 6.3° (numeric)
-
-#### Quantization Error RMS
-For uniform quantization with phase step Δφ = 2π / 2^b:
-- **Per-element RMS**: σ = Δφ / √12 (treating each element independently)
-- **Effective aperture RMS**: May be higher if including mutual coupling or phase weighting across optimal paths
-- **Example (2-bit)**: Δφ = 90° → σ_theory ≈ 26.01°
 
 ## Roadmap
 
-### v2.1 (Planned)
-- [ ] 3D visualization
-- [ ] Real-time collaboration
-- [x] Machine learning integration (✓ Completed)
-- [ ] Performance optimization
-- [ ] Comprehensive test suite
-- [x] Waveform-level OFDM simulation
-- [x] Reproducible random seeding
-- [x] Physics validation and clarity
+See [FUTURE.md](FUTURE.md) for the full v3 architecture migration plan (phased arrays, spatial channels, runtime kernel, AI-native interfaces).
 
-### v2.2 (Future)
-- [ ] Multi-user support
-- [ ] Experiment database
-- [ ] Automated reporting
-- [ ] Integration with SDR hardware
+## License
 
-## Contact
-
-- Issues: https://github.com/yourusername/risimulator/issues
-- Email: your.email@example.com
+MIT — see [LICENSE](LICENSE)
