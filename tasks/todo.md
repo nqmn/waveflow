@@ -303,3 +303,28 @@ Change budget: [files 3] [functions: additive request dataclasses and run entryp
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: The request schema currently supports one connect action only; multi-step scenarios and richer declarative formats remain future work.
+
+## Task: Phase 5 scenario action list
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive action-list changes in `risnet/scenarios.py`, exports, and focused tests.
+Change budget: [files 3] [functions: additive action-list request handling and sequence result, targeted tests, additive export if required] [interfaces: additive risnet scenario action-list surface only] [state mutations: none beyond existing network/load/connect side effects]
+
+### Scope
+- `risnet/scenarios.py` — additive action-list support while preserving single-action request behavior
+- `risnet/__init__.py` — only for additive exports
+- `tests/test_scenarios.py` — focused multi-action coverage
+
+### Steps
+- [x] Add action-list request handling with backward-compatible single-action support
+- [x] Add focused tests for multi-action execution
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Added action-list support with shared-network execution, `ScenarioSequenceResult`, and backward-compatible single-action request handling.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The action list currently supports repeated connect actions only; additional action types such as sweep remain future work.

@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from risnet import ConnectScenario, ScenarioRequest, ScenarioRunResult, ScenarioRunner
+from risnet import (
+    ConnectScenario,
+    ScenarioRequest,
+    ScenarioRunResult,
+    ScenarioRunner,
+    ScenarioSequenceResult,
+)
 
 
 EXAMPLE_SIMPLE = Path("examples/json/example_1_simple.json")
@@ -88,3 +94,51 @@ def test_scenario_runner_executes_request_schema(tmp_path):
     assert run.result["snr_dB"] == pytest.approx(
         runner.run_connect(topology_path, seed=42, use_get_snr=False).result["snr_dB"]
     )
+
+
+def test_scenario_runner_executes_action_list_on_shared_network(tmp_path):
+    topology_path = tmp_path / "scenario_actions.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Actions",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest(
+        topology_path=topology_path,
+        actions=[
+            ConnectScenario(kwargs={"seed": 42, "use_get_snr": False}),
+            ConnectScenario(kwargs={"seed": 42, "use_get_snr": False, "store_in_active_links": False}),
+        ],
+    )
+
+    run = runner.run(request)
+
+    assert isinstance(run, ScenarioSequenceResult)
+    assert len(run.steps) == 2
+    assert run.steps[0].network is run.network
+    assert run.steps[1].network is run.network
+    assert run.steps[0].result["snr_dB"] == pytest.approx(run.steps[1].result["snr_dB"])
+    assert run.network.last_connect_result["ap"] == "AP1"
+
+
+def test_scenario_request_requires_connect_or_actions(tmp_path):
+    topology_path = tmp_path / "empty_request.json"
+    topology_path.write_text(
+        """
+{"name": "Empty Request", "nodes": []}
+""".strip()
+    )
+    runner = ScenarioRunner()
+
+    with pytest.raises(ValueError) as exc_info:
+        runner.run(ScenarioRequest(topology_path=topology_path))
+
+    assert "requires either `connect` or `actions`" in str(exc_info.value)

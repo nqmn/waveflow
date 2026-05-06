@@ -32,7 +32,13 @@ import numpy as np
 from core import RISNetwork, AccessPoint, RIS, UE
 from controller import RISController
 from config import Config
-from .scenarios import ConnectScenario, ScenarioRequest, ScenarioRunner, ScenarioRunResult
+from .scenarios import (
+    ConnectScenario,
+    ScenarioRequest,
+    ScenarioRunner,
+    ScenarioRunResult,
+    ScenarioSequenceResult,
+)
 
 
 class RISnet:

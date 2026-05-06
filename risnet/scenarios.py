@@ -24,6 +24,15 @@ class ScenarioRunResult:
 
 
 @dataclass
+class ScenarioSequenceResult:
+    """Headless multi-action execution result for a loaded topology."""
+
+    topology_path: Path
+    network: RISNetwork
+    steps: list[ScenarioRunResult]
+
+
+@dataclass
 class ConnectScenario:
     """Declarative connect action for a loaded topology."""
 
@@ -38,7 +47,8 @@ class ScenarioRequest:
     """Minimal explicit request surface for a headless scenario run."""
 
     topology_path: Path
-    connect: ConnectScenario
+    connect: Optional[ConnectScenario] = None
+    actions: list[ConnectScenario] = field(default_factory=list)
 
 
 class ScenarioRunner:
@@ -83,9 +93,10 @@ class ScenarioRunner:
                     ap_name: Optional[str] = None,
                     ris_name: Optional[str] = None,
                     ue_name: Optional[str] = None,
+                    network: Optional[RISNetwork] = None,
                     **connect_kwargs) -> ScenarioRunResult:
         topology = Path(topology_path)
-        net = self.load_topology(topology)
+        net = network if network is not None else self.load_topology(topology)
         ap_name, ris_name, ue_name = self._resolve_connect_names(net, ap_name, ris_name, ue_name)
         result = net.connect(ap_name, ris_name, ue_name, **connect_kwargs)
         return ScenarioRunResult(
@@ -99,6 +110,28 @@ class ScenarioRunner:
 
     def run(self, request: ScenarioRequest) -> ScenarioRunResult:
         """Execute a declarative scenario request."""
+        if request.actions:
+            net = self.load_topology(request.topology_path)
+            steps = [
+                self.run_connect(
+                    request.topology_path,
+                    ap_name=action.ap_name,
+                    ris_name=action.ris_name,
+                    ue_name=action.ue_name,
+                    network=net,
+                    **action.kwargs,
+                )
+                for action in request.actions
+            ]
+            return ScenarioSequenceResult(
+                topology_path=Path(request.topology_path),
+                network=net,
+                steps=steps,
+            )
+
+        if request.connect is None:
+            raise ValueError("ScenarioRequest requires either `connect` or `actions`.")
+
         return self.run_connect(
             request.topology_path,
             ap_name=request.connect.ap_name,
