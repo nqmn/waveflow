@@ -1,6 +1,7 @@
 """Packaging, CLI, and minimal runtime smoke tests."""
 
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -112,3 +113,47 @@ def test_typer_rich_demo_connect_from_outside_repo():
 
     assert "Link Metrics" in result.stdout
     assert "snr_dB" in result.stdout
+
+
+def test_typer_rich_sweep_table_from_outside_repo():
+    topology = Path("/tmp/waveflow_sweep_smoke_topology.json")
+    topology.write_text(
+        json.dumps(
+            {
+                "name": "Sweep Smoke Topology",
+                "nodes": [
+                    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+                    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 2, "max_angle_deg": 90.0},
+                    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "sweep",
+            "AP1",
+            "R1",
+            "UE1",
+            "--topology",
+            str(topology),
+            "--format",
+            "table",
+            "--topk",
+            "3",
+        ],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Sweep Result" in result.stdout
+    assert "Top 3 Sweep Measurements" in result.stdout
+    assert "Best SNR (dB)" in result.stdout

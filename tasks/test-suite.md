@@ -17,7 +17,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 8 | Import, CLI, entry points | |
+| `test_smoke.py` | pytest | 9 | Import, CLI, entry points | Includes Typer/Rich sweep rendering smoke |
 | `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
@@ -211,6 +211,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `from waveflow import RISnet` and `from risnet import RISnet` succeed
 - `python -m risnet --help` and `waveflow --help` exit cleanly
 - `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
+- `waveflow ui sweep` renders the Rich table UX from outside repo root
 - Minimal `RISNetwork.connect()` smoke run
 - `examples/script/example_19_hog_human_detection.py` imports successfully and builds a demo network using current public APIs
 

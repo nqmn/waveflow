@@ -790,3 +790,30 @@ Change budget: [files 4] [functions: extracted connect helper tests and roadmap 
 - Assumptions invalidated: One helper test initially assumed a nonexistent `UE.link_metrics` attribute; it was corrected to assert against the actual `UE.get_link_metadata()` contract.
 - Known debt (acknowledged): Broader architecture cleanup beyond the Phase 4 exit gate remains for later phases, especially wider Phase 5 client adoption and residual utility-script cleanup.
 - Limitations: Verification passed with `python3 -m compileall core controller risnet tests` and `.venv/bin/pytest tests/test_connect_characterization.py tests/test_smoke.py -q`.
+
+## Task: Add Early Sweep UX to Terminal UI
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the UX-only hunks in `risnet/terminal_cli.py`, `tests/test_smoke.py`, `tasks/test-suite.md`, and `tasks/todo.md`.
+Change budget: [files 4] [functions: terminal sweep rendering, smoke coverage] [interfaces: `waveflow ui sweep` output and options only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — add richer sweep summary rendering and non-invasive `--format`/`--topk` options
+- `tests/test_smoke.py` — add smoke coverage for the terminal sweep output
+- `tasks/test-suite.md` — record the new smoke coverage
+- `tasks/todo.md` — record this UX slice
+
+### Steps
+- [x] Inspect existing sweep result shapes across current algorithms
+- [x] Add a terminal-only sweep result normalizer and renderer
+- [x] Add smoke coverage for the Rich sweep output
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: Added presentation-only sweep UX in the Typer/Rich terminal surface with a normalized summary table, top-N measurement table, and `--format`/`--topk` options for `waveflow ui sweep`. Added smoke coverage that exercises the Rich table rendering from outside the repository root with a temporary sweep-safe topology.
+- Out-of-scope flagged: This slice does not add live per-iteration progress streams or change any sweep algorithm return payloads.
+- Assumptions invalidated: The initial smoke test assumption that `examples/json/example_1_simple.json` was sweep-safe was false because the current geometry trips the RIS FOV gate; the test was corrected to use a self-contained topology fixture.
+- Known debt (acknowledged): Live sweep dashboards and per-iteration UX still need a dedicated progress/event protocol from the algorithms rather than result-only rendering in the terminal layer.
+- Limitations: Verification covered compile checks and `tests/test_smoke.py`; this slice did not add algorithm-level progress semantics or broader CLI integration tests.

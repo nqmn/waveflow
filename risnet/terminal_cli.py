@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -92,6 +93,93 @@ def run(argv: Optional[List[str]] = None) -> int:
             if key in result:
                 table.add_row(key, f"{float(result[key]):.3f}")
         console.print(table)
+
+    def _resolve_sweep_metrics(result: dict) -> dict:
+        coarse_angles = list(result.get("local_coarse", []) or [])
+        coarse_snrs = list(result.get("snr_coarse", []) or [])
+        fine_angles = list(result.get("local_fine", []) or [])
+        fine_snrs = list(result.get("snr_fine", []) or [])
+
+        best_angle = (
+            result.get("best_local_fine")
+            if result.get("best_local_fine") is not None
+            else result.get("best_local_angle_deg")
+            if result.get("best_local_angle_deg") is not None
+            else result.get("best_local")
+            if result.get("best_local") is not None
+            else result.get("best_angle_deg")
+            if result.get("best_angle_deg") is not None
+            else result.get("best_angle")
+        )
+        best_snr = (
+            result.get("best_snr_fine")
+            if result.get("best_snr_fine") is not None
+            else result.get("best_snr_db")
+            if result.get("best_snr_db") is not None
+            else result.get("best_snr_dB")
+            if result.get("best_snr_dB") is not None
+            else result.get("best_snr")
+        )
+
+        rows = []
+        for phase_name, angles, snrs in (
+            ("coarse", coarse_angles, coarse_snrs),
+            ("fine", fine_angles, fine_snrs),
+        ):
+            for idx, (angle, snr) in enumerate(zip(angles, snrs), start=1):
+                try:
+                    rows.append(
+                        {
+                            "phase": phase_name,
+                            "index": idx,
+                            "angle_deg": float(angle),
+                            "snr_dB": float(snr),
+                        }
+                    )
+                except (TypeError, ValueError):
+                    continue
+
+        if rows:
+            rows.sort(key=lambda row: row["snr_dB"], reverse=True)
+
+        return {
+            "best_angle_deg": float(best_angle) if best_angle is not None else None,
+            "best_snr_dB": float(best_snr) if best_snr is not None else None,
+            "coarse_count": len(coarse_snrs),
+            "fine_count": len(fine_snrs),
+            "top_measurements": rows,
+        }
+
+    def _render_sweep_result(result: dict, algo: str, topk: int) -> None:
+        summary = _resolve_sweep_metrics(result)
+
+        table = Table(title=f"Sweep Result ({algo})")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", justify="right")
+        table.add_row("Best angle (deg)", "N/A" if summary["best_angle_deg"] is None else f"{summary['best_angle_deg']:.2f}")
+        table.add_row("Best SNR (dB)", "N/A" if summary["best_snr_dB"] is None else f"{summary['best_snr_dB']:.2f}")
+        table.add_row("Coarse angles tested", str(summary["coarse_count"]))
+        table.add_row("Fine angles tested", str(summary["fine_count"]))
+        console.print(table)
+
+        top_rows = summary["top_measurements"][:max(topk, 0)]
+        if not top_rows:
+            return
+
+        top_table = Table(title=f"Top {len(top_rows)} Sweep Measurements")
+        top_table.add_column("Rank", justify="right")
+        top_table.add_column("Phase", style="cyan")
+        top_table.add_column("Angle (deg)", justify="right")
+        top_table.add_column("SNR (dB)", justify="right")
+
+        for rank, row in enumerate(top_rows, start=1):
+            top_table.add_row(
+                str(rank),
+                row["phase"],
+                f"{row['angle_deg']:.2f}",
+                f"{row['snr_dB']:.2f}",
+            )
+        console.print(top_table)
 
     # -------------------------------------------------------------------------
     # status
@@ -214,6 +302,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         step: float = typer.Option(10.0, "--step", help="Coarse step size in degrees."),
         algo: str = typer.Option("coarse-fine", "--algo", help="Sweep algorithm name."),
         seed: int = typer.Option(0, "--seed", help="Random seed."),
+        output_format: str = typer.Option("table", "--format", help="Output format: table or json."),
+        topk: int = typer.Option(5, "--topk", min=0, help="Number of best sweep measurements to display in table mode."),
         topology: Optional[Path] = typer.Option(
             None, "--topology", "-t",
             exists=True, file_okay=True, dir_okay=False, readable=True,
@@ -225,16 +315,19 @@ def run(argv: Optional[List[str]] = None) -> int:
         _load_topology(net, topology)
         try:
             result = net.sweep(ap, ris, ue, fov=fov, step=step, seed=seed)
-            table = Table(title=f"Sweep Result ({algo})")
-            table.add_column("Metric", style="cyan")
-            table.add_column("Value", justify="right")
-            table.add_row("Best angle (deg)", f"{result.get('best_local_fine', result.get('best_angle_deg', 'N/A')):.2f}")
-            table.add_row("Best SNR (dB)", f"{result.get('best_snr_fine', result.get('best_snr_dB', 'N/A')):.2f}")
-            coarse = result.get("snr_coarse", [])
-            table.add_row("Coarse angles tested", str(len(coarse)))
-            fine = result.get("snr_fine", [])
-            table.add_row("Fine angles tested", str(len(fine)))
-            console.print(table)
+            if output_format == "json":
+                console.print_json(
+                    data={
+                        "algorithm": algo,
+                        "summary": _resolve_sweep_metrics(result),
+                        "result": result,
+                    }
+                )
+            elif output_format == "table":
+                _render_sweep_result(result, algo, topk)
+            else:
+                console.print(f"[red]Unknown format '{output_format}'. Use: table, json[/red]")
+                raise typer.Exit(1)
         except Exception as exc:
             console.print(f"[red]Sweep failed:[/red] {exc}")
             raise typer.Exit(1)
