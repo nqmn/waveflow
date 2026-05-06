@@ -1,4 +1,4 @@
-function pattern(plane, freq, r_src, theta_src, theta_rcv, phi_rcv, nx, ny, dx, dy, mode, bit)
+function example_3_ris_phase_farfield(plane, freq, r_src, theta_src, theta_rcv, phi_rcv, nx, ny, dx, dy, mode, bit)
 %% ============================================================
 % DEFAULT PARAMETERS — EXACTLY MATCH PYTHON CALL
 %% ============================================================

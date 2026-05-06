@@ -1,18 +1,18 @@
-% pattern.m
+% example_4_ris_phase_farfield_cst_style.m
 % Complete RIS phase + far-field visualization with CST-style annotations,
 % incoming dashed arrow (source -> RIS), outgoing dashed arrow (RIS -> steer),
 % E/H-plane guides, main-lobe detection, optional horn marker and export hook.
 %
-% Related file (for reference / metadata): 
-% /mnt/data/A_Novel_RIS-Aided_Indoor_Localization_in_Single_Access_Point_Scenarios_via_Generative_AI.pdf
+% Related paper: A Novel RIS-Aided Indoor Localization in Single Access Point
+%   Scenarios via Generative AI
 %
-% Save as `pattern.m` and run simply:
-%   >> pattern
+% Run simply:
+%   >> example_4_ris_phase_farfield_cst_style
 %
 % Optional overrides:
-%   >> pattern(plane, freq, r_src_val, theta_src, theta_rcv, phi_rcv, nx, ny, dx, dy, mode, bit)
+%   >> example_4_ris_phase_farfield_cst_style(plane, freq, r_src_val, theta_src, theta_rcv, phi_rcv, nx, ny, dx, dy, mode, bit)
 %
-function pattern(plane, freq, r_src_val, theta_src, theta_rcv, phi_rcv, ...
+function example_4_ris_phase_farfield_cst_style(plane, freq, r_src_val, theta_src, theta_rcv, phi_rcv, ...
                  nx_in, ny_in, dx, dy, mode, bit)
 
 %% =========================
