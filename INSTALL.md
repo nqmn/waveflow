@@ -8,12 +8,9 @@
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/nqmn/risnet
-cd risnet
+git clone https://github.com/nqmn/waveflow
+cd waveflow
 ```
-
-The GitHub repository still lives at `nqmn/risnet`, but the Python package is
-published as `waveflow`. The old `risnet` import and CLI are kept as aliases.
 
 ## 2. Choose an Install Profile
 
@@ -131,14 +128,6 @@ PYTHONPATH=. python3 tests/test_smoke.py
 Known: `tests/test_fixes.py` TEST 3 (RMS Phase Error with Angle Wrapping) has
 a stale expected value and will report one failure. All other tests pass.
 
-## 6. Running the Web Interface
-
-```bash
-pip install -e ".[web]"
-waveflow --web
-# Open http://127.0.0.1:5000
-```
-
 ## Troubleshooting
 
 **`ModuleNotFoundError: No module named 'core'`**
@@ -146,7 +135,7 @@ waveflow --web
 Run from the repository root, or set `PYTHONPATH`:
 
 ```bash
-cd /path/to/risnet
+cd /path/to/waveflow
 PYTHONPATH=. python3 your_script.py
 ```
 

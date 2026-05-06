@@ -4,9 +4,8 @@ This tutorial covers Waveflow from a first simulation to advanced beam sweeping,
 waveform-level analysis, and ML-guided optimization. Each section builds on
 the previous one.
 
-Waveflow is the new package name for the project formerly known as RISNet. The
-legacy `risnet` import path still works, but new code should prefer
-`waveflow`.
+Waveflow is the package name for this simulator. The legacy `risnet` import
+path and CLI command remain available as backward-compatibility aliases.
 
 Prerequisites: completed installation per [INSTALL.md](INSTALL.md).
 

@@ -1,8 +1,8 @@
-# RISNet v3 - Future Architecture Direction
+# Waveflow v3 - Future Architecture Direction
 
 ## Implementability Verdict
 
-RISNet v3 is implementable in this codebase, but it should be delivered as an
+Waveflow v3 is implementable in this codebase, but it should be delivered as an
 incremental architecture migration rather than a direct folder reshuffle or
 rewrite.
 
@@ -49,7 +49,7 @@ FOV check.
 
 ## Vision
 
-RISNet should evolve from:
+Waveflow should evolve from:
 
 ```text
 RIS network simulator
@@ -64,7 +64,7 @@ Programmable RF intelligence and electromagnetic environment platform
 The long-term objective is not to compete directly with CST Studio or HFSS in
 full-wave electromagnetic simulation.
 
-Instead, RISNet should become:
+Instead, Waveflow should become:
 
 - AI-native RF simulation platform
 - programmable wireless environment framework
@@ -75,7 +75,7 @@ Instead, RISNet should become:
 
 ## Core Philosophy
 
-RISNet v3 should be:
+Waveflow v3 should be:
 
 - headless-first
 - notebook-native
@@ -353,7 +353,7 @@ adding GNU Radio-style graph execution.
 
 ### 7. AI-Native Runtime
 
-RISNet should evolve into a reinforcement-learning-ready environment.
+Waveflow should evolve into a reinforcement-learning-ready environment.
 
 Proposed structure:
 
@@ -418,7 +418,7 @@ inside `RISNetwork.connect()`.
 
 ### 9. Notebook-Native Research Workflow
 
-RISNet v3 should prioritize notebook workflows over GUI-first development.
+Waveflow v3 should prioritize notebook workflows over GUI-first development.
 
 Planned notebook collections:
 
@@ -450,16 +450,16 @@ Notebook dependencies should remain optional.
 
 ### 10. CLI-First Workflow
 
-RISNet should remain headless-first.
+Waveflow should remain headless-first.
 
 Example future CLI:
 
 ```bash
-risnet scenario run urban.yaml
-risnet benchmark run massive_mimo
-risnet plugin list
-risnet array plot ula.yaml
-risnet shell
+waveflow scenario run urban.yaml
+waveflow benchmark run massive_mimo
+waveflow plugin list
+waveflow array plot ula.yaml
+waveflow shell
 ```
 
 Planned tools:
@@ -475,7 +475,7 @@ current CLI first, then gradually route old commands through new service APIs.
 
 ### 11. Plugin Ecosystem
 
-RISNet should evolve toward a universal plugin architecture.
+Waveflow should evolve toward a universal plugin architecture.
 
 Proposed structure:
 
@@ -536,7 +536,7 @@ interface-driven, and mockable in tests.
 
 ### 13. Tensorized Compute Backend
 
-RISNet should move toward tensorized simulation.
+Waveflow should move toward tensorized simulation.
 
 Planned backends:
 
@@ -611,7 +611,7 @@ and pure functions with minimal hidden mutable state.
 Target structure:
 
 ```text
-risnet/
+waveflow/
 ├── kernel/
 ├── runtime/
 ├── world/
@@ -1077,7 +1077,7 @@ Status as of 2026-05-06:
 
 ## Final Direction
 
-RISNet v3 should become:
+Waveflow v3 should become:
 
 ```text
 Headless programmable RF simulation core
