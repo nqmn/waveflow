@@ -21,7 +21,7 @@ from .base import SweepAlgorithmBase  # When moved under algorithms/, change to 
 from .common import compute_ris_normal_for_sweep, validate_and_get_nodes  # [REQUIRED: For standardized RIS normal]
 
 
-class [TEMPLATE_CLASS_NAME](SweepAlgorithmBase):
+class TemplateSweepAlgorithm(SweepAlgorithmBase):
     """[TEMPLATE: Descriptive class docstring]"""
 
     @property

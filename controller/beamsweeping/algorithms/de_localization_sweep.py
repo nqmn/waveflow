@@ -210,6 +210,7 @@ class DELocalizationSweep(SweepAlgorithmBase):
             # DE-specific results
             "estimated_position": x_est,
             "beam_angle_deg": float(beam_angle_deg),
+            "snr_dB": float(snr_db),
             "configuration_count": len(theta_selected),
             "measurements": y_meas,
 
@@ -223,6 +224,7 @@ class DELocalizationSweep(SweepAlgorithmBase):
             "algo_object": self,
             "suppress_tables": False,
             "best_angle": float(beam_angle_deg),  # For connection handler
+            "best_snr_fine": float(snr_db),
             "total_time": total_time,
             "timing": {"total": total_time},
         }

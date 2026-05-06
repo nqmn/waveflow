@@ -10,7 +10,7 @@ from core.network import RISNetwork
 from controller.beamsweeping.algorithms.de_localization_sweep import DELocalizationSweep
 
 
-def test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16):
+def test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16, return_results=False):
     """Run DE localization sweep 10 times with random UE positions"""
 
     print("=" * 80)
@@ -145,7 +145,7 @@ def test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16):
         status = "OK" if errors[i] < 0.5 else "BAD" if errors[i] > 1.0 else "FAIR"
         print(f"Trial {i+1}: Error={errors[i]:.4f}m {status}, Angle={beam_angles[i]:.2f}deg, SNR={snrs[i]:.2f}dB, Time={times[i]:.2f}s")
 
-    return {
+    results = {
         'errors': errors,
         'beam_angles': beam_angles,
         'snrs': snrs,
@@ -153,6 +153,8 @@ def test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16):
         'mean_error': np.mean(errors),
         'success_rate': success_rate
     }
+    if return_results:
+        return results
 
 
 if __name__ == "__main__":
@@ -161,14 +163,14 @@ if __name__ == "__main__":
     print("=" * 80 + "\n")
 
     # Test 1: Standard configuration (8×8 RIS, M=16)
-    results1 = test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16)
+    results1 = test_de_accuracy_multiple_positions(num_trials=10, ris_size=8, M=16, return_results=True)
 
     # Test 2: Larger RIS (16×16, M=32)
     print("\n\n" + "=" * 80)
     print("RUNNING TEST 2: LARGER RIS (16×16, M=32)")
     print("=" * 80 + "\n")
 
-    results2 = test_de_accuracy_multiple_positions(num_trials=10, ris_size=16, M=32)
+    results2 = test_de_accuracy_multiple_positions(num_trials=10, ris_size=16, M=32, return_results=True)
 
     # Final summary
     print("\n\n" + "=" * 80)

@@ -67,7 +67,7 @@ def test_rx_power_calculation():
     print(f"  Pr = {pr_expected:.2f} dBm (calculated)")
 
     # Now test with the fixed connect() method
-    result = net.connect("ap1", "ris1", "ue1")
+    result = net.connect("ap1", "ris1", "ue1", seed=42, use_get_snr=False)
 
     print(f"\n[Fixed connect() Method Results]")
     print(f"  Rx Power: {result['pwr_dBm']:.2f} dBm")

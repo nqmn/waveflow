@@ -5,7 +5,7 @@ Extracted from main_shell.py for better modularity
 
 import shlex
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from cli.helpers import sanitize_for_json
 
 
@@ -595,7 +595,7 @@ class ConnectionHandler:
             'ap': ap,
             'ris': ris,
             'ue': ue,
-            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'parameters': {
                 'requested_angle_deg': float(res.get('beam_angle')) if res.get('beam_angle') is not None else angle,
                 'seed': seed,
@@ -1438,7 +1438,7 @@ class ConnectionHandler:
             'ap': ap_key,
             'ris': ris_key,
             'ue': ue_key,
-            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'parameters': {
                 'fov_deg': float(fov),
                 'step_deg': float(step),

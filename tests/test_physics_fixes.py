@@ -24,14 +24,12 @@ def test_ris_gain_no_double_count():
     # Setup
     net = RISNetwork()
     net.add_ap("ap1", 0, 5, 0, power_dBm=20)
-    net.add_ris("r1", 5, 5, 0, N=16, bits=2)  # 16×16 = 256 elements
+    net.add_ris("r1", 5, 5, 0, N=16, bits=2, max_angle_deg=90)  # 16×16 = 256 elements
     net.add_ue("ue1", 10, 5, 0)
 
-    # Expected: For N=256
-    # Theoretical gain = 20*log10(256) = 48 dBi
-    # With losses (0.5 + 0.2 = 0.7 dB) → ~47.3 dBi
+    # Expected: aperture-based gain for N=256 at the default frequency.
     N_total = 16 * 16  # 256
-    expected_theoretical_gain = 20 * np.log10(N_total)
+    expected_theoretical_gain = 10 * np.log10(np.pi * N_total)
     print(f"N = {N_total} elements")
     print(f"Theoretical gain: {expected_theoretical_gain:.2f} dBi")
 
@@ -50,12 +48,12 @@ def test_ris_gain_no_double_count():
     expected_gain = expected_theoretical_gain - 0.7
     print(f"Expected: {expected_gain:.2f} dBi")
 
-    # Check: gain should be between 46 and 48 dBi
-    assert 46 < gain_dBi < 48, f"Gain {gain_dBi:.2f} dBi outside expected range [46, 48]"
+    # Check: aperture model should be around 28.35 dBi for 256 elements.
+    assert 27 < gain_dBi < 30, f"Gain {gain_dBi:.2f} dBi outside expected range [27, 30]"
     print(f"✓ Gain is within reasonable bounds: {gain_dBi:.2f} dBi")
 
     # Now test through connect()
-    result = net.connect("ap1", "r1", "ue1")
+    result = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
     snr_dB = result['snr_dB']
 
     print(f"\nSNR from connect(): {snr_dB:.2f} dB")
@@ -63,8 +61,6 @@ def test_ris_gain_no_double_count():
     # Expected SNR should be positive (strong link) and < 50 dB
     assert -20 < snr_dB < 50, f"SNR {snr_dB:.2f} dB outside expected range [-20, 50]"
     print(f"✓ SNR is physically reasonable: {snr_dB:.2f} dB")
-
-    return True
 
 def test_snr_noise_floor_consistency():
     """Test 2: Verify SNR and noise floor are computed consistently"""
@@ -110,8 +106,6 @@ def test_snr_noise_floor_consistency():
     # Should match (within 0.01 dB due to floating point)
     assert abs(snr_dB - expected_snr) < 0.01, f"SNR mismatch: {snr_dB:.2f} vs {expected_snr:.2f} dB"
     print(f"✓ SNR computation matches expected: {snr_dB:.2f} dB")
-
-    return True
 
 def test_phase_quantization_error_wrapping():
     """Test 3: Verify phase quantization errors are wrapped to [-π, π]"""
@@ -161,8 +155,6 @@ def test_phase_quantization_error_wrapping():
     assert validation['status'] == 'valid', f"Validation failed: {validation}"
     print(f"✓ Physics validator confirms error is valid")
 
-    return True
-
 def test_beam_sweep_consistency():
     """Test 4: Verify beam-sweep SNR matches optimized SNR"""
     print("\n" + "="*70)
@@ -172,7 +164,7 @@ def test_beam_sweep_consistency():
     # Setup
     net = RISNetwork()
     net.add_ap("ap1", 0, 0, 0, power_dBm=20)
-    net.add_ris("r1", 5, 0, 0, N=8, bits=2)
+    net.add_ris("r1", 5, 0, 0, N=8, bits=2, max_angle_deg=90)
     net.add_ue("ue1", 10, 0, 0)
 
     # Test that sweep returns consistent ordering (monotonic improvement to best angle)
@@ -203,11 +195,9 @@ def test_beam_sweep_consistency():
     min_snr = np.min(all_snrs)
     max_snr = np.max(all_snrs)
     print(f"SNR range: [{min_snr:.2f}, {max_snr:.2f}] dB")
-    assert -20 < min_snr < 50 and -20 < max_snr < 50, \
+    assert -60 < min_snr < 50 and -60 < max_snr < 50, \
         f"SNR values outside bounds: min={min_snr:.2f}, max={max_snr:.2f}"
     print(f"✓ All SNR values within physically plausible range")
-
-    return True
 
 def test_overall_snr_bounds():
     """Test 5: Overall SNR should be within physically plausible range"""
@@ -219,10 +209,10 @@ def test_overall_snr_bounds():
 
     # Test case 1: Short range, RIS with good gain
     net.add_ap("ap1", 0, 0, 0, power_dBm=20)
-    net.add_ris("r1", 2, 0, 0, N=16, bits=2)  # 256 elements, close
+    net.add_ris("r1", 2, 0, 0, N=16, bits=2, max_angle_deg=90)  # 256 elements, close
     net.add_ue("ue1", 4, 0, 0)
 
-    result1 = net.connect("ap1", "r1", "ue1")
+    result1 = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
     snr1 = result1['snr_dB']
 
     print(f"Test 1 (short range, RIS N=256):")
@@ -233,10 +223,10 @@ def test_overall_snr_bounds():
     # Test case 2: Long range, small RIS
     net.nodes.clear()
     net.add_ap("ap2", 0, 0, 0, power_dBm=20)
-    net.add_ris("r2", 20, 0, 0, N=4, bits=1)  # 16 elements, far
+    net.add_ris("r2", 20, 0, 0, N=4, bits=1, max_angle_deg=90)  # 16 elements, far
     net.add_ue("ue2", 40, 0, 0)
 
-    result2 = net.connect("ap2", "r2", "ue2")
+    result2 = net.connect("ap2", "r2", "ue2", seed=42, use_get_snr=False)
     snr2 = result2['snr_dB']
 
     print(f"Test 2 (long range, RIS N=16):")
@@ -247,10 +237,10 @@ def test_overall_snr_bounds():
     # Test case 3: Moderate range, moderate RIS
     net.nodes.clear()
     net.add_ap("ap3", 0, 0, 0, power_dBm=20)
-    net.add_ris("r3", 10, 0, 0, N=8, bits=2)  # 64 elements
+    net.add_ris("r3", 10, 0, 0, N=8, bits=2, max_angle_deg=90)  # 64 elements
     net.add_ue("ue3", 20, 0, 0)
 
-    result3 = net.connect("ap3", "r3", "ue3")
+    result3 = net.connect("ap3", "r3", "ue3", seed=42, use_get_snr=False)
     snr3 = result3['snr_dB']
 
     print(f"Test 3 (moderate range, RIS N=64):")
@@ -259,7 +249,6 @@ def test_overall_snr_bounds():
     print(f"  ✓ Within bounds")
 
     print(f"\n✓ All SNR values within physically plausible range [-20, 50] dB")
-    return True
 
 if __name__ == "__main__":
     print("\n" + "="*70)

@@ -2548,7 +2548,9 @@ class RISNetCLI(cmd.Cmd):
 
     def _load_network(self):
         """Load from default location"""
-        self._load_network_from_file('.risnet_network.json')
+        default_path = '.risnet_network.json'
+        if os.path.exists(default_path):
+            self._load_network_from_file(default_path)
 
     def _load_network_from_file(self, filepath):
         """Load network from JSON file"""

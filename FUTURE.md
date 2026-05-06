@@ -665,56 +665,310 @@ Most of these should be optional extras. Keep the base install lightweight.
 
 ## Recommended Development Phases
 
-### Phase 0 - Stabilization Prerequisites
+Each phase should leave the repository in a runnable state. Do not merge a phase
+that requires the next phase to make imports, CLI commands, examples, or tests
+work again.
 
-- Fix package layout and console entry point.
-- Decide whether top-level packages remain top-level or move under `risnet/`.
-- Package the actual implementation modules, not only the thin `risnet/`
-  facade.
-- Add `risnet/__main__.py` or update the entry point to target an existing
-  module.
-- Ensure editable install works when commands are launched from outside the
-  repository root.
-- Add CI test commands for a minimal core test set.
-- Separate heavyweight optional dependencies from base dependencies.
+Default phase invariants:
 
-### Phase 1 - Extract Simulation Primitives
+- Preserve the existing public API: `RISNetwork`, `AccessPoint`, `RIS`, `UE`,
+  `RISnet`, and current CLI command behavior.
+- Keep `RISNetwork.connect()` return keys and side effects compatible unless a
+  later migration explicitly adds an adapter and regression tests.
+- Prefer additive modules and adapters before moving files.
+- Keep heavyweight dependencies optional; the base install should remain usable
+  for core simulation and tests.
+- Add or update tests in the same phase as the behavior they protect.
 
-- Extract array geometry and steering primitives.
-- Extract link-budget/channel model interfaces.
-- Extract phase quantization and phase solving behind interfaces.
-- Add scenario loading API around existing JSON/YAML topology concepts.
-- Add compatibility adapters for `AccessPoint`, `RIS`, and `UE`.
+Recommended minimum verification after every phase:
 
-### Phase 2 - Introduce Runtime Foundations
+```bash
+python3 -m compileall core controller cli risnet app config utils
+python3 -m pytest tests/test_fixes.py tests/test_physics_fixes.py
+python3 - <<'PY'
+from core import RISNetwork
+from risnet import RISnet
+net = RISNetwork(enable_messaging=False)
+net.add_ap("ap1", 0, 0)
+net.add_ris("ris1", 5, 0)
+net.add_ue("ue1", 10, 0)
+result = net.connect("ap1", "ris1", "ue1", use_get_snr=False)
+assert "snr_dB" in result
+assert RISnet is not None
+PY
+```
 
-- Add minimal kernel clock and event queue.
-- Add deterministic seeded execution context.
-- Add scheduled mobility/channel update events.
-- Add scenario runner independent of Flask and interactive shell.
-- Keep `RISNetwork.connect()` as a compatibility facade.
+If optional dependencies are missing in a local environment, skip only the tests
+that require those optional extras and document the skip reason in the phase
+review.
 
-### Phase 3 - Spatial Channels and MIMO
+### Phase 0 - Packaging and Baseline Stabilization
 
-- Add AoA/AoD channel representation.
-- Add MIMO channel matrices.
-- Add array-to-array channel evaluation.
-- Add RIS-assisted spatial channel model.
-- Add regression tests for angles, SNR, path loss, and beam patterns.
+Goal: make the current code importable and executable from outside the
+repository root before changing simulator architecture.
 
-### Phase 4 - AI Runtime and Datasets
+Implementation:
 
-- Add observation/action/reward interfaces.
-- Add Gym-compatible environment adapter.
-- Add dataset export and replay buffer utilities.
-- Move ML training scripts into structured tools or package modules.
+- Fix package discovery so the implementation packages currently living at the
+  repository top level are installed or intentionally exposed through a stable
+  package layout.
+- Add `risnet/__main__.py` or update the `risnet` console entry point to target
+  an existing callable.
+- Keep `setup.py` as a compatibility shim and make `pyproject.toml` the source
+  of packaging truth.
+- Move heavy dependencies such as OpenCV, CVXPY, ML, notebook, visualization,
+  and hardware tooling into optional extras unless they are required by the
+  minimal simulator path.
+- Define a small baseline test command for core simulation, physics, import, and
+  CLI smoke coverage.
 
-### Phase 5 - Hardware and Digital Twin Runtime
+Do not break:
 
-- Add mockable SDR interfaces.
-- Add optional hardware backends.
-- Add runtime monitoring and streaming hooks.
-- Add distributed execution only after deterministic local execution is stable.
+- `from core import RISNetwork`
+- `from risnet import RISnet`
+- Existing examples that import top-level `core`, `controller`, `cli`, `config`,
+  or `utils` modules.
+- The current interactive shell entry paths.
+
+Exit gate:
+
+- Editable install works from a directory outside the repository root.
+- `python -m risnet` or the `risnet` console command reaches the CLI entry point.
+- Baseline tests and compile checks pass.
+
+### Phase 1 - Characterization Tests for Current Behavior
+
+Goal: lock down current behavior before extracting internals from
+`RISNetwork.connect()`.
+
+Implementation:
+
+- Add regression tests for a minimal AP -> RIS -> UE connection.
+- Capture expected result keys, active-link updates, phase-setting behavior,
+  missing-node errors, FOV behavior, deterministic seeded fading, and
+  `use_get_snr=False` physics calculation.
+- Add import smoke tests for `core`, `controller`, `cli`, `app`, and `risnet`.
+- Add CLI smoke tests that instantiate the shell without starting interactive
+  input loops.
+
+Do not break:
+
+- Current result dictionary shape from `RISNetwork.connect()`.
+- Existing test expectations unless the test is proven stale and replaced with
+  an explicit compatibility decision.
+
+Exit gate:
+
+- New characterization tests fail on intentional compatibility breaks and pass
+  on the current implementation.
+- No production code refactor is included in this phase.
+
+### Phase 2 - Extract Array and Phase Primitives
+
+Goal: introduce reusable phased-array primitives without changing network
+behavior.
+
+Implementation:
+
+- Add a small additive array module for ULA/UPA geometry, steering vectors, and
+  array-factor utilities.
+- Wrap existing phase quantization and phase steering logic behind narrow
+  interfaces while leaving `controller/ris_phase` imports valid.
+- Add tests comparing extracted primitives against current calculations in
+  `core/waveform.py`, `core/nodes.py`, `core/physics.py`, and
+  `controller/ris_phase`.
+- Route only low-risk call sites through the new wrappers after equivalence is
+  proven.
+
+Do not break:
+
+- Existing `RIS` geometry and phase attributes.
+- Beam-sweeping algorithm imports and registry discovery.
+- Existing phase plots and MATLAB bridge inputs.
+
+Exit gate:
+
+- Old and new primitive calculations match within documented tolerances.
+- Existing beam-sweeping tests still pass.
+
+### Phase 3 - Extract Channel Interface Around Existing Link Budget
+
+Goal: create the first channel abstraction as an adapter over existing physics,
+not as a new physics model.
+
+Implementation:
+
+- Add a `ChannelModel` protocol or abstract base with a minimal evaluate method.
+- Add a `LinkBudgetChannel` adapter that delegates to current `Physics`,
+  waveform, and `RISNetwork.connect()` calculations.
+- Add tests proving the adapter reproduces current SNR, power, path-loss, and
+  gain outputs for fixed seeds.
+- Keep direct `Physics` imports working while new services adopt the adapter.
+
+Do not break:
+
+- `core.physics.Physics` public helpers.
+- `utils.link_budget`, `utils.snr`, `utils.rssi`, and existing controller code.
+- Any return fields consumed by Flask, CLI serialization, or notebooks.
+
+Exit gate:
+
+- `RISNetwork.connect(..., use_get_snr=False)` produces equivalent results
+  before and after the adapter route.
+- Adapter tests cover missing paths, blocked paths, and deterministic seeded
+  links.
+
+### Phase 4 - Decompose `RISNetwork.connect()` Behind Compatibility Facade
+
+Goal: split the high-risk method into testable services while preserving the
+public method.
+
+Implementation:
+
+- Extract only cohesive internal steps: node lookup, geometry/FOV validation,
+  phase computation, channel evaluation, feedback loop handling, active-link
+  update, and result serialization.
+- Keep `RISNetwork.connect()` as the single public compatibility facade.
+- Add service-level tests for each extracted step plus end-to-end compatibility
+  tests for the facade.
+- Move one step at a time and rerun characterization tests after each extraction.
+
+Do not break:
+
+- Method signature and default argument behavior.
+- Error messages used by tests or users.
+- `last_connect_result`, `active_links`, feedback channels, and messaging
+  behavior.
+
+Exit gate:
+
+- Public facade outputs match Phase 1 characterization tests.
+- Each extracted service has focused tests.
+- Flask, CLI, and examples still call the same public method successfully.
+
+### Phase 5 - Scenario API and Headless Runner
+
+Goal: make simulations executable without Flask or the interactive shell.
+
+Implementation:
+
+- Add scenario loading around existing JSON examples and any current YAML
+  topology concepts.
+- Add a scenario runner that builds `RISNetwork`, nodes, walls, impairments, and
+  connection requests through public service APIs.
+- Keep Flask, CLI, and notebooks as clients of the same headless runner where
+  practical.
+- Add golden scenario fixtures for simple, obstacle, and grid topologies.
+
+Do not break:
+
+- Existing `examples/json/*.json` files.
+- Current CLI commands for adding nodes and connecting links.
+- `app/state_manager.py` serialization behavior until an adapter replaces it.
+
+Exit gate:
+
+- A scenario can run from a test without importing Flask.
+- Existing JSON examples either load directly or have documented compatibility
+  adapters.
+
+### Phase 6 - Minimal Runtime Kernel
+
+Goal: add deterministic scheduling without embedding runtime concerns inside
+`RISNetwork.connect()`.
+
+Implementation:
+
+- Add a minimal clock, event queue, seeded execution context, and metric
+  collector.
+- Schedule mobility updates, channel refreshes, beam updates, and metric
+  sampling through the scenario runner.
+- Keep runtime state outside node classes except through existing public update
+  methods.
+
+Do not break:
+
+- Direct one-shot `RISNetwork.connect()` usage.
+- Static scenario results when no runtime events are scheduled.
+- Deterministic seeded behavior captured in Phase 1 and Phase 3 tests.
+
+Exit gate:
+
+- Running a static scenario through the runtime matches the non-runtime result.
+- Scheduled updates are deterministic under a fixed seed.
+
+### Phase 7 - Spatial Channels and MIMO
+
+Goal: add new channel capabilities beside the link-budget adapter.
+
+Implementation:
+
+- Add AoA/AoD representations, array-to-array evaluation, MIMO channel
+  matrices, and RIS-assisted spatial channel models as new `ChannelModel`
+  implementations.
+- Add regression tests for angle normalization, steering vectors, path loss,
+  SNR, and beam patterns.
+- Route scenarios to spatial channels only through explicit configuration.
+
+Do not break:
+
+- Default channel behavior.
+- Existing link-budget tests and examples.
+- Base install without optional visualization or GPU dependencies.
+
+Exit gate:
+
+- Existing simulations still use `LinkBudgetChannel` by default.
+- Spatial-channel scenarios pass dedicated tests without changing compatibility
+  results.
+
+### Phase 8 - AI Runtime and Dataset Tools
+
+Goal: expose learning-friendly interfaces without making ML dependencies
+mandatory.
+
+Implementation:
+
+- Add observation, action, reward, and episode interfaces around scenario/runtime
+  APIs.
+- Add a Gym-compatible adapter behind an optional extra.
+- Add dataset export and replay-buffer utilities.
+- Move training scripts into structured tools only after import paths and data
+  paths are covered by tests.
+
+Do not break:
+
+- Existing ML-guided beam-sweeping algorithms.
+- Base install without PyTorch, JAX, Gymnasium, or scikit-learn.
+- Existing dataset/model tooling under `controller/beamsweeping/ml`.
+
+Exit gate:
+
+- Core tests pass without ML extras installed.
+- ML tests are optional and clearly marked.
+
+### Phase 9 - Hardware, Visualization, and Digital Twin Runtime
+
+Goal: add integration-heavy features only after deterministic local execution is
+stable.
+
+Implementation:
+
+- Add mockable SDR/device interfaces before real hardware backends.
+- Add optional monitoring, streaming, notebook, and visualization adapters.
+- Keep distributed execution behind explicit configuration and after local
+  runtime reproducibility is proven.
+
+Do not break:
+
+- Base install and core simulation tests.
+- Headless CLI and notebook workflows when hardware dependencies are absent.
+- Deterministic local runtime behavior.
+
+Exit gate:
+
+- Hardware-facing tests use mocks by default.
+- Optional integration tests are isolated from core CI.
 
 ## Immediate Action Items
 

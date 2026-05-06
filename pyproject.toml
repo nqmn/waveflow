@@ -70,8 +70,21 @@ Issues = "https://github.com/nqmn/risnet/issues"
 [project.scripts]
 risnet = "risnet.__main__:main"
 
-[tool.setuptools]
-packages = ["risnet"]
+[tool.setuptools.packages.find]
+include = [
+    "app*",
+    "cli*",
+    "config*",
+    "controller*",
+    "core*",
+    "risnet*",
+    "utils*",
+]
+exclude = [
+    "tests*",
+    "examples*",
+    "docs*",
+]
 
 [tool.setuptools.package-data]
 risnet = ["py.typed"]

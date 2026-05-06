@@ -2,7 +2,7 @@
 RIS Network manager with controller integration
 """
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from .nodes import AccessPoint, RIS, UE
 from .physics import Physics, C
@@ -712,7 +712,7 @@ class RISNetwork:
             'ap': ap_key,
             'ris': ris_key,
             'ue': ue_key,
-            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'parameters': {
                 'beam_angle_deg': float(beam_angle_deg),
                 'compute_phases': bool(compute_phases),
@@ -1016,7 +1016,7 @@ class RISNetwork:
             'ap': ap_name,
             'ris': ris_name,
             'ue': ue_name,
-            'captured_at': datetime.utcnow().isoformat() + 'Z',
+            'captured_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
             'algorithm': 'network.sweep',
             'parameters': {
                 'fov': float(fov),

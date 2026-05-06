@@ -90,8 +90,6 @@ def test_de_localization_sweep_basic():
     else:
         print(f"Status: PASS (No true position comparison)")
 
-    return True
-
 
 def test_de_sweep_initialization():
     """Test algorithm initialization"""
@@ -109,8 +107,6 @@ def test_de_sweep_initialization():
     print(f"Name: {algo.name}")
     print(f"Description: {algo.description}")
     print("Status: PASS")
-
-    return True
 
 
 def test_de_sweep_with_small_ris():
@@ -148,8 +144,6 @@ def test_de_sweep_with_small_ris():
     print(f"  Beam Angle: {result['beam_angle_deg']:.2f}°")
     print(f"  Time: {result['total_time']:.2f}s")
     print("Status: PASS")
-
-    return True
 
 
 if __name__ == "__main__":

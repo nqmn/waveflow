@@ -67,7 +67,10 @@ class Physics:
         scatter_std = np.sqrt(1 / (K_linear + 1))
         scatter = scatter_std * (np.random.randn(size) + 1j * np.random.randn(size)) / np.sqrt(2)
         h = los_component + scatter
-        return np.abs(h)
+        fading = np.abs(h)
+        if np.size(fading) == 1:
+            return float(np.asarray(fading).reshape(-1)[0])
+        return fading
 
     @staticmethod
     def quantization_loss_dB(phase_bits, element_efficiency=0.95, model='standard'):

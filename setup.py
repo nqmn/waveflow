@@ -1,17 +1,33 @@
 #!/usr/bin/env python3
-"""
-Minimal setup.py for PyPI compatibility.
-Modern Python packaging should use pyproject.toml instead.
-This file is kept for backward compatibility.
+"""Legacy setuptools entry point.
 
-LATEST FEATURES (v1.0+):
-- Array Factor Integration: Physics-based SNR calculations for RIS beam sweeps
-  * Replaces binary beam_hits_ue cutoff with realistic sidelobe patterns
-  * Supports element tapering for sidelobe control
-  * Fully documented with test suite and examples
-  * See: ARRAY_FACTOR_INTEGRATION.md, test_array_factor_integration.py
+The canonical project metadata lives in ``pyproject.toml``. This file keeps
+older setuptools workflows working and mirrors the package discovery/console
+entry point needed for editable installs.
 """
 
 from setuptools import setup, find_packages
 
-setup()
+setup(
+    packages=find_packages(
+        include=[
+            "app*",
+            "cli*",
+            "config*",
+            "controller*",
+            "core*",
+            "risnet*",
+            "utils*",
+        ],
+        exclude=[
+            "tests*",
+            "examples*",
+            "docs*",
+        ],
+    ),
+    entry_points={
+        "console_scripts": [
+            "risnet=risnet.__main__:main",
+        ],
+    },
+)
