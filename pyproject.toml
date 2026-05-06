@@ -30,15 +30,25 @@ classifiers = [
 
 dependencies = [
     "numpy",
-    "flask",
+    "scipy",
     "pyyaml",
-    "waitress",
-    "opencv-python",
-    "cvxpy",
-    "scs",
 ]
 
 [project.optional-dependencies]
+web = [
+    "flask",
+    "waitress",
+]
+vision = [
+    "opencv-python",
+]
+optimization = [
+    "cvxpy",
+    "scs",
+]
+plot = [
+    "matplotlib",
+]
 ml = [
     "torch>=1.9.0",
     "scikit-learn",
@@ -48,9 +58,15 @@ dev = [
     "pytest-cov",
     "black",
     "flake8",
+    "matplotlib",
     "mypy",
 ]
 all = [
+    "flask",
+    "waitress",
+    "opencv-python",
+    "cvxpy",
+    "scs",
     "torch>=1.9.0",
     "scikit-learn",
     "matplotlib",

@@ -736,6 +736,22 @@ Exit gate:
 - `python -m risnet` or the `risnet` console command reaches the CLI entry point.
 - Baseline tests and compile checks pass.
 
+Current status:
+
+- Complete: package discovery includes the implementation packages.
+- Complete: `risnet/__main__.py` backs both `python -m risnet` and the console
+  script.
+- Complete: `setup.py` remains a compatibility shim aligned with
+  `pyproject.toml`.
+- Complete: heavyweight web, vision, optimization, plotting, and ML dependencies
+  are grouped into optional extras.
+- Complete: `Makefile` provides `compile`, `smoke`, `test-core`, `test`, and
+  `verify` targets.
+- Complete: smoke tests cover imports, minimal AP -> RIS -> UE connection,
+  module help, and console help from outside the repository root.
+- Remaining decision before large migrations: whether top-level packages stay
+  top-level long term or move under `risnet/`.
+
 ### Phase 1 - Characterization Tests for Current Behavior
 
 Goal: lock down current behavior before extracting internals from

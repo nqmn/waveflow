@@ -8,7 +8,47 @@ entry point needed for editable installs.
 
 from setuptools import setup, find_packages
 
+BASE_REQUIRES = [
+    "numpy",
+    "scipy",
+    "pyyaml",
+]
+
+EXTRAS_REQUIRE = {
+    "web": [
+        "flask",
+        "waitress",
+    ],
+    "vision": [
+        "opencv-python",
+    ],
+    "optimization": [
+        "cvxpy",
+        "scs",
+    ],
+    "plot": [
+        "matplotlib",
+    ],
+    "ml": [
+        "torch>=1.9.0",
+        "scikit-learn",
+    ],
+    "dev": [
+        "pytest>=6.0",
+        "pytest-cov",
+        "black",
+        "flake8",
+        "matplotlib",
+        "mypy",
+    ],
+}
+EXTRAS_REQUIRE["all"] = sorted(
+    {dependency for dependencies in EXTRAS_REQUIRE.values() for dependency in dependencies}
+)
+
 setup(
+    install_requires=BASE_REQUIRES,
+    extras_require=EXTRAS_REQUIRE,
     packages=find_packages(
         include=[
             "app*",
