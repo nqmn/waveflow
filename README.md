@@ -1,7 +1,7 @@
 # Waveflow v2.0
 
-[![PyPI version](https://img.shields.io/pypi/v/waveflow)](https://pypi.org/project/waveflow)
-[![Python](https://img.shields.io/pypi/pyversions/waveflow)](https://pypi.org/project/waveflow)
+[![PyPI version](https://img.shields.io/pypi/v/waveflow-sim)](https://pypi.org/project/waveflow-sim)
+[![Python](https://img.shields.io/pypi/pyversions/waveflow-sim)](https://pypi.org/project/waveflow-sim)
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-nqmn%2Fwaveflow-lightgrey?logo=github)](https://github.com/nqmn/waveflow)
 
@@ -16,8 +16,15 @@ Waveflow is the forward-looking package name for the project formerly known as R
 ## Quick Start
 
 ```bash
+pip install waveflow-sim
+waveflow
+```
+
+Or install from source:
+
+```bash
 git clone https://github.com/nqmn/waveflow
-cd risnet
+cd waveflow
 pip install -e .
 waveflow
 ```
