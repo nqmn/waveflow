@@ -29,6 +29,10 @@ EXTRAS_REQUIRE = {
     "plot": [
         "matplotlib",
     ],
+    "terminal": [
+        "typer",
+        "rich",
+    ],
     "ml": [
         "torch>=1.9.0",
         "scikit-learn",
