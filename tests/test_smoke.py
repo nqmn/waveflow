@@ -65,3 +65,29 @@ def test_console_help_from_outside_repo():
     )
 
     assert "Available commands:" in result.stdout
+
+
+def test_typer_rich_status_from_outside_repo():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "--terminal", "status"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Waveflow Terminal" in result.stdout
+    assert "Nodes" in result.stdout
+
+
+def test_typer_rich_demo_connect_from_outside_repo():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "demo-connect", "--seed", "42"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Link Metrics" in result.stdout
+    assert "snr_dB" in result.stdout

@@ -127,3 +127,29 @@ Change budget: files 20 functions: package entry points only interfaces: PyPI na
 - Assumptions invalidated:
 - Known debt (acknowledged):
 - Limitations:
+
+## Task: Add Typer/Rich Terminal UI
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert risnet/terminal_cli.py and the entrypoint/test additions.
+Change budget: files 3 functions: risnet.__main__.main, risnet.terminal_cli.run interfaces: additive --terminal/ui CLI surface state mutations: None
+
+### Scope
+- risnet/terminal_cli.py - additive Typer/Rich command surface.
+- risnet/__main__.py - route --terminal and ui commands to the new terminal UI while preserving legacy behavior.
+- tests/test_smoke.py - smoke coverage for the new terminal UI commands.
+
+### Steps
+- [x] Add lazy Typer/Rich terminal command module
+- [x] Route terminal commands from existing entrypoint
+- [x] Add smoke tests for terminal status and demo connect
+- [x] Run focused and full verification
+
+### Review
+- Completed: Added lazy Typer/Rich terminal commands and routed them through --terminal/ui.
+- Out-of-scope flagged:
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Legacy cmd.Cmd shell remains the default CLI; Typer/Rich is additive.

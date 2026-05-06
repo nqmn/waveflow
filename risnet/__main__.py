@@ -4,6 +4,12 @@ import argparse
 import sys
 
 
+def _run_terminal(argv=None):
+    from risnet.terminal_cli import run
+
+    return run(list(argv or []))
+
+
 def _run_web(net, controller, host="127.0.0.1", port=5000):
     from app import create_app
     from app.state_manager import WebStateManager
@@ -27,6 +33,10 @@ def _run_web(net, controller, host="127.0.0.1", port=5000):
 
 def main(argv=None):
     """Run the Waveflow CLI or web interface."""
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    if raw_argv and raw_argv[0] == "ui":
+        return _run_terminal(raw_argv[1:])
+
     parser = argparse.ArgumentParser(
         description="Waveflow v2.0 Advanced Wireless and RIS Simulator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -34,12 +44,15 @@ def main(argv=None):
 Examples:
   waveflow --web                          # Run web interface
   waveflow --cli                          # Run CLI interface (default)
+  waveflow --terminal status              # Run modern Typer/Rich terminal status
+  waveflow ui demo-connect                # Run modern Typer/Rich demo link
   waveflow --cli --topology topology.json # Load topology on startup
   waveflow testall --exec-only            # Run testall and exit
         """,
     )
     parser.add_argument("--web", action="store_true", help="Run web interface")
     parser.add_argument("--cli", action="store_true", help="Run CLI interface (default)")
+    parser.add_argument("--terminal", action="store_true", help="Run Typer/Rich terminal commands")
     parser.add_argument("--topology", type=str, help="Load topology from JSON file")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Web server host")
     parser.add_argument("--port", type=int, default=5000, help="Web server port")
@@ -49,7 +62,12 @@ Examples:
         help="Execute command(s) and exit without starting interactive CLI",
     )
     parser.add_argument("command", nargs="*", help="CLI command to execute")
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw_argv)
+
+    if args.terminal:
+        if args.web:
+            parser.error("--terminal cannot be combined with --web")
+        return _run_terminal(args.command)
 
     from controller.ris_controller import RISController
     from core import RISNetwork
