@@ -207,3 +207,106 @@ def test_scenario_runner_executes_mixed_action_list(tmp_path):
     assert [step.action for step in run.steps] == ["connect", "sweep"]
     assert run.steps[0].network is run.network
     assert run.steps[1].network is run.network
+
+
+def test_scenario_request_from_dict_builds_mixed_actions(tmp_path):
+    topology_path = tmp_path / "scenario_from_dict.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario From Dict",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    request = ScenarioRequest.from_dict(
+        {
+            "topology_path": str(topology_path),
+            "actions": [
+                {"type": "connect", "kwargs": {"seed": 42, "use_get_snr": False}},
+                {"type": "sweep", "kwargs": {"fov": 60, "step": 10, "seed": 42}},
+            ],
+        }
+    )
+
+    assert request.topology_path == topology_path
+    assert isinstance(request.actions[0], ConnectScenario)
+    assert isinstance(request.actions[1], SweepScenario)
+
+
+def test_scenario_request_from_json_file_executes(tmp_path):
+    topology_path = tmp_path / "scenario_doc_topology.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Doc Topology",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    request_path = tmp_path / "scenario_request.json"
+    request_path.write_text(
+        f"""
+{{
+  "topology_path": "{topology_path}",
+  "connect": {{
+    "kwargs": {{"seed": 42, "use_get_snr": false}}
+  }}
+}}
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest.from_file(request_path)
+
+    run = runner.run(request)
+
+    assert isinstance(run, ScenarioRunResult)
+    assert run.action == "connect"
+    assert run.ap_name == "AP1"
+
+
+def test_scenario_request_from_yaml_file_executes_mixed_actions(tmp_path):
+    topology_path = tmp_path / "scenario_doc_topology.yaml.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Doc YAML Topology",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    request_path = tmp_path / "scenario_request.yaml"
+    request_path.write_text(
+        f"""
+topology_path: {topology_path}
+actions:
+  - type: connect
+    kwargs:
+      seed: 42
+      use_get_snr: false
+  - type: sweep
+    kwargs:
+      fov: 60
+      step: 10
+      seed: 42
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest.from_file(request_path)
+
+    run = runner.run(request)
+
+    assert isinstance(run, ScenarioSequenceResult)
+    assert [step.action for step in run.steps] == ["connect", "sweep"]

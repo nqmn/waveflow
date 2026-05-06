@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+import yaml
 
 from cli.helpers import NetworkIO
 from core import RISNetwork
@@ -61,6 +63,52 @@ class ScenarioRequest:
     connect: Optional[ConnectScenario] = None
     sweep: Optional[SweepScenario] = None
     actions: list[Union[ConnectScenario, SweepScenario]] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ScenarioRequest":
+        """Build a scenario request from a plain dictionary."""
+        topology_path = Path(data["topology_path"])
+        connect = None
+        if data.get("connect") is not None:
+            connect = ConnectScenario(**data["connect"])
+
+        sweep = None
+        if data.get("sweep") is not None:
+            sweep = SweepScenario(**data["sweep"])
+
+        actions = [cls._parse_action(item) for item in data.get("actions", [])]
+        return cls(topology_path=topology_path, connect=connect, sweep=sweep, actions=actions)
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> "ScenarioRequest":
+        """Load a scenario request from a JSON or YAML document."""
+        request_path = Path(path)
+        suffix = request_path.suffix.lower()
+        with open(request_path, "r", encoding="utf-8") as handle:
+            if suffix == ".json":
+                data = json.load(handle)
+            elif suffix in {".yaml", ".yml"}:
+                data = yaml.safe_load(handle)
+            else:
+                raise ValueError(f"Unsupported scenario document format: {request_path.suffix}")
+        if not isinstance(data, dict):
+            raise ValueError("Scenario document must contain a top-level mapping.")
+        return cls.from_dict(data)
+
+    @staticmethod
+    def _parse_action(data: Dict[str, Any]) -> Union[ConnectScenario, SweepScenario]:
+        action_type = data.get("type", "connect")
+        action_data = {
+            "ap_name": data.get("ap_name"),
+            "ris_name": data.get("ris_name"),
+            "ue_name": data.get("ue_name"),
+            "kwargs": data.get("kwargs", {}),
+        }
+        if action_type == "connect":
+            return ConnectScenario(**action_data)
+        if action_type == "sweep":
+            return SweepScenario(**action_data)
+        raise ValueError(f"Unsupported scenario action type: {action_type}")
 
 
 class ScenarioRunner:
