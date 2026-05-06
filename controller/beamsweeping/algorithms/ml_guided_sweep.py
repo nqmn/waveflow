@@ -9,6 +9,7 @@ This is a smart ML-guided validation approach:
 - Return the best result found through measurement
 - Balances prediction efficiency with measurement accuracy
 """
+import logging
 import numpy as np
 from typing import Dict, List
 from ..base import SweepAlgorithmBase
@@ -22,6 +23,8 @@ from ..common import (
 from ..registry import register_algorithm
 from utils.csi import estimate_channel_capacity_bps_hz
 from utils.metric_selector import MetricType
+
+logger = logging.getLogger(__name__)
 
 
 @register_algorithm("ml", aliases=("ml-guided", "gmf"))
@@ -199,8 +202,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
 
         # PHASE 1: Test ML-suggested angles (clamped to RIS FOV)
-        print(f"\n[ML-GUIDED SWEEP]")
-        print(f"ML Predictor: {ml_predictor}")
+        logger.info("\n[ML-GUIDED SWEEP]\nML Predictor: %s", ml_predictor)
 
         ml_results = []
         local_angles = []
@@ -221,10 +223,13 @@ class MLGuidedSweep(SweepAlgorithmBase):
             )
 
             if enable_codebook_validation:
-                print(f"\nML Prediction: {ml_angle:.1f}°")
-                print(f"Codebook angles to test: {[f'{a:.0f}°' for a in sorted(validation_angles)]}")
+                logger.info(
+                    "\nML Prediction: %.1f°\nCodebook angles to test: %s",
+                    ml_angle,
+                    [f"{a:.0f}°" for a in sorted(validation_angles)],
+                )
             else:
-                print(f"\nTesting {len(validation_angles)} angles")
+                logger.info("\nTesting %d angles", len(validation_angles))
 
             for local_angle in validation_angles:
                 if angle_diff > 0:
@@ -299,7 +304,9 @@ class MLGuidedSweep(SweepAlgorithmBase):
             metric_type = MetricType.SNR
             metric_values = list(snr_values)
             if metric_selector_obj is not None:
-                print("[ML] Requested metric unavailable for ML predictor output; falling back to SNR.")
+                logger.warning(
+                    "[ML] Requested metric unavailable for ML predictor output; falling back to SNR."
+                )
             metric_selector_obj = None
 
         if metric_selector_obj is not None:
@@ -313,13 +320,16 @@ class MLGuidedSweep(SweepAlgorithmBase):
             best_idx = int(np.argmax(metric_values))
 
         # Print test results in a clean format
-        print(f"\nCODEBOOK TEST RESULTS:")
-        print(f"{'Angle (°)':<12} {metric_label:<20} {'Status':<10}")
-        print("-" * 45)
+        result_lines = [
+            "",
+            "CODEBOOK TEST RESULTS:",
+            f"{'Angle (°)':<12} {metric_label:<20} {'Status':<10}",
+            "-" * 45,
+        ]
         for i, metric_val in enumerate(metric_values):
             local_angle = local_angles[i]
             marker = "BEST" if i == best_idx else ""
-            print(f"{local_angle:<12.1f} {metric_val:<20.4f} {marker}")
+            result_lines.append(f"{local_angle:<12.1f} {metric_val:<20.4f} {marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
         # Convert deflection angle to absolute beam angle
@@ -328,10 +338,14 @@ class MLGuidedSweep(SweepAlgorithmBase):
         else:
             best_abs = ap_angle - best_local
 
-        print(f"\nFinal ML Result:")
-        print(f"  Best local angle: {best_local:.2f}°")
-        print(f"  Best absolute angle: {best_abs:.2f}°")
-        print(f"  Best SNR: {best_snr:.2f} dB")
+        result_lines.extend([
+            "",
+            "Final ML Result:",
+            f"  Best local angle: {best_local:.2f}°",
+            f"  Best absolute angle: {best_abs:.2f}°",
+            f"  Best SNR: {best_snr:.2f} dB",
+        ])
+        logger.info("\n%s", "\n".join(result_lines))
 
         result = {
             'ml_predictor': ml_predictor,

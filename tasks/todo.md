@@ -616,3 +616,28 @@ Change budget: [files 7] [functions: start/stop, verbose reporting helpers, node
 - Assumptions invalidated: None.
 - Known debt (acknowledged): This slice does not finish the full repo-wide non-CLI logging migration; several beam-sweeping and utility modules still emit direct stdout diagnostics.
 - Limitations: Focused verification passed with `python3 -m compileall risnet core controller` and `.venv/bin/pytest tests/test_smoke.py tests/test_connect_characterization.py tests/test_scenarios.py -q`.
+
+## Task: Continue Phase 4 Logging Migration for Non-Vision Sweep Algorithms
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the logging-only hunks in `controller/beamsweeping/algorithms/ml_guided_sweep.py`, `controller/beamsweeping/algorithms/prime_sweep.py`, and `tasks/todo.md`.
+Change budget: [files 3] [functions: ML sweep diagnostics, PRIME estimator diagnostics] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `controller/beamsweeping/algorithms/ml_guided_sweep.py` — replace diagnostic `print()` output with logger calls
+- `controller/beamsweeping/algorithms/prime_sweep.py` — replace debug estimator `print()` output with logger calls
+- `tasks/todo.md` — record this follow-up slice
+
+### Steps
+- [x] Inspect the remaining non-vision sweep diagnostics
+- [x] Replace direct stdout diagnostics with module loggers
+- [x] Verify targeted compilation and focused smoke coverage
+
+### Review
+- Completed: Replaced direct stdout diagnostics in the non-vision `MLGuidedSweep` and `PRIME` algorithms with module loggers. The ML-guided codebook/result summaries now log at info level, and the PRIME estimator dump is reduced to debug-level logging.
+- Out-of-scope flagged: Vision/camera-based sweep modules still emit direct stdout diagnostics and remain for a later migration slice.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The Phase 4 logging migration still has a large remaining surface in camera/vision helpers and other utility modules.
+- Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/ml_guided_sweep.py controller/beamsweeping/algorithms/prime_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.

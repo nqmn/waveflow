@@ -10,6 +10,7 @@ Adds a localization-oriented sweep that:
 
 from __future__ import annotations
 
+import logging
 import time
 import math
 from typing import Dict, Tuple, Optional
@@ -28,6 +29,8 @@ from ..common import (
 from ..registry import register_algorithm
 from controller.ris_phase.phase_hybrid import HybridPhaseEngine
 from core.physics import C
+
+logger = logging.getLogger(__name__)
 
 try:
     from scipy.optimize import minimize
@@ -537,12 +540,20 @@ class PRIMELocalizationSweep(SweepAlgorithmBase):
                 peak_idx = int(np.nanargmax(snr_values))
                 peak_local_angle_ap = float(clamped_local[peak_idx])
                 peak_local_angle_ris = float(clamped_local_ris[peak_idx])
-                print(f"\nDEBUG PRIME Estimator:")
-                print(f"  Peak (measured): {peak_local_angle_ris:.2f}° (local vs RIS normal)")
-                print(f"  Centroid result: {est['theta_cent_deg']:.2f}° (local)")
-                print(f"  Model-fit result: {est['theta_model_deg']:.2f}° (local)")
-                print(f"  Hybrid result: {est['theta_est_deg']:.2f}° (local)")
-                print(f"  Model rejected: {est['model_rejected']}, Loss: {est['model_fit_loss']:.4f}")
+                logger.debug(
+                    "\nDEBUG PRIME Estimator:\n"
+                    "  Peak (measured): %.2f° (local vs RIS normal)\n"
+                    "  Centroid result: %.2f° (local)\n"
+                    "  Model-fit result: %.2f° (local)\n"
+                    "  Hybrid result: %.2f° (local)\n"
+                    "  Model rejected: %s, Loss: %.4f",
+                    peak_local_angle_ris,
+                    est['theta_cent_deg'],
+                    est['theta_model_deg'],
+                    est['theta_est_deg'],
+                    est['model_rejected'],
+                    est['model_fit_loss'],
+                )
 
                 theta_cent_local = float(est["theta_cent_deg"])
                 theta_model_local = float(est["theta_model_deg"])
