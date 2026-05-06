@@ -641,3 +641,28 @@ Change budget: [files 3] [functions: ML sweep diagnostics, PRIME estimator diagn
 - Assumptions invalidated: None.
 - Known debt (acknowledged): The Phase 4 logging migration still has a large remaining surface in camera/vision helpers and other utility modules.
 - Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/ml_guided_sweep.py controller/beamsweeping/algorithms/prime_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
+
+## Task: Continue Phase 4 Logging Migration for ArUco Utilities
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the logging-only hunks in `utils/aruco_utils.py`, `controller/beamsweeping/algorithms/aruco_utils.py`, and `tasks/todo.md`.
+Change budget: [files 3] [functions: marker save/grid diagnostics and demo output] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `utils/aruco_utils.py` — replace helper/demo `print()` output with logger calls
+- `controller/beamsweeping/algorithms/aruco_utils.py` — apply the same logger conversion to the duplicate helper module
+- `tasks/todo.md` — record this migration slice
+
+### Steps
+- [x] Inspect both ArUco utility copies
+- [x] Replace direct stdout diagnostics with module loggers in both copies
+- [x] Verify targeted compilation and smoke coverage
+
+### Review
+- Completed: Replaced direct stdout diagnostics in both ArUco utility copies with module loggers, keeping the duplicated helper behavior aligned while the repository still carries both modules.
+- Out-of-scope flagged: The broader camera viewer and OpenCV sweep modules still emit direct stdout diagnostics.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The duplicated ArUco utility modules still exist; this slice only kept their logging behavior consistent.
+- Limitations: Verification passed with `python3 -m compileall utils/aruco_utils.py controller/beamsweeping/algorithms/aruco_utils.py` and `.venv/bin/pytest tests/test_smoke.py -q`.

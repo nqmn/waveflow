@@ -6,10 +6,13 @@ used in camera-based pose estimation and detection.
 """
 
 import cv2
+import logging
 import numpy as np
 import os
 from pathlib import Path
 from typing import Optional, List, Dict
+
+logger = logging.getLogger(__name__)
 
 
 def generate_aruco_marker(marker_id: int,
@@ -84,7 +87,7 @@ def save_aruco_marker(marker_id: int,
             return False
 
     except Exception as e:
-        print(f"Error saving marker {marker_id}: {e}")
+        logger.error("Error saving marker %s: %s", marker_id, e)
         return False
 
 
@@ -124,9 +127,9 @@ def save_aruco_markers(marker_ids: List[int],
 
         if save_aruco_marker(marker_id, str(filepath), size, dict_type):
             saved_markers[marker_id] = str(filepath)
-            print(f"Saved {filename}")
+            logger.info("Saved %s", filename)
         else:
-            print(f"Failed to save marker {marker_id}")
+            logger.warning("Failed to save marker %s", marker_id)
 
     return saved_markers
 
@@ -172,7 +175,7 @@ def create_marker_grid(marker_ids: List[int],
             grid_img[y_start:y_start + marker_size,
                     x_start:x_start + marker_size] = marker_img
         except Exception as e:
-            print(f"Error placing marker {marker_id} in grid: {e}")
+            logger.error("Error placing marker %s in grid: %s", marker_id, e)
 
     return grid_img
 
@@ -231,26 +234,25 @@ def validate_marker_id(marker_id: int, dict_type: str = "DICT_5X5_100") -> bool:
 
 
 if __name__ == "__main__":
-    print("ArUco Marker Utilities")
-    print("=" * 60)
+    logger.info("ArUco Marker Utilities\n%s", "=" * 60)
 
     output_dir = "aruco_markers"
 
-    print("\nGenerating ArUco markers (IDs 0-4)...")
+    logger.info("\nGenerating ArUco markers (IDs 0-4)...")
     marker_ids = list(range(5))
     saved = save_aruco_markers(marker_ids, output_dir, size=200)
 
-    print(f"\nSaved markers:")
+    logger.info("\nSaved markers:")
     for marker_id, filepath in saved.items():
-        print(f"  ID {marker_id}: {filepath}")
+        logger.info("  ID %s: %s", marker_id, filepath)
 
-    print("\nCreating marker grid (2x2)...")
+    logger.info("\nCreating marker grid (2x2)...")
     grid = create_marker_grid([0, 1, 2, 3], grid_size=2, marker_size=150)
     grid_path = os.path.join(output_dir, "marker_grid.png")
     cv2.imwrite(grid_path, grid)
-    print(f"Saved marker grid to: {grid_path}")
+    logger.info("Saved marker grid to: %s", grid_path)
 
-    print("\nDictionary info (DICT_4X4_50):")
+    logger.info("\nDictionary info (DICT_4X4_50):")
     info = get_dictionary_info("DICT_4X4_50")
     for key, value in info.items():
-        print(f"  {key}: {value}")
+        logger.info("  %s: %s", key, value)
