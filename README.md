@@ -1,5 +1,10 @@
 # Waveflow v2.0
 
+[![PyPI version](https://img.shields.io/pypi/v/waveflow)](https://pypi.org/project/waveflow)
+[![Python](https://img.shields.io/pypi/pyversions/waveflow)](https://pypi.org/project/waveflow)
+[![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-nqmn%2Fwaveflow-lightgrey?logo=github)](https://github.com/nqmn/waveflow)
+
 Wireless propagation, waveform, and RIS-assisted network simulator with modular architecture, beam sweeping algorithms, spatial channel modeling, and ML-guided optimization.
 
 ## What is Waveflow?
