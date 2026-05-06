@@ -37,7 +37,7 @@ Adds Flask and Waitress. Enables `risnet --web`.
 pip install -e ".[ml]"
 ```
 
-Adds PyTorch and scikit-learn. Enables `--algo ml-guided --ml-predictor rf/xgb/svr/mlp`.
+Adds PyTorch and scikit-learn. Enables `--algo ml-guided --ml-predictor rf/xgb/svr/knn/lgbm`.
 
 ### With convex optimization
 
@@ -186,10 +186,12 @@ available.
 **ML predictor not found**
 
 ML predictors require pre-trained model files in
-`controller/beamsweeping/ml/models/`. If the directory is empty, train models
-first:
+`controller/beamsweeping/ml/models/`. If the directory is empty, generate a
+dataset and train models first (run from the repository root):
 
 ```bash
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
 ```
+
+See `TUTORIAL.md` Part 8 for full training workflow details.

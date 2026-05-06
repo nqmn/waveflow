@@ -140,8 +140,8 @@ net.add_ue('ue1', 10, 0)
 net.add_wall([5, -2], [5, 2], attenuation_dB=30)
 
 env = net.environment
-has_los = env.check_line_of_sight([0, 0, 0], [10, 0, 0])
-blocking = env.get_blocking_walls([0, 0, 0], [10, 0, 0])
+has_los, _ = env.check_line_of_sight([0, 0, 0], [10, 0, 0])
+blocking = env.get_blocked_paths([0, 0, 0], [10, 0, 0])
 
 print(f"LOS clear: {has_los}")
 print(f"Blocking walls: {len(blocking)}")
@@ -317,8 +317,8 @@ distance_m = 11.4  # AP-RIS + RIS-UE
 
 path_loss = Physics.path_loss_dB(distance_m, freq_GHz * 1e9)
 atm_loss  = Physics.atmospheric_loss_dB(distance_m, freq_GHz)
-array_gain = Physics.array_gain_dBi(N_elements=16)
-quant_loss = Physics.quantization_loss_dB(bits=2)
+array_gain = Physics.array_gain_dBi(16)
+quant_loss = Physics.quantization_loss_dB(2)
 
 tx_power_dBm = 20.0
 noise_figure_dB = 10.0
@@ -488,11 +488,11 @@ net.add_ue('ue1', 10, 3)
 sys_result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
 print(f"System-level SNR:   {sys_result['snr_dB']:.2f} dB")
 
-# Waveform-level
-config = OFDMConfig(bandwidth=100e6, num_subcarriers=256)
+# Waveform-level (returns snr_ris_dB and snr_effective_dB, not snr_dB)
 wc = WaveformController(net)
 wav_result = wc.compute_waveform_snr('ap1', 'ris1', 'ue1', num_symbols=20)
-print(f"Waveform-level SNR: {wav_result['snr_dB']:.2f} dB")
+print(f"Waveform RIS SNR:      {wav_result['snr_ris_dB']:.2f} dB")
+print(f"Waveform effective SNR:{wav_result['snr_effective_dB']:.2f} dB")
 ```
 
 Both approaches should produce consistent results within a few dB for the
@@ -502,15 +502,17 @@ same topology and seed.
 
 ```python
 wc = WaveformController(net)
-sweep = wc.waveform_beam_sweep(
+sweep = wc.compute_beam_sweep_waveform(
     'ap1', 'ris1', 'ue1',
-    angles=range(-30, 31, 5),
-    num_symbols=10,
+    angle_range=60,   # ±30° sweep
+    angle_step=5,
 )
 
-for angle, snr in zip(sweep['angles'], sweep['snr_dB']):
-    marker = " <-- BEST" if snr == max(sweep['snr_dB']) else ""
+for angle, snr in zip(sweep['angles'], sweep['snr_values']):
+    marker = " <-- BEST" if angle == sweep['best_angle'] else ""
     print(f"  {angle:+5.1f}°: {snr:.2f} dB{marker}")
+
+print(f"Best angle: {sweep['best_angle']:.1f}°  SNR: {sweep['best_snr_dB']:.2f} dB")
 ```
 
 ---
@@ -537,7 +539,7 @@ algo = loader.get_algorithm('ml-guided')
 result = algo.sweep(
     'ap1', 'ris1', 'ue1',
     fov=60, step=10,
-    ml_predictor='rf',   # 'rf', 'xgb', 'svr', 'mlp'
+    ml_predictor='rf',   # 'rf', 'xgb', 'svr', 'knn', 'lgbm', etc.
 )
 print(f"Best angle: {result['best_local_fine']:.1f}°")
 print(f"Best SNR:   {result['best_snr_fine']:.1f} dB")
@@ -557,14 +559,17 @@ for name, info in predictors.items():
 
 ### 8.3 Training Your Own Model
 
-```bash
-# 1. Generate a dataset from the current network topology
-PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py \
-    --output beam_dataset.csv
+The dataset builder and training scripts are in
+`controller/beamsweeping/ml/tools/`. Run them from the repository root with
+`PYTHONPATH=.` so all packages resolve correctly.
 
-# 2. Train a Random Forest predictor
-PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py \
-    --data beam_dataset.csv
+```bash
+# 1. Generate a dataset
+PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py
+
+# 2. Train predictors (after dataset is generated)
+PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
+PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_xgb.py
 
 # 3. Use the trained model
 PYTHONPATH=. python3 - <<'PY'
