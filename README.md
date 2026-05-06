@@ -149,10 +149,10 @@ Contributions are welcome. Please open an issue to discuss significant changes b
 If you use Waveflow in your research, please cite:
 
 ```bibtex
-@software{waveflow2024,
+@software{waveflow,
   title  = {Waveflow: Wireless Propagation, Waveform, and RIS-Assisted Network Simulator},
-  author = {Waveflow Contributors},
-  year   = {2024},
+  author = {Mohd Adil},
+  year   = {2026},
   url    = {https://github.com/nqmn/waveflow}
 }
 ```
