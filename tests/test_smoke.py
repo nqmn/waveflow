@@ -1,6 +1,8 @@
 """Packaging, CLI, and minimal runtime smoke tests."""
 
+import importlib.util
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -26,6 +28,22 @@ def test_minimal_connect_smoke():
     assert "snr_dB" in result
     assert "pwr_dBm" in result
     assert result["ue_present"] is True
+
+
+def test_hog_example_module_imports_with_current_public_apis():
+    example_path = Path(__file__).resolve().parents[1] / "examples" / "hog_human_detection_example.py"
+    spec = importlib.util.spec_from_file_location("hog_human_detection_example", example_path)
+    assert spec is not None
+    assert spec.loader is not None
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    network = module.build_demo_network()
+
+    assert network.get("AP1") is not None
+    assert network.get("RIS1") is not None
+    assert network.get("UE1") is not None
 
 
 def test_module_help_from_outside_repo():

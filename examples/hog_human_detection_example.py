@@ -20,8 +20,31 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-from core.network import NetworkManager
-from controller.ris_controller import RISController
+
+from core import RISNetwork
+from controller.beamsweeping import SweepAlgorithmLoader
+
+
+def build_demo_network():
+    """Build a small RISNetwork compatible with the current sweep APIs."""
+    network = RISNetwork(enable_messaging=False)
+    network.add_ap("AP1", 0.0, 0.0, 5.0)
+    network.add_ris("RIS1", 5.0, 0.0, 5.0, N=8, max_angle_deg=180)
+    network.add_ue("UE1", 10.0, 0.0, 5.0)
+    return network
+
+
+def run_hog_sweep(**kwargs):
+    """Execute the registered HOG sweep against the current network API."""
+    network = build_demo_network()
+    algorithm = SweepAlgorithmLoader.get_algorithm("hog", network)
+    return algorithm.sweep(
+        "AP1",
+        "RIS1",
+        "UE1",
+        enable_feedback=False,
+        **kwargs,
+    )
 
 
 def example_basic_hog_detection():
@@ -30,23 +53,13 @@ def example_basic_hog_detection():
     print("EXAMPLE 1: Basic HOG Human Detection")
     print("=" * 70)
 
-    network = NetworkManager()
-
-    network.add_ap("AP1", np.array([0.0, 0.0, 5.0]))
-    network.add_ris("RIS1", np.array([5.0, 0.0, 5.0]), num_elements=64)
-    network.add_ue("UE1", np.array([10.0, 0.0, 5.0]))
-
-    controller = RISController(network)
-
     print("\nStarting HOG-based beam sweep...")
     print("Position your body in front of the camera when prompted.")
     print("Press 'q' in the camera window to stop scanning.\n")
 
-    result = controller.execute_sweep(
-        ap_name="AP1",
-        ris_name="RIS1",
-        ue_name="UE1",
-        algorithm="hog",  # Use HOG detector
+    result = run_hog_sweep(
+        fov=60.0,
+        step=5.0,
         max_frames=100,
         camera_id=0,
     )
@@ -60,9 +73,10 @@ def example_basic_hog_detection():
     print(f"Unique angles measured: {result.get('num_angles_tested', 0)}")
 
     if result.get("best_snr") is not None:
+        best_idx = int(np.argmax(result["snr_coarse"]))
         print(f"\nBest beam angle: {result['best_local']:.2f} degrees")
         print(f"Best SNR achieved: {result['best_snr']:.2f} dB")
-        print(f"Best power: {result['best_pwr']:.4f}")
+        print(f"Best power: {result['pwr_coarse'][best_idx]:.4f}")
 
         if result.get("local_coarse"):
             print(f"\nAll measured angles: {[f'{a:.1f}' for a in result['local_coarse']]}")
@@ -79,22 +93,12 @@ def example_with_video_recording():
     print("EXAMPLE 2: HOG Detection with Video Recording")
     print("=" * 70)
 
-    network = NetworkManager()
-
-    network.add_ap("AP1", np.array([0.0, 0.0, 5.0]))
-    network.add_ris("RIS1", np.array([5.0, 0.0, 5.0]), num_elements=64)
-    network.add_ue("UE1", np.array([10.0, 0.0, 5.0]))
-
-    controller = RISController(network)
-
     print("\nStarting HOG detection with video recording...")
     print("Output will be saved to: hog_detection_output.avi\n")
 
-    result = controller.execute_sweep(
-        ap_name="AP1",
-        ris_name="RIS1",
-        ue_name="UE1",
-        algorithm="hog",
+    result = run_hog_sweep(
+        fov=60.0,
+        step=5.0,
         max_frames=100,
         camera_id=0,
         record_video=True,  # Record output video
@@ -109,14 +113,6 @@ def example_hog_parameters():
     print("\n" + "=" * 70)
     print("EXAMPLE 3: Tuning HOG Parameters")
     print("=" * 70)
-
-    network = NetworkManager()
-
-    network.add_ap("AP1", np.array([0.0, 0.0, 5.0]))
-    network.add_ris("RIS1", np.array([5.0, 0.0, 5.0]), num_elements=64)
-    network.add_ue("UE1", np.array([10.0, 0.0, 5.0]))
-
-    controller = RISController(network)
 
     print("\nComparing different HOG detection settings:\n")
 
@@ -151,11 +147,9 @@ def example_hog_parameters():
         print(f"\nTesting: {setting['name']}")
         print(f"Parameters: {setting['params']}")
 
-        result = controller.execute_sweep(
-            ap_name="AP1",
-            ris_name="RIS1",
-            ue_name="UE1",
-            algorithm="hog",
+        result = run_hog_sweep(
+            fov=60.0,
+            step=5.0,
             max_frames=50,  # Shorter for comparison
             camera_id=0,
             **setting["params"],
@@ -173,21 +167,12 @@ def example_multi_position_tracking():
     print("EXAMPLE 4: Multi-Position Human Tracking")
     print("=" * 70)
 
-    network = NetworkManager()
-
-    network.add_ap("AP1", np.array([0.0, 0.0, 5.0]))
-    network.add_ris("RIS1", np.array([5.0, 0.0, 5.0]), num_elements=64)
-
-    controller = RISController(network)
-
     print("\nTrack beam steering as you move around in front of camera.")
     print("Move slowly for better tracking results.\n")
 
-    result = controller.execute_sweep(
-        ap_name="AP1",
-        ris_name="RIS1",
-        ue_name="UE1",
-        algorithm="hog",
+    result = run_hog_sweep(
+        fov=60.0,
+        step=5.0,
         max_frames=200,  # Track for longer
         camera_id=0,
         angle_change_threshold=2.0,  # Require larger movement
@@ -224,14 +209,6 @@ def example_comparison_hog_vs_aruco():
     print("EXAMPLE 5: HOG vs ArUco Comparison")
     print("=" * 70)
 
-    network = NetworkManager()
-
-    network.add_ap("AP1", np.array([0.0, 0.0, 5.0]))
-    network.add_ris("RIS1", np.array([5.0, 0.0, 5.0]), num_elements=64)
-    network.add_ue("UE1", np.array([10.0, 0.0, 5.0]))
-
-    controller = RISController(network)
-
     print("\nRunning both HOG and ArUco detection for comparison.\n")
 
     algorithms = [
@@ -246,11 +223,15 @@ def example_comparison_hog_vs_aruco():
         print(f"{'=' * 50}")
 
         try:
-            result = controller.execute_sweep(
-                ap_name="AP1",
-                ris_name="RIS1",
-                ue_name="UE1",
-                algorithm=algo,
+            network = build_demo_network()
+            algorithm = SweepAlgorithmLoader.get_algorithm(algo, network)
+            result = algorithm.sweep(
+                "AP1",
+                "RIS1",
+                "UE1",
+                enable_feedback=False,
+                fov=60.0,
+                step=5.0,
                 max_frames=100,
                 camera_id=0,
             )

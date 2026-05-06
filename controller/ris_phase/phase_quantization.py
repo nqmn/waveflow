@@ -228,16 +228,9 @@ class QuantizationAnalyzer:
         Returns:
             RMS error in radians
         """
-        # Compute error with wrapping
-        error = ideal_phases - quantized_phases
+        from risnet.arrays.quantization import rms_phase_error
 
-        # Wrap errors to [-π, π]
-        error = np.angle(np.exp(1j * error))
-
-        # RMS
-        rms_error = np.sqrt(np.mean(error ** 2))
-
-        return rms_error
+        return rms_phase_error(ideal_phases, quantized_phases)
 
     @staticmethod
     def compute_quantization_loss_db(
@@ -258,26 +251,12 @@ class QuantizationAnalyzer:
         Returns:
             Loss in dB (negative value)
         """
-        if model == 'standard':
-            # Loss based on array gain reduction
-            # Directivity loss: sinc²(error)
-            if rms_error_rad < 1e-6:
-                return 0.0
+        from risnet.arrays.quantization import quantization_loss_dB
 
-            loss_linear = np.sinc(rms_error_rad / np.pi) ** 2
-            loss_db = 10 * np.log10(max(loss_linear, 1e-6))
-
-        elif model == 'legacy':
-            # Legacy model: simpler approximation
-            loss_db = -1.67 * (rms_error_rad / (np.pi / 2)) ** 2
-
-        else:
+        if model not in {"standard", "legacy"}:
             logger.warning(f"Unknown model '{model}', using standard")
-            loss_db = QuantizationAnalyzer.compute_quantization_loss_db(
-                rms_error_rad, model='standard'
-            )
-
-        return loss_db
+            model = "standard"
+        return quantization_loss_dB(rms_error_rad, model=model)
 
     @staticmethod
     def compare_quantizers(

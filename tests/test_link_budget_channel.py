@@ -3,7 +3,16 @@
 import pytest
 
 from core import RISNetwork
-from risnet.channels import ChannelEvaluation, ChannelModel, LinkBudgetChannel
+from risnet.channels import (
+    ChannelEvaluation,
+    ChannelModel,
+    LinkBudgetChannel,
+    build_link_budget_config,
+    build_link_budget_config_from_nodes,
+    evaluate_ris_link_from_nodes,
+    evaluate_ris_link_metrics,
+)
+from utils.link_budget import build_config, build_config_from_nodes, compute_ris_link_metrics
 
 
 def build_channel_network(*, max_angle_deg=180):
@@ -54,6 +63,28 @@ def test_link_budget_channel_reproduces_current_connect_metrics():
     assert evaluation.gain_dBi == pytest.approx(direct["gain_dBi"])
     assert evaluation.quant_loss_dB == pytest.approx(direct["quant_loss_dB"])
 
+
+def test_phase3_shared_link_budget_helpers_preserve_utils_compatibility():
+    net = build_channel_network()
+    ap = net.get("ap1")
+    ris = net.get("ris1")
+    ue = net.get("ue1")
+
+    channel_config = build_link_budget_config()
+    compat_config = build_config()
+    assert channel_config == compat_config
+
+    channel_node_config = build_link_budget_config_from_nodes(ap, ris, ue)
+    compat_node_config = build_config_from_nodes(ap, ris, ue)
+    assert channel_node_config == compat_node_config
+
+    beam_angle_deg = 0.0
+    direct_metrics = evaluate_ris_link_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, channel_node_config)
+    compat_metrics = compute_ris_link_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, compat_node_config)
+
+    assert direct_metrics.keys() == compat_metrics.keys()
+    for key in direct_metrics:
+        assert direct_metrics[key] == pytest.approx(compat_metrics[key])
 
 def test_link_budget_channel_preserves_phase_payload_shape():
     net = build_channel_network()

@@ -1,8 +1,16 @@
-"""Link-budget channel adapter over the current RISNetwork implementation."""
+"""Link-budget channel adapter and compatibility re-exports."""
 
 from __future__ import annotations
 
 from typing import Any
+
+from utils.link_budget import (
+    DEFAULT_RIS_LINK_CONFIG,
+    build_link_budget_config,
+    build_link_budget_config_from_nodes,
+    evaluate_ris_link_from_nodes,
+    evaluate_ris_link_metrics,
+)
 
 from .base import ChannelEvaluation
 

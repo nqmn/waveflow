@@ -17,12 +17,12 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 7 | Import, CLI, entry points | |
+| `test_smoke.py` | pytest | 8 | Import, CLI, entry points | |
 | `test_connect_characterization.py` | pytest | 13 | `RISNetwork.connect()` contract | |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
-| `test_link_budget_channel.py` | pytest | 8 | `LinkBudgetChannel` adapter | |
+| `test_link_budget_channel.py` | pytest | 9 | `LinkBudgetChannel` adapter | |
 | `test_scenarios.py` | pytest | 11 | Headless scenario runner | |
 | `test_side_lobes.py` | dual-mode | 1 | RIS sidelobe suppression | pytest-compatible `def test_*` with `assert` |
 | `test_hybrid_mode.py` | dual-mode | 4 | Hybrid phase engine | pytest-compatible `def test_*` with `assert` |
@@ -165,6 +165,8 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Missing-node error propagation
 - FOV rejection propagation
 - Environment-blocked path behavior
+- Shared link-budget helper/re-export compatibility between `utils.link_budget`
+  and `risnet.channels`
 
 ---
 
@@ -206,6 +208,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `python -m risnet --help` and `waveflow --help` exit cleanly
 - `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
 - Minimal `RISNetwork.connect()` smoke run
+- `examples/hog_human_detection_example.py` imports successfully and builds a demo network using current public APIs
 
 ---
 

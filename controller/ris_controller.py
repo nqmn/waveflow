@@ -8,7 +8,7 @@ from .pathfinding import get_algorithm, list_algorithms
 from .beamforming import BeamformingEngine
 from core.physics import Physics
 from core.nodes import AccessPoint, RIS, UE
-from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
+from utils.link_budget import evaluate_ris_link_from_nodes
 
 
 class RISController:
@@ -382,22 +382,14 @@ class RISController:
                 break
 
         if ris_node and ap_node and ue_node:
-            beam_angle_deg = beam_angle if beam_angle is not None else float(
-                np.degrees(np.arctan2(ue_node.pos[1] - ris_node.pos[1],
-                                      ue_node.pos[0] - ris_node.pos[0])) % 360
-            )
-            config = build_config_from_nodes(
-                ap_node, ris_node, ue_node,
+            metrics = evaluate_ris_link_from_nodes(
+                ap_node,
+                ris_node,
+                ue_node,
+                beam_angle_deg=beam_angle,
                 frequency_ghz=freq / 1e9,
                 bandwidth_mhz=getattr(ap_node, 'bandwidth_MHz', None),
-                noise_figure_dB=getattr(ue_node, 'noise_figure_dB', None)
-            )
-            metrics = compute_ris_link_metrics(
-                ap_pos=ap_node.pos,
-                ris_pos=ris_node.pos,
-                ue_pos=ue_node.pos,
-                beam_angle_deg=beam_angle_deg,
-                physics_config=config
+                noise_figure_dB=getattr(ue_node, 'noise_figure_dB', None),
             )
             snr_linear = 10 ** (metrics['snr_dB'] / 10)
             return snr_linear

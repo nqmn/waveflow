@@ -849,10 +849,11 @@ Exit gate:
 
 Current status:
 
-- In Progress: array-related primitives exist under `risnet/arrays`.
-- In Progress: the roadmap intent to reuse extracted array and phase helpers is
-  underway, but the full equivalence-and-routing migration described above is
-  not closed yet.
+- Complete: additive array geometry, steering, array-factor, and quantization
+  primitives exist under `risnet/arrays`.
+- Complete: low-risk call sites now reuse those primitives through
+  `controller/ris_phase`, `core.physics.compute_array_factor()`, and the
+  quantization analyzer while preserving existing imports and behavior.
 
 ### Phase 3 - Extract Channel Interface Around Existing Link Budget
 
@@ -883,10 +884,12 @@ Exit gate:
 
 Current status:
 
-- In Progress: `ChannelModel` and `LinkBudgetChannel` are implemented and
-  covered by focused adapter tests.
-- In Progress: the broader consolidation of all overlapping link-budget callers
-  and utilities is not complete yet.
+- Complete: `ChannelModel` and `LinkBudgetChannel` are implemented and covered
+  by focused adapter tests.
+- Complete: the shared RIS link-budget configuration and evaluation helpers are
+  consolidated in `utils/link_budget.py`, re-exported through
+  `risnet.channels`, and reused by `utils.snr` without changing public
+  compatibility surfaces.
 
 ### Phase 4 - Decompose `RISNetwork.connect()` Behind Compatibility Facade
 
@@ -1184,12 +1187,14 @@ Status as of 2026-05-06:
    Done. Covered by `tests/test_connect_characterization.py`.
 6. Introduce a `PhaseEngine` abstract base in `core/` and remove the
    `core/network.py:20` controller import (prerequisite for Phase 4).
-7. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests
-   (Phase 2). Status: In Progress — additive array primitives are present under
-   `risnet/arrays`, but the phase-wide migration is not complete.
+7. ~~Add a small `arrays/` module with ULA/UPA geometry and steering vector
+   tests (Phase 2).~~ — Done. Additive array primitives are in
+   `risnet/arrays`, routed through the low-risk legacy call sites, and covered
+   by focused equivalence tests.
 8. ~~Extract a `ChannelModel` interface and wrap current link-budget behavior
-   (Phase 3).~~ — In Progress/Mostly Done. `ChannelModel` and
-   `LinkBudgetChannel` exist, though consolidation of all callers remains.
+   (Phase 3).~~ — Done. `ChannelModel`, `LinkBudgetChannel`, and shared
+   RIS link-budget helpers are in place and reused by the overlapping utility
+   paths without changing compatibility surfaces.
 9. ~~Split `RISNetwork.connect()` into smaller internal services without changing
    its public return shape (Phase 4).~~ — Mostly Done. The public facade is
    preserved and the major internal steps are extracted behind it.

@@ -357,6 +357,18 @@ class Physics:
         if phases is None or len(phases) == 0:
             return 0.0
 
+        if observation_type == 'far_field':
+            from risnet.arrays.steering import normalized_array_factor_dB
+
+            return normalized_array_factor_dB(
+                phases,
+                element_positions,
+                target_angle_deg,
+                frequency,
+                weights=weights,
+                array_center=ris_position,
+            )
+
         wavelength = C / frequency
         k = 2 * np.pi / wavelength
         num_elements = len(phases)

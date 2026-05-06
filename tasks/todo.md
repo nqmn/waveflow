@@ -258,6 +258,7 @@ Change budget: [files 2] [functions: RISNetwork.connect, new path-loss/gain/SNR 
 Mode: Standard
 Risk: Medium
 Confidence: Guarded
+
 Operational risk: Contained / Trivial
 Rollback plan: Revert the additive scenario runner module and its focused tests.
 Change budget: [files 3] [functions: new scenario runner API, targeted tests, additive export if required] [interfaces: additive risnet scenario surface only] [state mutations: none beyond existing network/load/connect side effects]
@@ -476,3 +477,59 @@ Change budget: [files 3] [functions: additive `cli/test_suite.py` sections for c
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: `testall` is still a diagnostic suite and does not replace the broader pytest-based regression matrix.
+
+## Task: Fix HOG Example Current API Usage
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the example rewrite, the smoke test addition, and the test-suite note for this task.
+Change budget: [files 4] [functions: example helper wiring only] [interfaces: none] [state mutations: none]
+
+### Scope
+- `examples/hog_human_detection_example.py` — replace stale `NetworkManager`/`RISController.execute_sweep()` usage with the current `RISNetwork` + sweep loader APIs
+- `tests/test_smoke.py` — add a smoke import/build check for the example
+- `tasks/test-suite.md` — record the updated smoke coverage
+- `tasks/todo.md` — track this task
+
+### Steps
+- [x] Inspect the current example breakages and adjacent sweep APIs
+- [x] Rewrite the example onto the supported network and sweep entry points
+- [x] Run focused verification and review diff scope
+
+### Review
+- Completed: Rewired the HOG example to the current `RISNetwork` and registered sweep loader APIs, then added a smoke check that loads the example by file path and validates demo-network construction.
+- Out-of-scope flagged: The example still depends on optional OpenCV/camera availability at runtime; this task only fixed the stale API usage and import path.
+- Assumptions invalidated: The first smoke-test implementation assumed `examples/` was an importable package; verification showed it is a plain directory, so the test now loads by file path.
+- Known debt (acknowledged):
+- Limitations: This task does not validate live camera execution or HOG detection quality.
+
+## Task: Finish Phase 2 and Phase 3 Migration
+Mode: Standard
+Risk: High
+Confidence: Stable
+Operational risk: Broad / Partial
+Rollback plan: Revert the additive helper-routing changes in `core/physics.py`, `controller/ris_phase/phase_quantization.py`, `utils/link_budget.py`, `utils/snr.py`, `risnet/channels/*`, `controller/ris_controller.py`, and the focused test/doc hunks for this task.
+Change budget: [files 10] [functions: shared array-factor and quantization delegation, shared RIS link-budget helpers, channel re-exports, focused tests/docs] [interfaces: none] [state mutations: none]
+
+### Scope
+- `core/physics.py` — route the far-field array-factor implementation through `risnet.arrays`
+- `controller/ris_phase/phase_quantization.py` — route quantization analyzer math through additive array quantization primitives
+- `utils/link_budget.py` — make shared RIS link-budget config/evaluation the source of truth
+- `utils/snr.py` — reuse the shared Phase 3 link-budget evaluation helper
+- `risnet/channels/link_budget.py` and `risnet/channels/__init__.py` — keep the channel-facing adapter/re-export surface intact
+- `controller/ris_controller.py` — reuse the shared RIS link-budget helper where applicable without changing public APIs
+- `tests/test_link_budget_channel.py`, `FUTURE.md`, `tasks/test-suite.md`, `tasks/todo.md` — focused verification and status updates
+
+### Steps
+- [x] Inspect the remaining Phase 2/3 migration gaps and adjacent compatibility surfaces
+- [x] Finish the Phase 2 helper routing through `risnet.arrays`
+- [x] Finish the Phase 3 shared RIS link-budget consolidation and channel re-exports
+- [x] Run focused verification and review diff scope
+
+### Review
+- Completed: Routed `Physics.compute_array_factor()` and quantization analyzer math through the additive array primitives, consolidated shared RIS link-budget helpers in `utils/link_budget.py`, re-exported them through `risnet.channels`, and updated focused tests plus roadmap/test-suite status text.
+- Out-of-scope flagged: The controller-layer `PhaseEngine` decoupling called out in `FUTURE.md` item 6 remains unresolved and was not touched.
+- Assumptions invalidated: Importing shared channel helpers through the `risnet` package created a circular import during test collection; the final implementation keeps `utils/link_budget.py` as the low-level source of truth and uses `risnet.channels` as a compatibility re-export layer.
+- Known debt (acknowledged):
+- Limitations: Verification for this slice was focused to `tests/test_array_primitives.py`, `tests/test_array_quantization.py`, `tests/test_link_budget_channel.py`, and `tests/test_smoke.py`; it did not rerun the full repository suite.
