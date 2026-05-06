@@ -1,34 +1,280 @@
 # Waveflow Tutorial
 
-This tutorial covers Waveflow from a first simulation to advanced beam sweeping,
-waveform-level analysis, and ML-guided optimization. Each section builds on
-the previous one.
+This tutorial is structured in two tiers:
 
-Waveflow is the package name for this simulator. The legacy `risnet` import
-path and CLI command remain available as backward-compatibility aliases.
+- **Beginner** (Parts 1–4) — concepts, analogies, and simple examples. No prior wireless engineering knowledge required. Suitable for final-year undergraduates and researchers new to RIS.
+- **Advanced** (Parts 5–12) — full API, physics models, waveform simulation, ML-guided optimization, and custom algorithm development. Suitable for researchers and engineers.
 
 Prerequisites: completed installation per [INSTALL.md](INSTALL.md).
 
 ---
 
-## Part 1 — Basic Simulation
+# Beginner Tier
 
-### 1.1 First AP → RIS → UE Connection
+---
 
-The low-level API (`RISNetwork`) gives direct access to all simulation
-primitives.
+## Part 1 — Understanding the System
+
+### 1.1 What Is Waveflow Simulating?
+
+Imagine you are in a large building and your Wi-Fi signal from the router (Access Point) cannot reach your laptop (User Equipment) because there is a concrete wall in the way.
+
+A **Reconfigurable Intelligent Surface (RIS)** is a flat panel covered with small programmable antenna elements — think of it as a **smart mirror for radio signals**. Instead of absorbing or randomly scattering the signal, the RIS reflects it in a specific direction that you control, guiding the signal around obstacles to reach the target device.
+
+```
+Without RIS:
+  [AP] ----X---- wall ----X---- [UE]    ← signal blocked
+
+With RIS:
+  [AP] ---------> [RIS] ---------> [UE]  ← signal reflected around obstacle
+```
+
+Waveflow lets you:
+- Place nodes (AP, RIS, UE) in a 2D space
+- Add walls and obstacles
+- Compute how well the signal reaches the UE (measured as SNR)
+- Optimize the RIS reflection angle (beam sweeping)
+- Compare different beam search algorithms
+
+### 1.2 Key Terms (Plain Language)
+
+| Term | What It Means |
+|---|---|
+| **AP** (Access Point) | The transmitter — like a Wi-Fi router |
+| **RIS** | The smart reflector panel |
+| **UE** (User Equipment) | The receiver — like a phone or laptop |
+| **SNR** (Signal-to-Noise Ratio) | Signal quality at the UE. Higher is better. Above ~20 dB is good. |
+| **dB / dBm** | Logarithmic units for signal strength. 3 dB ≈ double the power. |
+| **Beam angle** | The direction the RIS reflects the signal toward |
+| **Beam sweep** | Searching through angles to find the one with the best SNR |
+| **Phase quantization** | RIS elements can only set phases in discrete steps (1-bit = 2 steps, 2-bit = 4 steps). More bits = less error. |
+| **FOV** (Field of View) | The angular range the RIS can "see". AP and UE must be within this cone. |
+| **Path loss** | Signal weakening over distance. Doubles every time distance increases by a factor. |
+
+### 1.3 How a Simulation Works (Step by Step)
+
+Every Waveflow simulation follows the same flow:
+
+```
+1. Create a network
+2. Add an AP (transmitter)
+3. Add a RIS (reflector)
+4. Add a UE (receiver)
+5. Connect them → Waveflow computes the SNR
+6. (Optional) Sweep beam angles to find the best one
+```
+
+---
+
+## Part 2 — Your First Simulation
+
+### 2.1 Using the Interactive CLI
+
+The easiest way to start is the command-line interface. Launch it:
+
+```bash
+waveflow
+```
+
+You will see a prompt: `waveflow>`
+
+Now type these commands one by one:
+
+```bash
+# Step 1: Add an Access Point at position (0, 0)
+waveflow> add ap ap1 0 0
+
+# Step 2: Add a RIS at position (5, 0) with 16 elements and 2-bit phase resolution
+waveflow> add ris ris1 5 0 0 16 2
+
+# Step 3: Add a User Equipment at position (10, 3)
+waveflow> add ue ue1 10 3
+
+# Step 4: Connect them and compute SNR
+waveflow> connect ap1 ris1 ue1
+```
+
+You should see output like:
+```
+SNR: 29.9 dB   Power: -52.3 dBm   Beam angle: 16.7°
+```
+
+This means the signal arrived at UE1 with an SNR of ~30 dB — a strong connection.
+
+### 2.2 What the Numbers Mean
+
+| Output | Meaning |
+|---|---|
+| `SNR: 29.9 dB` | Good signal quality (>20 dB is generally usable) |
+| `Power: -52.3 dBm` | Received power level at UE |
+| `Beam angle: 16.7°` | The RIS steered the signal at 16.7° to reach UE |
+
+### 2.3 Move the UE Further Away
+
+```bash
+waveflow> add ue ue2 20 5
+waveflow> connect ap1 ris1 ue2
+```
+
+Notice the SNR drops because the signal travels farther — this is **path loss**.
+
+### 2.4 Add a Wall
+
+```bash
+waveflow> add wall 3 -3 3 3 20
+waveflow> connect ap1 ris1 ue1
+```
+
+The wall adds 20 dB of attenuation. The RIS helps maintain the connection by reflecting around the obstacle.
+
+---
+
+## Part 3 — Finding the Best Beam Angle
+
+### 3.1 What Is Beam Sweeping?
+
+The RIS does not automatically know the best angle to reflect toward the UE. **Beam sweeping** is the process of testing multiple angles and picking the one with the highest SNR — like turning a flashlight until you find the brightest spot on a wall.
+
+```bash
+# Search ±60° around the specular direction in 10° steps
+waveflow> sweep ap1 ris1 ue1 60 10
+```
+
+Output shows each angle tested and the SNR. The best angle is highlighted.
+
+### 3.2 Comparing Sweep Algorithms
+
+Different algorithms find the best angle in different ways:
+
+```bash
+# Slow but thorough — tests every angle uniformly
+waveflow> sweep ap1 ris1 ue1 60 10 --algo linear
+
+# Faster — starts near the predicted specular angle
+waveflow> sweep ap1 ris1 ue1 60 10 --algo coarse-fine
+
+# Global search — good when there are multiple good angles
+waveflow> sweep ap1 ris1 ue1 60 10 --algo de
+```
+
+| Algorithm | Speed | Best For |
+|---|---|---|
+| `linear` | Slow | Thorough baseline comparison |
+| `coarse-fine` | Fast | General use (default) |
+| `de` | Medium | Complex environments with multiple paths |
+| `ml-guided` | Fastest (once trained) | Repeated deployments with similar geometry |
+
+### 3.3 Viewing All Commands
+
+```bash
+waveflow> help
+```
+
+---
+
+## Part 4 — Python API for Beginners
+
+### 4.1 Simple Script
+
+You can run simulations from a Python script instead of the CLI:
+
+```python
+from waveflow import RISnet
+
+# Create the network
+net = RISnet()
+
+# Add nodes
+ap  = net.addAP('ap1',  position=(0, 0))
+ris = net.addRIS('ris1', position=(5, 0), N=16, bits=2)
+ue  = net.addUE('ue1',  position=(10, 3))
+
+# Start the simulator
+net.start()
+
+# Check connectivity and SNR (like a ping test)
+result = net.ping(ap, ue)
+print(f"Reachable: {result['reachable']}")
+print(f"SNR:       {result['snr_dB']:.1f} dB")
+print(f"Hops:      {result['hops']}")
+
+# Estimate throughput (like iperf)
+throughput = net.iperf(ap, ue)
+print(f"Throughput: {throughput['throughput_Mbps']:.1f} Mbps")
+
+net.stop()
+```
+
+### 4.2 What Happens If There Is No Path?
+
+If the UE is outside the RIS field of view, the connection fails:
+
+```python
+from core import RISNetwork
+
+net = RISNetwork(enable_messaging=False)
+net.add_ap('ap1', 0, 0)
+net.add_ris('ris1', 5, 0, N=16, bits=2)  # default FOV = ±60°
+net.add_ue('ue1', 10, 0)  # directly behind RIS — outside FOV
+
+result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
+print(result.get('error', 'OK'))  # will show FOV rejection message
+```
+
+**Fix**: widen the FOV or reposition nodes:
+
+```python
+net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)  # ±90° FOV
+```
+
+### 4.3 Comparing Two Configurations
+
+```python
+from core import RISNetwork
+
+configs = [
+    {'N': 16, 'bits': 1},
+    {'N': 16, 'bits': 2},
+    {'N': 32, 'bits': 2},
+]
+
+for cfg in configs:
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap('ap1', 0, 0)
+    net.add_ris('ris1', 5, 0, max_angle_deg=90, **cfg)
+    net.add_ue('ue1', 10, 3)
+    result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
+    print(f"N={cfg['N']:2d}, bits={cfg['bits']}: SNR={result['snr_dB']:.1f} dB")
+```
+
+Expected output:
+```
+N=16, bits=1: SNR=26.1 dB
+N=16, bits=2: SNR=29.9 dB
+N=32, bits=2: SNR=35.9 dB
+```
+
+More elements → higher array gain → better SNR. More bits → less quantization loss.
+
+---
+
+# Advanced Tier
+
+---
+
+## Part 5 — Low-Level API and Node Parameters
+
+### 5.1 Full connect() API
 
 ```python
 from core import RISNetwork
 
 net = RISNetwork(enable_messaging=False)
 
-# Add nodes: AccessPoint at origin, RIS at (5,0), UE at (10,3)
-net.add_ap('ap1',  0, 0)
+net.add_ap('ap1', 0, 0)
 net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-# Connect: compute optimal RIS phases and evaluate SNR
 result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
 
 print(f"SNR:        {result['snr_dB']:.1f} dB")
@@ -47,42 +293,11 @@ print(f"Quant loss: {result['quant_loss_dB']:.2f} dB")
 | `rssi_dBm` | RSSI at UE |
 | `gain_dBi` | RIS array gain |
 | `quant_loss_dB` | Phase quantization loss |
-| `beam_angle` | Best beam steering angle (degrees) |
+| `beam_angle` | Best beam steering angle (degrees, absolute) |
 | `current_phases` | Continuous phase values per element |
 | `quantized_phases` | Quantized phase values per element |
 
-**RIS FOV constraint**: the RIS has a ±`max_angle_deg` field of view. Both the
-AP and UE must be within this cone. The default is ±60°. Use
-`max_angle_deg=90` or wider when your geometry requires it.
-
-### 1.2 High-Level API
-
-`RISnet` wraps `RISNetwork` with a higher-level interface modelled after
-network testing tools.
-
-```python
-from waveflow import RISnet
-
-net = RISnet()
-ap  = net.addAP('ap1',  position=(0, 0))
-ris = net.addRIS('ris1', position=(5, 0), N=16, bits=2)
-ue  = net.addUE('ue1',  position=(10, 3))
-net.start()
-
-# ping: reachability + SNR
-result = net.ping(ap, ue)
-print(f"Reachable: {result['reachable']}")
-print(f"SNR:       {result['snr_dB']:.1f} dB")
-print(f"Hops:      {result['hops']}")
-
-# iperf: estimated throughput
-throughput = net.iperf(ap, ue)
-print(f"Throughput: {throughput['throughput_Mbps']:.1f} Mbps")
-
-net.stop()
-```
-
-### 1.3 Node Parameters
+### 5.2 Full Node Parameters
 
 ```python
 net.add_ap(
@@ -111,11 +326,9 @@ net.add_ue(
 
 ---
 
-## Part 2 — Environment and Obstacles
+## Part 6 — Environment and Obstacles
 
-### 2.1 Adding Walls
-
-Walls block LOS and add attenuation to paths that pass through them.
+### 6.1 Adding Walls
 
 ```python
 from core import RISNetwork
@@ -132,16 +345,9 @@ result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
 print(f"SNR with wall: {result['snr_dB']:.1f} dB")
 ```
 
-### 2.2 Line-of-Sight Check
+### 6.2 Line-of-Sight Check
 
 ```python
-from core import RISNetwork
-
-net = RISNetwork(enable_messaging=False)
-net.add_ap('ap1', 0, 0)
-net.add_ue('ue1', 10, 0)
-net.add_wall([5, -2], [5, 2], attenuation_dB=30)
-
 env = net.environment
 has_los, _ = env.check_line_of_sight([0, 0, 0], [10, 0, 0])
 blocking = env.get_blocked_paths([0, 0, 0], [10, 0, 0])
@@ -150,31 +356,11 @@ print(f"LOS clear: {has_los}")
 print(f"Blocking walls: {len(blocking)}")
 ```
 
-### 2.3 Predefined Topologies
-
-```python
-from waveflow import RISnet, topos
-
-# Available topologies: 'simple', 'obstacle', 'grid', 'sdr'
-topo = topos['obstacle']()
-topo.build()
-
-net = RISnet(topo=topo)
-net.start()
-
-ap = net.aps['ap1']
-ue = net.ues['ue1']
-result = net.ping(ap, ue)
-print(f"SNR: {result['snr_dB']:.1f} dB via {result['hops']} hops")
-
-net.stop()
-```
-
 ---
 
-## Part 3 — Pathfinding
+## Part 7 — Pathfinding
 
-### 3.1 Finding Paths
+### 7.1 Finding Paths
 
 ```python
 from waveflow import RISnet
@@ -196,7 +382,7 @@ for algo in ['dijkstra', 'astar', 'greedy']:
 net.stop()
 ```
 
-### 3.2 Algorithm Comparison
+### 7.2 Algorithm Comparison
 
 | Algorithm | Optimal? | Speed | Use case |
 |---|---|---|---|
@@ -205,11 +391,10 @@ net.stop()
 | `greedy` | No | Fastest | Real-time, approximate |
 | `exhaustive` | Yes | Slow | Small networks only; enumerate all paths |
 
-### 3.3 Low-Level Pathfinding API
+### 7.3 Low-Level Pathfinding API
 
 ```python
 from core import RISNetwork
-from controller.pathfinding import get_algorithm
 
 net = RISNetwork(enable_messaging=False)
 net.add_ap('ap1', 0, 0)
@@ -223,14 +408,11 @@ for p in paths:
 
 ---
 
-## Part 4 — Beam Sweeping
+## Part 8 — Beam Sweeping (Advanced)
 
-### 4.1 Basic Sweep
+### 8.1 Sweep API
 
-The `sweep()` method searches over local deflection angles relative to the
-specular reflection direction (not boresight). `best_local_fine` is the
-offset that maximises SNR. Use `connect()` with the returned beam angle
-to apply it, or let `connect()` compute the optimal angle automatically.
+`best_local_fine` is the offset angle (relative to the specular direction) that maximises SNR.
 
 ```python
 from core import RISNetwork
@@ -240,23 +422,16 @@ net.add_ap('ap1',  0, 0)
 net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-# fov=90: search ±90° local deflection, step=15°
 result = net.sweep('ap1', 'ris1', 'ue1', fov=90, step=15)
 
 print(f"Best local deflection: {result['best_local_fine']:.1f}°")
 print(f"Best SNR:              {result['best_snr_fine']:.1f} dB")
 
-# Coarse sweep results (local deflection angle vs SNR)
 for angle, snr in zip(result['local_coarse'], result['snr_coarse']):
     print(f"  {angle:+6.1f}°  {snr:.1f} dB")
-
-# Apply via direct connect (auto-computes optimal beam)
-best = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
-print(f"Absolute beam angle: {best['beam_angle']:.1f}°")
-print(f"SNR:                 {best['snr_dB']:.1f} dB")
 ```
 
-### 4.2 Choosing a Sweep Algorithm
+### 8.2 Selecting an Algorithm Programmatically
 
 ```python
 from core import RISNetwork
@@ -267,77 +442,57 @@ net.add_ap('ap1',  0, 0)
 net.add_ris('ris1', 5, 0, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-# List all registered algorithms
 loader = SweepAlgorithmLoader(net)
 print(loader.list_algorithms())
 
-# Run a specific algorithm
-algo = loader.get_algorithm('adaptive')
+algo = loader.get_algorithm('coarse-fine')
 result = algo.sweep('ap1', 'ris1', 'ue1', fov=60, step=10)
 print(f"Best SNR: {result['best_snr_fine']:.1f} dB")
 ```
 
-### 4.3 Differential Evolution Sweep
+### 8.3 Differential Evolution Sweep
 
-DE performs global search over the phase space, useful when the SNR surface
-has multiple local maxima.
+DE performs global search over the phase space — useful when the SNR surface has multiple local maxima.
 
 ```python
 algo = loader.get_algorithm('de')
 result = algo.sweep(
     'ap1', 'ris1', 'ue1',
-    fov=60,
-    step=10,
+    fov=60, step=10,
     M=32,              # population size
     target_snr_db=25,  # optional early stop
 )
 print(f"DE best SNR: {result['best_snr_fine']:.1f} dB")
 ```
 
-### 4.4 Sweep via CLI
-
-```bash
-waveflow> add ap ap1 0 0
-waveflow> add ris ris1 5 0 0 16 2
-waveflow> add ue ue1 10 3
-waveflow> sweep ap1 ris1 ue1 60 10
-waveflow> sweep ap1 ris1 ue1 60 10 --algo adaptive
-waveflow> sweep ap1 ris1 ue1 60 10 --algo de M=32
-waveflow> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
-```
-
 ---
 
-## Part 5 — Physics and Link Budget
+## Part 9 — Physics and Link Budget
 
-### 5.1 Manual Link Budget
+### 9.1 Manual Link Budget
 
 ```python
 from core.physics import Physics
 
 freq_GHz = 5.8
-distance_m = 11.4  # AP-RIS + RIS-UE
+distance_m = 11.4  # AP-RIS + RIS-UE total path
 
-path_loss = Physics.path_loss_dB(distance_m, freq_GHz * 1e9)
-atm_loss  = Physics.atmospheric_loss_dB(distance_m, freq_GHz)
+path_loss  = Physics.path_loss_dB(distance_m, freq_GHz * 1e9)
+atm_loss   = Physics.atmospheric_loss_dB(distance_m, freq_GHz)
 array_gain = Physics.array_gain_dBi(16)
 quant_loss = Physics.quantization_loss_dB(2)
 
-tx_power_dBm = 20.0
-noise_figure_dB = 10.0
-bandwidth_MHz = 20.0
-
 snr = Physics.compute_snr_dB(
-    tx_power_dBm,
-    path_loss + atm_loss + quant_loss,  # fold quant loss into total loss
-    array_gain,
-    bandwidth_MHz,
-    noise_figure_dB,
+    tx_power_dBm=20.0,
+    total_loss_dB=path_loss + atm_loss + quant_loss,
+    array_gain_dBi=array_gain,
+    bandwidth_MHz=20.0,
+    noise_figure_dB=10.0,
 )
 print(f"SNR: {snr:.1f} dB")
 ```
 
-### 5.2 Effect of Quantization Bits
+### 9.2 Effect of Quantization Bits
 
 ```python
 from core.physics import Physics
@@ -355,17 +510,15 @@ Output:
   4-bit: -0.06 dB loss
 ```
 
-### 5.3 Effect of Array Size
+### 9.3 Effect of Array Size
 
 ```python
-from core.physics import Physics
-
 for N in [4, 8, 16, 32, 64, 128]:
     gain = Physics.array_gain_dBi(N)
     print(f"  N={N:3d}: {gain:.1f} dBi")
 ```
 
-### 5.4 Rician Fading
+### 9.4 Rician Fading
 
 ```python
 import numpy as np
@@ -378,9 +531,9 @@ print(f"Fading coefficient: {fading:.4f}")
 
 ---
 
-## Part 6 — Feedback and Adaptive Control
+## Part 10 — Feedback and Adaptive Control
 
-### 6.1 Creating a Feedback Channel
+### 10.1 Creating a Feedback Channel
 
 Waveflow models the UE→AP feedback path for closed-loop beam adaptation.
 
@@ -392,15 +545,13 @@ net.add_ap('ap1',  0, 0)
 net.add_ris('ris1', 5, 0, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-# Establish feedback: UE reports SNR measurements back to AP
 net.create_feedback_channel(
     ue_name='ue1',
     ris_name='ris1',
-    feedback_interval=0.1,   # seconds
+    feedback_interval=0.1,
     snr_threshold_dB=15.0,
 )
 
-# Connect with feedback enabled
 result = net.connect(
     'ap1', 'ris1', 'ue1',
     use_get_snr=False,
@@ -409,7 +560,7 @@ result = net.connect(
 print(f"SNR after adaptation: {result['snr_dB']:.1f} dB")
 ```
 
-### 6.2 Feedback Statistics
+### 10.2 Feedback Statistics
 
 ```python
 stats = net.get_feedback_statistics()
@@ -419,21 +570,20 @@ for ue_ris, s in stats.items():
 
 ---
 
-## Part 7 — Waveform-Level Simulation
+## Part 11 — Waveform-Level Simulation
 
-System-level simulation uses a link budget formula. Waveform-level simulation
-runs a full OFDM signal through the channel and measures per-subcarrier SNR.
+System-level simulation uses a link budget formula. Waveform-level simulation runs a full OFDM signal through the channel and measures per-subcarrier SNR — closer to real hardware behaviour.
 
-### 7.1 OFDM Configuration
+### 11.1 OFDM Signal
 
 ```python
 import numpy as np
 from core.waveform import OFDMConfig, OFDMSignal, calculate_papr
 
 config = OFDMConfig(
-    bandwidth=100e6,        # 100 MHz
+    bandwidth=100e6,
     num_subcarriers=256,
-    center_frequency=10e9,  # 10 GHz
+    center_frequency=10e9,
 )
 
 ofdm = OFDMSignal(config, num_symbols=20)
@@ -445,35 +595,12 @@ print(f"Signal power: {power:.4f}")
 print(f"PAPR:         {papr:.2f} dB")
 ```
 
-### 7.2 RIS Reflection Model
-
-```python
-from core.waveform import RISReflectionModel
-import numpy as np
-
-# N×N element grid, 2-bit quantization, 10 GHz center frequency
-ris_model = RISReflectionModel(N=4, bits=2, center_freq=10e9)
-
-# Set ideal phases (radians, one per element)
-num_elements = ris_model.num_elements   # N*N = 16
-ideal_phases = np.linspace(0, 2 * np.pi, num_elements)
-
-ris_model.set_phase_config(ideal_phases)
-
-# Compute RMS quantization error
-error_rad = ideal_phases - ris_model.quantized_phases
-rms_error = np.sqrt(np.mean(error_rad**2))
-print(f"Phase RMS error: {np.degrees(rms_error):.2f}°")
-print(f"Num elements: {num_elements}")
-```
-
-### 7.3 Waveform vs System-Level SNR
+### 11.2 System-Level vs Waveform-Level SNR
 
 ```python
 import random
 import numpy as np
 from core import RISNetwork
-from core.waveform import OFDMConfig
 from controller.waveform_controller import WaveformController
 
 def set_deterministic_seeds(seed=42):
@@ -487,45 +614,24 @@ net.add_ap('ap1',  0, 0)
 net.add_ris('ris1', 5, 0, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-# System-level
 sys_result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
-print(f"System-level SNR:   {sys_result['snr_dB']:.2f} dB")
+print(f"System-level SNR:      {sys_result['snr_dB']:.2f} dB")
 
-# Waveform-level (returns snr_ris_dB and snr_effective_dB, not snr_dB)
 wc = WaveformController(net)
 wav_result = wc.compute_waveform_snr('ap1', 'ris1', 'ue1', num_symbols=20)
 print(f"Waveform RIS SNR:      {wav_result['snr_ris_dB']:.2f} dB")
 print(f"Waveform effective SNR:{wav_result['snr_effective_dB']:.2f} dB")
 ```
 
-Both approaches should produce consistent results within a few dB for the
-same topology and seed.
-
-### 7.4 Waveform Beam Sweep
-
-```python
-wc = WaveformController(net)
-sweep = wc.compute_beam_sweep_waveform(
-    'ap1', 'ris1', 'ue1',
-    angle_range=60,   # ±30° sweep
-    angle_step=5,
-)
-
-for angle, snr in zip(sweep['angles'], sweep['snr_values']):
-    marker = " <-- BEST" if angle == sweep['best_angle'] else ""
-    print(f"  {angle:+5.1f}°: {snr:.2f} dB{marker}")
-
-print(f"Best angle: {sweep['best_angle']:.1f}°  SNR: {sweep['best_snr_dB']:.2f} dB")
-```
+Both approaches should produce consistent results within a few dB for the same topology and seed.
 
 ---
 
-## Part 8 — ML-Guided Beam Sweeping
+## Part 12 — ML-Guided Beam Sweeping
 
-ML predictors learn a mapping from topology geometry to optimal beam angle,
-then pass predicted candidates to the sweep for refinement.
+ML predictors learn a mapping from network geometry to optimal beam angle, then seed the sweep with predicted candidates — reducing the number of angles to test.
 
-### 8.1 Using a Pre-Trained Predictor
+### 12.1 Using a Pre-Trained Predictor
 
 ```python
 from core import RISNetwork
@@ -542,7 +648,7 @@ algo = loader.get_algorithm('ml-guided')
 result = algo.sweep(
     'ap1', 'ris1', 'ue1',
     fov=60, step=10,
-    ml_predictor='rf',   # 'rf', 'xgb', 'svr', 'knn', 'lgbm', etc.
+    ml_predictor='rf',   # 'rf', 'xgb', 'svr', 'knn', 'lgbm'
 )
 print(f"Best angle: {result['best_local_fine']:.1f}°")
 print(f"Best SNR:   {result['best_snr_fine']:.1f} dB")
@@ -550,78 +656,28 @@ print(f"Best SNR:   {result['best_snr_fine']:.1f} dB")
 
 Requires pre-trained model files in `controller/beamsweeping/ml/models/`.
 
-### 8.2 Listing Available Predictors
-
-```python
-from controller.beamsweeping.ml import MLPredictorLoader
-
-predictors = MLPredictorLoader.list_predictors()
-for name, info in predictors.items():
-    print(f"{name}: {info['description']}")
-```
-
-### 8.3 Training Your Own Model
-
-The dataset builder and training scripts are in
-`controller/beamsweeping/ml/tools/`. Run them from the repository root with
-`PYTHONPATH=.` so all packages resolve correctly.
+### 12.2 Training Your Own Model
 
 ```bash
 # 1. Generate a dataset
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py
 
-# 2. Train predictors (after dataset is generated)
+# 2. Train predictors
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_xgb.py
-
-# 3. Use the trained model
-PYTHONPATH=. python3 - <<'PY'
-from core import RISNetwork
-from controller.beamsweeping import SweepAlgorithmLoader
-
-net = RISNetwork(enable_messaging=False)
-net.add_ap('ap1', 0, 0)
-net.add_ris('ris1', 5, 0, max_angle_deg=90)
-net.add_ue('ue1', 10, 3)
-
-loader = SweepAlgorithmLoader(net)
-algo = loader.get_algorithm('ml-guided')
-result = algo.sweep('ap1', 'ris1', 'ue1', fov=60, step=10, ml_predictor='rf')
-print(f"SNR: {result['best_snr_fine']:.1f} dB")
-PY
-```
-
-### 8.4 Prediction Metrics
-
-```python
-from controller.beamsweeping.ml import MLPredictorLoader
-from core import RISNetwork
-
-net = RISNetwork(enable_messaging=False)
-net.add_ap('ap1', 0, 0)
-net.add_ris('ris1', 5, 0, max_angle_deg=90)
-net.add_ue('ue1', 10, 3)
-
-predictor = MLPredictorLoader.get_predictor('rf', net)
-angles, metrics = predictor.predict_with_metrics(
-    'ap1', 'ris1', 'ue1', fov=60, top_k=3
-)
-
-print(f"Predicted angles:   {angles}")
-print(f"Prediction time:    {metrics['prediction_time_ms']:.3f} ms")
-print(f"Uncertainty:        ±{metrics['uncertainty']:.1f}°")
 ```
 
 ---
 
-## Part 9 — Adding a Custom Beam Sweep Algorithm
+## Part 13 — Adding a Custom Beam Sweep Algorithm
 
-### 9.1 Algorithm Template
+### 13.1 Algorithm Template
 
 ```python
 # File: controller/beamsweeping/algorithms/my_sweep.py
 from ..base import SweepAlgorithmBase
 from ..registry import register_algorithm
+import numpy as np
 
 @register_algorithm("my-sweep", aliases=("my-alias",))
 class MySweep(SweepAlgorithmBase):
@@ -635,11 +691,6 @@ class MySweep(SweepAlgorithmBase):
         return "Custom beam sweep algorithm"
 
     def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, **kwargs):
-        ap  = self.network.get(ap_name)
-        ris = self.network.get(ris_name)
-        ue  = self.network.get(ue_name)
-
-        import numpy as np
         angles = np.arange(-fov, fov + step, step)
         snrs, powers = [], []
 
@@ -664,11 +715,10 @@ class MySweep(SweepAlgorithmBase):
         }
 ```
 
-### 9.2 Registering and Using It
+### 13.2 Using Your Algorithm
 
 ```python
-# Import to trigger registration
-import controller.beamsweeping.algorithms.my_sweep
+import controller.beamsweeping.algorithms.my_sweep  # triggers registration
 
 from core import RISNetwork
 from controller.beamsweeping import SweepAlgorithmLoader
@@ -691,9 +741,41 @@ waveflow> sweep ap1 ris1 ue1 45 5 --algo my-sweep
 
 ---
 
-## Part 10 — Loading Scenarios from JSON
+## Part 14 — Batch Parameter Study
 
-### 10.1 Load a JSON Topology
+Useful for research — sweep across RIS configurations and collect results:
+
+```python
+import numpy as np
+from core import RISNetwork
+
+results = []
+
+for N in [8, 16, 32, 64]:
+    for bits in [1, 2, 3]:
+        net = RISNetwork(enable_messaging=False)
+        net.add_ap('ap1',  0, 0)
+        net.add_ris('ris1', 5, 0, N=N, bits=bits, max_angle_deg=90)
+        net.add_ue('ue1', 10, 3)
+
+        r = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
+        results.append({
+            'N': N, 'bits': bits,
+            'snr_dB': r['snr_dB'],
+            'gain_dBi': r['gain_dBi'],
+            'quant_loss_dB': r['quant_loss_dB'],
+        })
+
+print(f"{'N':>4}  {'bits':>4}  {'SNR (dB)':>10}  {'Gain (dBi)':>10}  {'Q-loss (dB)':>12}")
+for r in results:
+    print(f"{r['N']:>4}  {r['bits']:>4}  "
+          f"{r['snr_dB']:>10.2f}  {r['gain_dBi']:>10.2f}  "
+          f"{r['quant_loss_dB']:>12.3f}")
+```
+
+---
+
+## Part 15 — Loading Topologies from JSON
 
 ```python
 import json
@@ -721,88 +803,11 @@ for wall in topo.get('walls', []):
 print("Nodes loaded:", list(net.nodes.keys()))
 ```
 
-### 10.2 Save a Session Topology
-
-```python
-import json
-
-state = {
-    "nodes": [
-        {"name": "ap1",  "type": "AccessPoint", "pos": [0, 0, 0], "power_dBm": 20},
-        {"name": "ris1", "type": "RIS",          "pos": [5, 0, 0], "N": 16, "bits": 2},
-        {"name": "ue1",  "type": "UE",           "pos": [10, 3, 0]},
-    ],
-    "walls": [
-        {"start": [3, -3], "end": [3, 3], "attenuation_dB": 20}
-    ]
-}
-
-with open('my_scenario.json', 'w') as f:
-    json.dump(state, f, indent=2)
-```
-
----
-
-## Part 11 — Multi-RIS Network
-
-```python
-from core import RISNetwork
-
-net = RISNetwork(enable_messaging=False)
-net.add_ap('ap1', 0, 0, power_dBm=23)
-
-# Two RIS panels at different positions
-net.add_ris('ris1', 5,  2, N=32, bits=2, max_angle_deg=90)
-net.add_ris('ris2', 5, -2, N=32, bits=2, max_angle_deg=90, normal_angle_deg=0)
-
-net.add_ue('ue1', 12, 0)
-net.add_wall([3, -5], [3, 5], attenuation_dB=15)
-
-# Compare paths through each RIS
-for ris in ['ris1', 'ris2']:
-    result = net.connect('ap1', ris, 'ue1', use_get_snr=False)
-    print(f"Via {ris}: SNR={result['snr_dB']:.1f} dB  "
-          f"angle={result['beam_angle']:.1f}°")
-```
-
----
-
-## Part 12 — Batch Sweep and Parameter Study
-
-```python
-import numpy as np
-from core import RISNetwork
-
-results = []
-
-for N in [8, 16, 32, 64]:
-    for bits in [1, 2, 3]:
-        net = RISNetwork(enable_messaging=False)
-        net.add_ap('ap1',  0, 0)
-        net.add_ris('ris1', 5, 0, N=N, bits=bits, max_angle_deg=90)
-        net.add_ue('ue1', 10, 3)
-
-        r = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
-        results.append({
-            'N': N, 'bits': bits,
-            'snr_dB': r['snr_dB'],
-            'gain_dBi': r['gain_dBi'],
-            'quant_loss_dB': r['quant_loss_dB'],
-        })
-
-# Print table
-print(f"{'N':>4}  {'bits':>4}  {'SNR':>8}  {'gain':>8}  {'qloss':>8}")
-for r in results:
-    print(f"{r['N']:>4}  {r['bits']:>4}  "
-          f"{r['snr_dB']:>8.2f}  {r['gain_dBi']:>8.2f}  "
-          f"{r['quant_loss_dB']:>8.3f}")
-```
-
 ---
 
 ## Next Steps
 
-- Run the example scripts in `examples/script/` for more complete demonstrations.
-- See `docs/ML_GUIDED_SWEEP.md` for detailed ML predictor documentation.
-- See `FUTURE.md` for the v3 architecture roadmap (spatial channels, entity-component model, runtime kernel, AI-native interfaces).
-- See `INSTALL.md` for dependency management and troubleshooting.
+- Run example scripts in `examples/script/` for complete end-to-end demonstrations
+- See `FUTURE.md` for the v3 architecture roadmap — spatial channels, AI-native runtime, phased arrays
+- See `INSTALL.md` for dependency management and troubleshooting
+- Open an issue at https://github.com/nqmn/waveflow/issues for questions or bug reports
