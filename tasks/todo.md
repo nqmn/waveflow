@@ -587,3 +587,32 @@ Change budget: [files 4] [functions: none] [interfaces: documentation only] [sta
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: The duplicate shell code still exists; this only removes ambiguity about which path is primary.
+
+## Task: Begin Phase 4 Logging Migration
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the logging-only hunks in `risnet/__init__.py`, `core/network.py`, `controller/adaptive_controller.py`, `controller/pathfinding/registry.py`, `controller/ris_phase/phase_manager.py`, `FUTURE.md`, and `tasks/todo.md`.
+Change budget: [files 7] [functions: start/stop, verbose reporting helpers, node listing, adaptive summary, pathfinding registration, phase report] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `risnet/__init__.py` — replace library `print()` status output with logger calls
+- `core/network.py` — replace node listing `print()` with logger calls
+- `controller/adaptive_controller.py` — replace summary `print()` with logger calls
+- `controller/pathfinding/registry.py` — replace registration `print()` with logger calls
+- `controller/ris_phase/phase_manager.py` — replace phase report `print()` with logger calls
+- `FUTURE.md` — mark the logging migration as in progress
+- `tasks/todo.md` — record this migration slice
+
+### Steps
+- [x] Discover the existing logging pattern in adjacent controller modules
+- [x] Replace direct `print()` usage in the selected public/library modules
+- [x] Verify imports, focused tests, and compile checks
+
+### Review
+- Completed: Replaced direct `print()` reporting with module loggers in the public `RISnet` facade, `RISNetwork` node listing, adaptive-controller summary output, pathfinding auto-registration, and RIS phase reporting. Updated `FUTURE.md` to reflect that the Phase 4 logging migration is now in progress rather than untouched.
+- Out-of-scope flagged: Print-heavy diagnostics remain in CLI surfaces, tools, and several algorithm/helper modules.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): This slice does not finish the full repo-wide non-CLI logging migration; several beam-sweeping and utility modules still emit direct stdout diagnostics.
+- Limitations: Focused verification passed with `python3 -m compileall risnet core controller` and `.venv/bin/pytest tests/test_smoke.py tests/test_connect_characterization.py tests/test_scenarios.py -q`.

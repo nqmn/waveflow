@@ -2,9 +2,12 @@
 Adaptive link control for AP power and rate adaptation
 Implements closed-loop feedback system with CSI-based optimization
 """
+import logging
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import time
+
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveController:
@@ -249,30 +252,34 @@ class AdaptiveController:
         return history
 
     def print_summary(self, ap_name: str):
-        """Print control loop summary"""
+        """Log control loop summary."""
         status = self.get_link_status(ap_name)
         history = self.get_history(ap_name)
 
         if not history:
-            print(f"No history for {ap_name}")
+            logger.info("No history for %s", ap_name)
             return
 
-        print(f"\n{'='*70}")
-        print(f"ADAPTIVE CONTROL SUMMARY: {ap_name}")
-        print(f"{'='*70}\n")
-
-        print(f"Status:        {status['enabled'] and 'Enabled' or 'Disabled'}")
-        print(f"Iterations:    {status['iterations']}")
-        print(f"Converged:     {status['converged']}")
-        print(f"Elapsed Time:  {status['elapsed_time']:.2f} seconds\n")
-
-        print(f"Final State:")
-        print(f"  Power:       {status['current_power_dBm']:.1f} dBm")
-        print(f"  MCS:         {status['current_mcs']}")
-        print(f"\nIteration Details:")
-        print(f"{'Iter':<5} {'SNR(dB)':<10} {'Power(dBm)':<12} {'MCS':<15} "
-              f"{'Error(dB)':<10} {'Status':<12}")
-        print("-" * 70)
+        lines = [
+            "",
+            "=" * 70,
+            f"ADAPTIVE CONTROL SUMMARY: {ap_name}",
+            "=" * 70,
+            "",
+            f"Status:        {status['enabled'] and 'Enabled' or 'Disabled'}",
+            f"Iterations:    {status['iterations']}",
+            f"Converged:     {status['converged']}",
+            f"Elapsed Time:  {status['elapsed_time']:.2f} seconds",
+            "",
+            "Final State:",
+            f"  Power:       {status['current_power_dBm']:.1f} dBm",
+            f"  MCS:         {status['current_mcs']}",
+            "",
+            "Iteration Details:",
+            f"{'Iter':<5} {'SNR(dB)':<10} {'Power(dBm)':<12} {'MCS':<15} "
+            f"{'Error(dB)':<10} {'Status':<12}",
+            "-" * 70,
+        ]
 
         for h in history[-10:]:
             snr = h.get('measured_snr_dB', '-')
@@ -285,10 +292,13 @@ class AdaptiveController:
             power_str = f"{power:.1f}" if isinstance(power, (int, float)) else str(power)
             error_str = f"{error:.1f}" if isinstance(error, (int, float)) else str(error)
 
-            print(f"{h['iteration']:<5} {snr_str:<10} {power_str:<12} {mcs:<15} "
-                  f"{error_str:<10} {status:<12}")
+            lines.append(
+                f"{h['iteration']:<5} {snr_str:<10} {power_str:<12} {mcs:<15} "
+                f"{error_str:<10} {status:<12}"
+            )
 
-        print(f"\n{'='*70}\n")
+        lines.extend(["", "=" * 70, ""])
+        logger.info("\n%s", "\n".join(lines))
 
     def reset(self, ap_name: Optional[str] = None):
         """Reset adaptation state

@@ -380,42 +380,52 @@ class RISPhaseManager:
         return summary
 
     def print_phase_report(self):
-        """Print formatted phase configuration report"""
+        """Log formatted phase configuration report."""
         summary = self.get_phase_summary()
-
-        print("\n" + "="*70)
-        print("RIS Phase Configuration Report")
-        print("="*70)
-
-        print(f"\nArray Configuration:")
-        print(f"  Size: {summary['array_size']}")
-        print(f"  Total Elements: {summary['num_elements']}")
-        print(f"  Phase Bits: {summary['num_bits']}-bit ({summary['num_levels']} levels)")
+        lines = [
+            "",
+            "=" * 70,
+            "RIS Phase Configuration Report",
+            "=" * 70,
+            "",
+            "Array Configuration:",
+            f"  Size: {summary['array_size']}",
+            f"  Total Elements: {summary['num_elements']}",
+            f"  Phase Bits: {summary['num_bits']}-bit ({summary['num_levels']} levels)",
+        ]
 
         if 'ideal_phases' in summary:
             phases = summary['ideal_phases']
-            print(f"\nIdeal Phases (degrees):")
-            print(f"  Mean: {phases['mean_deg']:.2f}°")
-            print(f"  Min: {phases['min_deg']:.2f}°")
-            print(f"  Max: {phases['max_deg']:.2f}°")
-            print(f"  Range: {phases['range_deg']:.2f}°")
+            lines.extend([
+                "",
+                "Ideal Phases (degrees):",
+                f"  Mean: {phases['mean_deg']:.2f}°",
+                f"  Min: {phases['min_deg']:.2f}°",
+                f"  Max: {phases['max_deg']:.2f}°",
+                f"  Range: {phases['range_deg']:.2f}°",
+            ])
 
         if 'quantization' in summary:
             quant = summary['quantization']
-            print(f"\nQuantization Analysis:")
-            print(f"  RMS Error: {quant['rms_error_deg']:.4f}°")
-            print(f"  Loss: {quant['loss_dB']:.4f} dB")
-            print(f"  States Used: {quant['states_used']}/{summary['num_levels']}")
+            lines.extend([
+                "",
+                "Quantization Analysis:",
+                f"  RMS Error: {quant['rms_error_deg']:.4f}°",
+                f"  Loss: {quant['loss_dB']:.4f} dB",
+                f"  States Used: {quant['states_used']}/{summary['num_levels']}",
+            ])
 
         # Phase grid (if small enough)
         if self.ris.N <= 8:
             grids = self.get_phase_grid()
             if grids and grids['quantized_deg'] is not None:
-                print(f"\nQuantized Phase Grid (degrees, {self.ris.N}×{self.ris.N}):")
+                lines.append("")
+                lines.append(f"Quantized Phase Grid (degrees, {self.ris.N}×{self.ris.N}):")
                 for row in grids['quantized_deg']:
-                    print("  " + "  ".join([f"{p:7.1f}°" for p in row]))
+                    lines.append("  " + "  ".join([f"{p:7.1f}°" for p in row]))
 
-        print("\n" + "="*70 + "\n")
+        lines.extend(["", "=" * 70, ""])
+        logger.info("\n%s", "\n".join(lines))
 
     # =========================================================================
     # Integrated Workflows

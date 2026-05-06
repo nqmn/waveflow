@@ -5,9 +5,12 @@ Automatically discovers and registers all algorithm classes.
 """
 
 import importlib
+import logging
 import pkgutil
 from typing import Dict, Type
 from .base import PathfindingAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class AlgorithmRegistry:
@@ -59,7 +62,7 @@ class AlgorithmRegistry:
         """
         name = algorithm_class.name
         self._algorithms[name] = algorithm_class
-        print(f"Registered algorithm: {name} - {algorithm_class.description}")
+        logger.info("Registered algorithm: %s - %s", name, algorithm_class.description)
 
     def get(self, name: str) -> Type[PathfindingAlgorithm]:
         """Get algorithm by name

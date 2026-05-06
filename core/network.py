@@ -1,6 +1,7 @@
 """
 RIS Network manager with controller integration
 """
+import logging
 import numpy as np
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -19,6 +20,8 @@ from .feedback_channel import FeedbackChannelManager, FeedbackChannel
 from .snr_messaging import SNRMessagingSystem
 from .phase_engine import get_phase_engine
 from utils.rssi import compute_rssi_dBm
+
+logger = logging.getLogger(__name__)
 
 
 class RISNetwork:
@@ -116,9 +119,9 @@ class RISNetwork:
         return None
 
     def list_nodes(self):
-        """Print all nodes"""
+        """Log all nodes."""
         for k, v in self.nodes.items():
-            print(f"{k:10s} {v}")
+            logger.info("%-10s %s", k, v)
 
     def get_nodes_dict(self):
         """Get all nodes as dict for API"""

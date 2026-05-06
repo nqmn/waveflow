@@ -25,6 +25,7 @@ Usage:
     net.stop()
 """
 
+import logging
 import sys
 from typing import List, Dict, Optional, Tuple, Union
 import numpy as np
@@ -40,6 +41,8 @@ from .scenarios import (
     ScenarioSequenceResult,
     SweepScenario,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RISnet:
@@ -163,21 +166,26 @@ class RISnet:
     def start(self):
         """Start the network"""
         if self.started:
-            print("Network already started")
+            logger.warning("Network already started")
             return
 
-        print(f"*** Starting RISnet with {len(self.aps)} APs, {len(self.riss)} RIS, {len(self.ues)} UEs")
+        logger.info(
+            "Starting RISnet with %d APs, %d RIS, %d UEs",
+            len(self.aps),
+            len(self.riss),
+            len(self.ues),
+        )
         self.started = True
-        print("*** RISnet started")
+        logger.info("RISnet started")
 
     def stop(self):
         """Stop the network"""
         if not self.started:
             return
 
-        print("*** Stopping RISnet")
+        logger.info("Stopping RISnet")
         self.started = False
-        print("*** RISnet stopped")
+        logger.info("RISnet stopped")
 
     def findPaths(self, src, dst, algorithm='dijkstra'):
         """Find all paths between two nodes (high-level API)
@@ -310,12 +318,17 @@ class RISnet:
         return output
 
     def _print_path_details(self, path_info):
-        """Print detailed path and link budget information"""
+        """Log detailed path and link budget information."""
         path = path_info['path']
         snr_dB = path_info['snr_dB']
 
-        print(f"  Path: {' → '.join(path)}")
-        print(f"  Path type: {'direct' if len(path) == 2 else 'multi-hop (via RIS)' if 'R' in path[1:-1] else 'relay'}")
+        lines = [
+            f"  Path: {' → '.join(path)}",
+            (
+                "  Path type: "
+                f"{'direct' if len(path) == 2 else 'multi-hop (via RIS)' if 'R' in path[1:-1] else 'relay'}"
+            ),
+        ]
 
         if len(path) > 2:
             for i in range(len(path) - 1):
@@ -324,29 +337,41 @@ class RISnet:
                 pos2 = self._get_node_position(node2)
                 distance = np.linalg.norm(np.array(pos2) - np.array(pos1))
                 link_info = self._get_link_budget(node1, node2, pos1, pos2)
-                print(f"  Hop {i + 1}: {node1}→{node2}")
-                print(f"    Distance: {distance:.2f} m")
-                print(f"    Path loss: {link_info['path_loss_dB']:.2f} dB")
-                print(f"    Atm loss: {link_info['atm_loss_dB']:.2f} dB")
+                lines.extend([
+                    f"  Hop {i + 1}: {node1}→{node2}",
+                    f"    Distance: {distance:.2f} m",
+                    f"    Path loss: {link_info['path_loss_dB']:.2f} dB",
+                    f"    Atm loss: {link_info['atm_loss_dB']:.2f} dB",
+                ])
                 if link_info['ris']:
-                    print(f"    RIS elements: {link_info['ris']['N']}x{link_info['ris']['N']}")
-                    print(f"    Phase bits: {link_info['ris']['bits']}")
-                    print(f"    Array gain: {link_info['gain_dBi']:.2f} dBi")
-                    print(f"    Quantization loss: {link_info['quant_loss_dB']:.2f} dB")
+                    lines.extend([
+                        f"    RIS elements: {link_info['ris']['N']}x{link_info['ris']['N']}",
+                        f"    Phase bits: {link_info['ris']['bits']}",
+                        f"    Array gain: {link_info['gain_dBi']:.2f} dBi",
+                        f"    Quantization loss: {link_info['quant_loss_dB']:.2f} dB",
+                    ])
 
-        print(f"  Total SNR: {snr_dB:.2f} dB")
-        print(f"  TX power: {self._get_tx_power():.2f} dBm")
-        print(f"  Noise figure: 10.0 dB")
+        lines.extend([
+            f"  Total SNR: {snr_dB:.2f} dB",
+            f"  TX power: {self._get_tx_power():.2f} dBm",
+            "  Noise figure: 10.0 dB",
+        ])
+        logger.info("\n%s", "\n".join(lines))
 
     def _print_throughput_details(self, output, snr_linear, path):
-        """Print detailed throughput and capacity calculation"""
+        """Log detailed throughput and capacity calculation."""
         snr_dB = output['snr_dB']
         bandwidth_MHz = output['bandwidth_MHz']
         throughput_Mbps = output['throughput_Mbps']
 
-        print(f"  SNR: {snr_dB:.2f} dB ({snr_linear:.1f} linear)")
-        print(f"  Bandwidth: {bandwidth_MHz} MHz")
-        print(f"  Shannon formula: {bandwidth_MHz} × log₂(1 + {snr_linear:.1f}) = {throughput_Mbps:.1f} Mbps")
+        logger.info(
+            "\n%s",
+            "\n".join([
+                f"  SNR: {snr_dB:.2f} dB ({snr_linear:.1f} linear)",
+                f"  Bandwidth: {bandwidth_MHz} MHz",
+                f"  Shannon formula: {bandwidth_MHz} × log₂(1 + {snr_linear:.1f}) = {throughput_Mbps:.1f} Mbps",
+            ]),
+        )
 
     def _get_node_position(self, node_name):
         """Get position of a node"""
@@ -613,26 +638,26 @@ def run_experiment(topo_class, experiment_fn, **topo_params):
 
 def quick_test():
     """Quick test"""
-    print("*** Creating network")
+    logger.info("Creating network")
     net = RISnet()
 
-    print("*** Adding nodes")
+    logger.info("Adding nodes")
     ap = net.addAP('ap1', position=(0, 0))
     ris = net.addRIS('ris1', position=(5, 0))
     ue = net.addUE('ue1', position=(10, 3))
 
-    print("*** Starting network")
+    logger.info("Starting network")
     net.start()
 
-    print("*** Testing connectivity")
+    logger.info("Testing connectivity")
     result = net.ping(ap, ue)
-    print(f"Ping result: {result}")
+    logger.info("Ping result: %s", result)
 
-    print("*** Testing throughput")
+    logger.info("Testing throughput")
     throughput = net.iperf(ap, ue)
-    print(f"iPerf result: {throughput}")
+    logger.info("iPerf result: %s", throughput)
 
-    print("*** Stopping network")
+    logger.info("Stopping network")
     net.stop()
 
 

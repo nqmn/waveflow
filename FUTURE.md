@@ -1207,6 +1207,9 @@ Status as of 2026-05-06:
    its public return shape (Phase 4).~~ — Mostly Done. The public facade is
    preserved and the major internal steps are extracted behind it.
 10. Replace `print()` with `logging` in all non-CLI library modules (Phase 4).
+    Status: In Progress. Public/library-facing modules now use logger-based
+    reporting, but print-heavy diagnostics still remain in some algorithm and
+    helper modules outside the canonical CLI surfaces.
 11. ~~Decide canonical CLI implementation and document or consolidate the
     `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).~~ —
     Done for documentation. `cli/main_shell.py` is the canonical full shell;
