@@ -18,8 +18,11 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+import logging
 import numpy as np
 from typing import Tuple, Optional, Dict
+
+logger = logging.getLogger(__name__)
 
 
 class OpenCVCameraViewer:
@@ -308,10 +311,11 @@ def run_camera_viewer(camera_id: int = 0,
     )
     detector = cv2.aruco.ArucoDetector(aruco_dict)
 
-    print(f"\nCamera Viewer - Network Visualization")
-    print(f"AP: {ap_pos}")
-    print(f"RIS: {ris_pos}")
-    print(f"Press 'q' to exit\n")
+    logger.info(
+        "\nCamera Viewer - Network Visualization\nAP: %s\nRIS: %s\nPress 'q' to exit",
+        ap_pos,
+        ris_pos,
+    )
 
     try:
         while cap.isOpened():
@@ -378,4 +382,4 @@ if __name__ == '__main__':
             marker_size=0.05
         )
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error("Error: %s", e)

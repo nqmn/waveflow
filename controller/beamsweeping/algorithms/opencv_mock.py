@@ -16,8 +16,11 @@ try:
 except ImportError:
     CV2_AVAILABLE = False
 
+import logging
 import numpy as np
 from typing import Optional, Tuple, List
+
+logger = logging.getLogger(__name__)
 
 
 class MockCamera:
@@ -51,8 +54,13 @@ class MockCamera:
         self.center_y = center_y
         self.radius = radius
 
-        print(f"MockCamera initialized: {width}x{height}, {num_frames} frames")
-        print(f"Trajectory: {marker_trajectory}")
+        logger.info(
+            "MockCamera initialized: %sx%s, %s frames; trajectory=%s",
+            width,
+            height,
+            num_frames,
+            marker_trajectory,
+        )
 
     def isOpened(self) -> bool:
         """Check if camera is still generating frames."""
@@ -271,18 +279,16 @@ def create_mock_camera(trajectory: str = "circular",
 def demo_mock_camera():
     """Demonstrate mock camera functionality."""
     if not CV2_AVAILABLE:
-        print("OpenCV required for demo")
+        logger.error("OpenCV required for demo")
         return
 
-    print("\n" + "="*70)
-    print("MOCK CAMERA DEMONSTRATION")
-    print("="*70)
+    logger.info("\n%s\nMOCK CAMERA DEMONSTRATION\n%s", "=" * 70, "=" * 70)
 
     # Create mock camera with circular motion
     mock_cam = create_mock_camera(trajectory="circular", num_frames=30)
 
-    print("\nGenerating frames with circular marker motion...")
-    print("Press 'q' to exit, any other key to next frame\n")
+    logger.info("\nGenerating frames with circular marker motion...")
+    logger.info("Press 'q' to exit, any other key to next frame")
 
     frame_count = 0
     while mock_cam.isOpened():
@@ -300,29 +306,34 @@ def demo_mock_camera():
             break
 
         if frame_count % 10 == 0:
-            print(f"  Frame {frame_count}/{mock_cam.num_frames}")
+            logger.info("  Frame %s/%s", frame_count, mock_cam.num_frames)
 
     mock_cam.release()
     cv2.destroyAllWindows()
 
-    print(f"\nGenerated {frame_count} frames successfully!")
+    logger.info("\nGenerated %s frames successfully!", frame_count)
 
     # Demonstrate pose estimation
-    print("\n" + "="*70)
-    print("MOCK POSE ESTIMATOR DEMONSTRATION")
-    print("="*70)
+    logger.info("\n%s\nMOCK POSE ESTIMATOR DEMONSTRATION\n%s", "=" * 70, "=" * 70)
 
     K = np.array([[500, 0, 320], [0, 500, 240], [0, 0, 1]], dtype=np.float32)
     estimator = MockPoseEstimator(K, marker_size=0.05, camera_distance=3.0)
 
-    print("\nEstimating pose for marker at different pixel positions:")
+    logger.info("\nEstimating pose for marker at different pixel positions:")
     positions = [(320, 240), (200, 200), (450, 300), (100, 400)]
 
     for px, py in positions:
         rvec, tvec = estimator.estimate_pose(px, py, 640, 480)
-        print(f"  Pixel ({px:3d}, {py:3d}) → tvec: ({tvec[0]:.3f}, {tvec[1]:.3f}, {tvec[2]:.3f})")
+        logger.info(
+            "  Pixel (%3d, %3d) -> tvec: (%.3f, %.3f, %.3f)",
+            px,
+            py,
+            tvec[0],
+            tvec[1],
+            tvec[2],
+        )
 
-    print("\n" + "="*70)
+    logger.info("\n%s", "=" * 70)
 
 
 if __name__ == '__main__':

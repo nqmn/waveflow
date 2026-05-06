@@ -666,3 +666,28 @@ Change budget: [files 3] [functions: marker save/grid diagnostics and demo outpu
 - Assumptions invalidated: None.
 - Known debt (acknowledged): The duplicated ArUco utility modules still exist; this slice only kept their logging behavior consistent.
 - Limitations: Verification passed with `python3 -m compileall utils/aruco_utils.py controller/beamsweeping/algorithms/aruco_utils.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
+
+## Task: Continue Phase 4 Logging Migration for OpenCV Support Modules
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the logging-only hunks in `controller/beamsweeping/algorithms/opencv_mock.py`, `controller/beamsweeping/algorithms/opencv_viewer.py`, and `tasks/todo.md`.
+Change budget: [files 3] [functions: mock-camera diagnostics, viewer entrypoint diagnostics] [interfaces: logging side effects only] [state mutations: none]
+
+### Scope
+- `controller/beamsweeping/algorithms/opencv_mock.py` — replace support/demo `print()` output with logger calls
+- `controller/beamsweeping/algorithms/opencv_viewer.py` — replace support/viewer `print()` output with logger calls
+- `tasks/todo.md` — record this migration slice
+
+### Steps
+- [x] Inspect the remaining OpenCV support-module diagnostics
+- [x] Replace direct stdout diagnostics with module loggers
+- [x] Verify targeted compilation and smoke coverage
+
+### Review
+- Completed: Replaced direct stdout diagnostics in the OpenCV mock-camera and viewer support modules with module loggers, keeping their demo/entrypoint behavior intact while removing non-CLI library prints.
+- Out-of-scope flagged: The main `opencv_sweep.py` and `hog_sweep.py` algorithms still emit direct stdout diagnostics.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The OpenCV/HOG sweep algorithms remain the major unfinished logging surface in the vision stack.
+- Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/opencv_mock.py controller/beamsweeping/algorithms/opencv_viewer.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
