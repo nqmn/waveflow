@@ -48,3 +48,30 @@ Change budget: files 3 functions: PhaseSteeringEngine._synthetic_element_positio
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations:
+
+## Task: Phase 3 Link Budget Channel Adapter
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Delete risnet/channels and its tests.
+Change budget: files 4 functions: ChannelModel.evaluate, LinkBudgetChannel.evaluate interfaces: additive risnet.channels API state mutations: optional through existing RISNetwork.connect only
+
+### Scope
+- risnet/channels/base.py - channel protocol and evaluation result container.
+- risnet/channels/link_budget.py - adapter over RISNetwork.connect.
+- risnet/channels/__init__.py - public additive exports.
+- tests/test_link_budget_channel.py - equivalence, blocked-path, and error-path coverage.
+
+### Steps
+- [x] Add channel protocol/result container
+- [x] Add LinkBudgetChannel adapter
+- [x] Add equivalence and error-path tests
+- [x] Run focused and full verification
+
+### Review
+- Completed: Added the additive channel protocol and LinkBudgetChannel adapter with equivalence, blocked-path, and error coverage.
+- Out-of-scope flagged: Existing staged moves and unrelated docs/config changes remain untouched.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Adapter delegates to RISNetwork.connect; it is not a new physics implementation. Environment walls are characterized but not applied to connect link budget in this phase.
