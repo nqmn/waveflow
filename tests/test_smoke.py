@@ -141,8 +141,11 @@ def test_typer_rich_sweep_table_from_outside_repo():
             "AP1",
             "R1",
             "UE1",
+            "--algo",
+            "linear",
             "--topology",
             str(topology),
+            "--live",
             "--format",
             "table",
             "--topk",
@@ -154,6 +157,51 @@ def test_typer_rich_sweep_table_from_outside_repo():
         text=True,
     )
 
+    assert "Live Sweep" in result.stdout
     assert "Sweep Result" in result.stdout
     assert "Top 3 Sweep Measurements" in result.stdout
     assert "Best SNR (dB)" in result.stdout
+
+
+def test_example_1_simple_topology_supports_terminal_sweep():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "sweep",
+            "AP1",
+            "R1",
+            "UE1",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "--algo",
+            "linear",
+            "--no-live",
+            "--format",
+            "table",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Sweep Result" in result.stdout
+    assert "Best SNR (dB)" in result.stdout
+
+
+def test_typer_rich_sweep_invalid_nodes_fails_before_live_ui():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "sweep", "ap", "ris", "ue"],
+        cwd="/tmp",
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Sweep failed:" in result.stdout
+    assert "Invalid node name in sweep: ap, ris, ue" in result.stdout
+    assert "Live Sweep" not in result.stdout

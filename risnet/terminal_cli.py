@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 def run(argv: Optional[List[str]] = None) -> int:
@@ -13,7 +13,9 @@ def run(argv: Optional[List[str]] = None) -> int:
     try:
         import typer
         from rich.console import Console
+        from rich.live import Live
         from rich.panel import Panel
+        from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
         from rich.table import Table
     except ImportError:
         print(
@@ -52,6 +54,22 @@ def run(argv: Optional[List[str]] = None) -> int:
 
     def _node_type(node) -> str:
         return type(node).__name__
+
+    def _resolve_sweep_nodes_or_exit(net, ap: str, ris: str, ue: str) -> None:
+        missing = [name for name in (ap, ris, ue) if net.get(name) is None]
+        if not missing:
+            return
+
+        available = ", ".join(sorted(net.nodes)) if net.nodes else "none"
+        if not net.nodes:
+            detail = "No nodes are loaded. Pass --topology or add nodes before sweeping."
+        else:
+            detail = f"Available nodes: {available}"
+
+        console.print(
+            f"[red]Sweep failed:[/red] Invalid node name in sweep: {', '.join(missing)}. {detail}"
+        )
+        raise typer.Exit(1)
 
     def _render_network(net) -> None:
         summary = Table.grid(padding=(0, 2))
@@ -181,6 +199,105 @@ def run(argv: Optional[List[str]] = None) -> int:
             )
         console.print(top_table)
 
+    def _render_live_sweep_frame(state: Dict[str, object]):
+        layout = Table.grid(expand=False)
+        layout.add_row(
+            Panel.fit(
+                state["progress"],
+                title="Live Sweep",
+                border_style="cyan",
+            )
+        )
+
+        status = Table(title="Sweep Status")
+        status.add_column("Metric", style="cyan")
+        status.add_column("Value", justify="right")
+        status.add_row("Algorithm", str(state.get("algorithm", "N/A")))
+        status.add_row("Phase", str(state.get("phase", "pending")))
+        status.add_row(
+            "Current angle (deg)",
+            "N/A" if state.get("current_angle_deg") is None else f"{float(state['current_angle_deg']):.2f}",
+        )
+        status.add_row(
+            "Current SNR (dB)",
+            "N/A" if state.get("current_snr_dB") is None else f"{float(state['current_snr_dB']):.2f}",
+        )
+        status.add_row(
+            "Best angle (deg)",
+            "N/A" if state.get("best_angle_deg") is None else f"{float(state['best_angle_deg']):.2f}",
+        )
+        status.add_row(
+            "Best SNR (dB)",
+            "N/A" if state.get("best_snr_dB") is None else f"{float(state['best_snr_dB']):.2f}",
+        )
+        layout.add_row(status)
+
+        recent = Table(title="Recent Measurements")
+        recent.add_column("Phase", style="cyan")
+        recent.add_column("Angle (deg)", justify="right")
+        recent.add_column("SNR (dB)", justify="right")
+        for row in state.get("recent_rows", []):
+            recent.add_row(row["phase"], row["angle"], row["snr"])
+        layout.add_row(recent)
+        return layout
+
+    def _build_live_sweep_callback(algo: str):
+        progress = Progress(
+            SpinnerColumn(),
+            TextColumn("[bold blue]{task.fields[phase]}[/bold blue]"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        )
+        task_id = progress.add_task("sweep", total=1, completed=0, phase="pending")
+        state: Dict[str, object] = {
+            "algorithm": algo,
+            "phase": "pending",
+            "current_angle_deg": None,
+            "current_snr_dB": None,
+            "best_angle_deg": None,
+            "best_snr_dB": None,
+            "recent_rows": [],
+            "progress": progress,
+            "progress_total": 1,
+            "progress_completed": 0,
+        }
+
+        def callback(*, event: str, algorithm: str, **payload) -> None:
+            phase = str(payload.get("phase", state["phase"]))
+            state["algorithm"] = algorithm
+            state["phase"] = phase
+            if payload.get("local_angle_deg") is not None:
+                state["current_angle_deg"] = float(payload["local_angle_deg"])
+            if payload.get("snr_dB") is not None:
+                state["current_snr_dB"] = float(payload["snr_dB"])
+            if payload.get("best_angle_deg") is not None:
+                state["best_angle_deg"] = float(payload["best_angle_deg"])
+            if payload.get("best_snr_dB") is not None:
+                state["best_snr_dB"] = float(payload["best_snr_dB"])
+
+            total = max(int(payload.get("total", state["progress_total"])), 1)
+            completed = int(payload.get("completed", state["progress_completed"]))
+            state["progress_total"] = total
+            state["progress_completed"] = completed
+            progress.update(task_id, total=total, completed=completed, phase=phase)
+
+            if event == "measurement":
+                rows = list(state["recent_rows"])
+                rows.insert(
+                    0,
+                    {
+                        "phase": phase,
+                        "angle": "N/A" if payload.get("local_angle_deg") is None else f"{float(payload['local_angle_deg']):.2f}",
+                        "snr": "N/A" if payload.get("snr_dB") is None else f"{float(payload['snr_dB']):.2f}",
+                    },
+                )
+                state["recent_rows"] = rows[:5]
+
+        return progress, state, callback
+
     # -------------------------------------------------------------------------
     # status
     # -------------------------------------------------------------------------
@@ -302,6 +419,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         step: float = typer.Option(10.0, "--step", help="Coarse step size in degrees."),
         algo: str = typer.Option("coarse-fine", "--algo", help="Sweep algorithm name."),
         seed: int = typer.Option(0, "--seed", help="Random seed."),
+        live: bool = typer.Option(True, "--live/--no-live", help="Render live Rich sweep progress when supported."),
         output_format: str = typer.Option("table", "--format", help="Output format: table or json."),
         topk: int = typer.Option(5, "--topk", min=0, help="Number of best sweep measurements to display in table mode."),
         topology: Optional[Path] = typer.Option(
@@ -311,10 +429,40 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Run a beam sweep and display the best angle and SNR."""
+        from controller.beamsweeping import SweepAlgorithmLoader
+
         net = _new_network_with_controller()
         _load_topology(net, topology)
+        _resolve_sweep_nodes_or_exit(net, ap, ris, ue)
         try:
-            result = net.sweep(ap, ris, ue, fov=fov, step=step, seed=seed)
+            algorithm = SweepAlgorithmLoader.get_algorithm(algo, net)
+            progress_callback = None
+            if live and output_format == "table" and algo in {"linear", "coarse-fine"}:
+                progress, state, progress_callback = _build_live_sweep_callback(algo)
+                with Live(_render_live_sweep_frame(state), console=console, refresh_per_second=12) as live_display:
+                    def live_callback(**payload):
+                        progress_callback(**payload)
+                        live_display.update(_render_live_sweep_frame(state))
+
+                    result = algorithm.sweep(
+                        ap,
+                        ris,
+                        ue,
+                        fov=fov,
+                        step=step,
+                        seed=seed,
+                        progress_callback=live_callback,
+                    )
+                    live_display.update(_render_live_sweep_frame(state))
+            else:
+                result = algorithm.sweep(
+                    ap,
+                    ris,
+                    ue,
+                    fov=fov,
+                    step=step,
+                    seed=seed,
+                )
             if output_format == "json":
                 console.print_json(
                     data={

@@ -893,7 +893,7 @@ waveflow ui status --topology examples/json/example_1_simple.json
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 
 # Beam sweep
-waveflow ui sweep AP1 R1 UE1 --fov 60 --step 10
+waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
 
 # Add a node (operates on an in-memory network; combine with save/load for persistence)
 waveflow ui add ris R2 --x 8 --y 2 --n 32 --bits 2
@@ -929,20 +929,24 @@ waveflow ui connect --help
 waveflow ui sweep --help
 ```
 
+The bundled `examples/json/example_1_simple.json` topology is safe for `status`,
+`connect`, and `sweep` under the current default RIS FOV rules.
+
 ### 14.1 Live Sweep UX with Rich
 
-The `waveflow ui` surface is the natural place to evolve toward richer terminal
-UX for long-running experiments. Even before a full live dashboard exists, the
-intended workflow is:
+`waveflow ui sweep` now includes a live Rich-based terminal path for the
+supported `linear` and `coarse-fine` algorithms. The current workflow is:
 
 - run sweeps from the terminal without needing a GUI
-- inspect structured output for best beam, SNR, and related metrics
+- watch a live progress bar, phase/status view, and recent measurements while
+  the sweep runs
+- inspect structured final output for best beam, SNR, and related metrics
 - use notebook or file export for deeper post-processing
 
-Target terminal UX for future sweep workflows includes:
+Remaining terminal UX work for future sweep workflows includes:
 
-- progress bars for long phase or codebook sweeps
-- live metric tables for SNR, gain, AoA, AoD, and candidate ranking
+- live progress support for algorithms beyond `linear` and `coarse-fine`
+- richer metric tables for SNR, gain, AoA, AoD, and candidate ranking
 - pseudo-heatmaps for beam or phase exploration
 - worker monitoring for parallel search jobs
 - convergence views for ML-guided or optimization-based search

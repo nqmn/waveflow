@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from typing import Dict
+from typing import Callable, Dict, Optional
 
 
 class SweepAlgorithmBase(ABC):
@@ -82,6 +82,18 @@ class SweepAlgorithmBase(ABC):
             'name': self.name,
             'description': self.description
         }
+
+    def _emit_progress(
+        self,
+        callback: Optional[Callable[..., None]],
+        *,
+        event: str,
+        **payload,
+    ) -> None:
+        """Emit an optional sweep progress event for presentation layers."""
+        if callback is None:
+            return
+        callback(event=event, algorithm=self.name, **payload)
 
     @contextmanager
     def _ap_state_guard(self, ap):

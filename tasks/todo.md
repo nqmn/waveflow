@@ -817,3 +817,110 @@ Change budget: [files 4] [functions: terminal sweep rendering, smoke coverage] [
 - Assumptions invalidated: The initial smoke test assumption that `examples/json/example_1_simple.json` was sweep-safe was false because the current geometry trips the RIS FOV gate; the test was corrected to use a self-contained topology fixture.
 - Known debt (acknowledged): Live sweep dashboards and per-iteration UX still need a dedicated progress/event protocol from the algorithms rather than result-only rendering in the terminal layer.
 - Limitations: Verification covered compile checks and `tests/test_smoke.py`; this slice did not add algorithm-level progress semantics or broader CLI integration tests.
+
+## Task: Add Live Sweep UX to `waveflow ui`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the additive progress-callback hooks in `controller/beamsweeping`, the live sweep rendering path in `risnet/terminal_cli.py`, and the matching smoke/docs updates.
+Change budget: [files 7] [functions: sweep progress hooks, terminal live renderer, smoke coverage] [interfaces: `waveflow ui sweep` live output and algorithm selection only] [state mutations: none]
+
+### Scope
+- `controller/beamsweeping/base.py` — add a minimal optional progress event helper
+- `controller/beamsweeping/algorithms/linear_brute_force.py` — emit live progress events during sweep measurements
+- `controller/beamsweeping/algorithms/coarse_fine_sweep.py` — emit coarse/fine live progress events during sweep measurements
+- `risnet/terminal_cli.py` — use `SweepAlgorithmLoader`, add live Rich rendering, and expose a `--live/--no-live` UX toggle
+- `tests/test_smoke.py` — exercise the live terminal sweep path
+- `tasks/test-suite.md` — record the live sweep smoke coverage and remaining gap
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect current sweep algorithm interfaces and CLI path
+- [x] Add minimal additive progress hooks for supported algorithms
+- [x] Add live Typer/Rich sweep rendering without changing result payloads
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: Added live Rich sweep rendering to `waveflow ui sweep` with a progress bar, phase/status table, and rolling recent-measurement table. The CLI now routes through `SweepAlgorithmLoader` so `--algo` is honored, and `linear` plus `coarse-fine` emit additive progress events without changing their final result payloads.
+- Out-of-scope flagged: This slice does not add live progress for vision, ML, DE-localization, or other specialized sweep algorithms.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): Progress/event compatibility is still only implemented for `linear` and `coarse-fine`; other algorithms fall back to the final-result UX until they adopt the same callback contract.
+- Limitations: Verification covered compile checks and `tests/test_smoke.py`; this slice does not add dedicated algorithm-level tests for the progress callback events.
+
+## Task: Clean Invalid-Node Failure for Live Sweep UI
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the pre-live node validation in `risnet/terminal_cli.py`, the matching smoke test, and the task/test-suite updates.
+Change budget: [files 4] [functions: terminal sweep preflight validation, smoke coverage] [interfaces: `waveflow ui sweep` invalid-node failure output only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — validate AP/RIS/UE names before opening the live Rich UI
+- `tests/test_smoke.py` — add a smoke test for the invalid-node failure path
+- `tasks/test-suite.md` — record the added smoke coverage
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect the current invalid-node failure path in `waveflow ui sweep`
+- [x] Move node validation ahead of the live Rich renderer
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: `waveflow ui sweep` now validates the requested AP/RIS/UE names before opening the live Rich renderer, so missing-node failures print a clean terminal error instead of showing a stuck pending sweep panel first.
+- Out-of-scope flagged: This slice does not make sweep node lookup case-insensitive or auto-discover default AP/RIS/UE names.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): The command still requires exact node names from the loaded topology; there is no fuzzy matching or default-role resolution in the interactive CLI path yet.
+- Limitations: Verification covered compile checks and `tests/test_smoke.py`; this slice does not add broader CLI usability tests beyond the missing-node failure smoke.
+
+## Task: Make `example_1_simple.json` Sweep-Safe
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the coordinate change in `examples/json/example_1_simple.json`, the new smoke test, and the matching task/test-suite updates.
+Change budget: [files 4] [functions: none, example topology and smoke coverage only] [interfaces: bundled example topology behavior only] [state mutations: none]
+
+### Scope
+- `examples/json/example_1_simple.json` — adjust the simple example geometry so AP, RIS, and UE are sweep-safe under the current RIS FOV rules
+- `tests/test_smoke.py` — add a smoke check that the bundled simple topology supports `waveflow ui sweep`
+- `tasks/test-suite.md` — record the added bundled-topology sweep smoke coverage
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect current `example_1_simple.json` usage and geometry
+- [x] Update the simple example coordinates to a sweep-safe layout
+- [x] Add smoke coverage for sweeping the bundled topology
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: Adjusted `examples/json/example_1_simple.json` to a sweep-safe AP/RIS/UE geometry under the default RIS FOV rules and added smoke coverage that runs `waveflow ui sweep` directly against the bundled example file.
+- Out-of-scope flagged: This slice does not update the docs text yet; it only makes the bundled example topology itself consistent with the current sweep constraints.
+- Assumptions invalidated: The first revised UE position still failed the actual sweep geometry, so the example was corrected again to a passing layout after CLI verification.
+- Known debt (acknowledged): The docs still contain older sweep examples and should be aligned with the now sweep-safe bundled topology in a separate documentation pass.
+- Limitations: Verification covered `tests/test_smoke.py`, `tests/test_scenarios.py`, and a compile check; this slice did not update broader tutorial/readme wording yet.
+
+## Task: Align `TUTORIAL.md` with Current Sweep UX
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the tutorial-only wording updates in `TUTORIAL.md` and this task entry.
+Change budget: [files 2] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `TUTORIAL.md` — fix the `waveflow ui sweep` example to include `--topology`, note that `example_1_simple.json` is now sweep-safe, and update the live sweep UX description to match current behavior
+- `tasks/todo.md` — record this documentation task
+
+### Steps
+- [x] Inspect the current tutorial sweep examples and live UX wording
+- [x] Update the stale CLI example and live UX note
+- [x] Review diff for scope compliance
+
+### Review
+- Completed: Updated the tutorial so the `waveflow ui sweep` example includes the bundled topology path, documented that `example_1_simple.json` is now sweep-safe, and revised the live sweep UX section to reflect the current Rich live path for `linear` and `coarse-fine`.
+- Out-of-scope flagged: `README.md` still contains its own sweep example text and was not changed in this pass.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification was limited to diff review because this slice only changed documentation.

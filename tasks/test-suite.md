@@ -17,7 +17,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 9 | Import, CLI, entry points | Includes Typer/Rich sweep rendering smoke |
+| `test_smoke.py` | pytest | 11 | Import, CLI, entry points | Includes Typer/Rich live sweep rendering smoke, bundled topology sweep smoke, and invalid-node failure handling |
 | `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
@@ -211,7 +211,9 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `from waveflow import RISnet` and `from risnet import RISnet` succeed
 - `python -m risnet --help` and `waveflow --help` exit cleanly
 - `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
-- `waveflow ui sweep` renders the Rich table UX from outside repo root
+- `waveflow ui sweep` renders the Rich live/table UX from outside repo root
+- `examples/json/example_1_simple.json` remains sweep-safe for `waveflow ui sweep`
+- `waveflow ui sweep` fails cleanly on missing AP/RIS/UE names before opening the live Rich UI
 - Minimal `RISNetwork.connect()` smoke run
 - `examples/script/example_19_hog_human_detection.py` imports successfully and builds a demo network using current public APIs
 
@@ -235,6 +237,7 @@ have automated test coverage in the current repo:
 | Multi-hop RIS (BS→RIS1→RIS2→UE) | Not implemented in core |
 | Localization RMSE/CDF metrics | No systematic localization accuracy test |
 | `waveflow validate` CLI | Not implemented |
+| Live sweep progress contract | Only smoke-covered for `linear`; broader event compatibility across sweep algorithms is not yet validated |
 | Cross-simulator comparison | Manual/aspirational only |
 | Measurement validation | Manual/aspirational only |
 

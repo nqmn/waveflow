@@ -113,6 +113,7 @@ class CoarseFineSweep(SweepAlgorithmBase):
         pwr_coarse = []
         ser_coarse = [None] * num_coarse if use_waveform else None
         feedback_collector = FeedbackCollector(enable_feedback)
+        progress_callback = kwargs.get('progress_callback')
 
         # Setup signal simulator if waveform mode is enabled
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
@@ -131,6 +132,16 @@ class CoarseFineSweep(SweepAlgorithmBase):
         # Test angles in center-out order
         snr_array = np.full(num_coarse, np.nan)
         pwr_array = np.full(num_coarse, np.nan)
+
+        self._emit_progress(
+            progress_callback,
+            event='start',
+            phase='coarse',
+            total=num_coarse,
+            completed=0,
+            best_snr_dB=None,
+            best_angle_deg=None,
+        )
 
         def measure_idx(idx: int):
             if not np.isnan(snr_array[idx]):
@@ -166,6 +177,26 @@ class CoarseFineSweep(SweepAlgorithmBase):
             if enable_feedback and 'feedback_info' in res:
                 feedback_collector.add(float(abs_angles[idx]), float(local_coarse[idx]), res['feedback_info'], phase='coarse')
 
+            best_snr_so_far = None
+            best_angle_so_far = None
+            if not np.all(np.isnan(snr_array)):
+                best_so_far_idx = int(np.nanargmax(snr_array))
+                best_snr_so_far = float(snr_array[best_so_far_idx])
+                best_angle_so_far = float(local_coarse[best_so_far_idx])
+
+            self._emit_progress(
+                progress_callback,
+                event='measurement',
+                phase='coarse',
+                total=num_coarse,
+                completed=int(np.count_nonzero(~np.isnan(snr_array))),
+                local_angle_deg=float(local_coarse[idx]),
+                abs_angle_deg=float(abs_angles[idx]),
+                snr_dB=None if np.isnan(snr_array[idx]) else float(snr_array[idx]),
+                best_snr_dB=best_snr_so_far,
+                best_angle_deg=best_angle_so_far,
+            )
+
         # Measure ML suggestions ahead of center-out traversal
         if ml_angles:
             for suggested in ml_angles:
@@ -200,6 +231,16 @@ class CoarseFineSweep(SweepAlgorithmBase):
         snr_fine = []
         ser_fine = [None] * len(local_fine) if use_waveform else None
 
+        self._emit_progress(
+            progress_callback,
+            event='start',
+            phase='fine',
+            total=len(local_fine),
+            completed=0,
+            best_snr_dB=float(np.nanmax(snr_array)) if not np.all(np.isnan(snr_array)) else None,
+            best_angle_deg=float(best_local),
+        )
+
         for i, abs_a in enumerate(abs_angles_fine):
             with self._ap_state_guard(ap):
                 r = self.network.connect(
@@ -231,6 +272,28 @@ class CoarseFineSweep(SweepAlgorithmBase):
             if enable_feedback and 'feedback_info' in r:
                 feedback_collector.add(float(abs_a), float(local_fine[i]), r['feedback_info'], phase='fine')
 
+            best_fine_snr = None
+            best_fine_angle = None
+            if snr_fine:
+                fine_values = np.array(snr_fine, dtype=float)
+                if not np.all(np.isnan(fine_values)):
+                    best_fine_idx_so_far = int(np.nanargmax(fine_values))
+                    best_fine_snr = float(fine_values[best_fine_idx_so_far])
+                    best_fine_angle = float(local_fine[best_fine_idx_so_far])
+
+            self._emit_progress(
+                progress_callback,
+                event='measurement',
+                phase='fine',
+                total=len(local_fine),
+                completed=i + 1,
+                local_angle_deg=float(local_fine[i]),
+                abs_angle_deg=float(abs_a),
+                snr_dB=None if np.isnan(snr_fine[-1]) else float(snr_fine[-1]),
+                best_snr_dB=best_fine_snr,
+                best_angle_deg=best_fine_angle,
+            )
+
         # Find best fine angle using SNR
         # NOTE: metric_selector is no longer passed to sweep algorithms
         # Post-processing in connection_handler will override using correct metric
@@ -254,5 +317,15 @@ class CoarseFineSweep(SweepAlgorithmBase):
         if use_waveform and ser_coarse:
             result['ser_coarse'] = ser_coarse
             result['ser_fine'] = ser_fine if ser_fine else []
+
+        self._emit_progress(
+            progress_callback,
+            event='complete',
+            phase='fine',
+            total=len(local_fine),
+            completed=len(local_fine),
+            best_snr_dB=float(np.max(snr_fine)),
+            best_angle_deg=float(best_local_fine),
+        )
 
         return result

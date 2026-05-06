@@ -120,9 +120,20 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         power_values = [None] * num_angles
         ser_values = [None] * num_angles if use_waveform else None
         feedback_collector = FeedbackCollector(enable_feedback)
+        progress_callback = kwargs.get('progress_callback')
 
         # Setup waveform simulator if requested
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
+
+        self._emit_progress(
+            progress_callback,
+            event='start',
+            phase='coarse',
+            total=num_angles,
+            completed=0,
+            best_snr_dB=None,
+            best_angle_deg=None,
+        )
 
         def measure_index(idx: int):
             if snr_values[idx] is not None:
@@ -154,6 +165,29 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
 
             if enable_feedback and 'feedback_info' in res:
                 feedback_collector.add(float(abs_a), float(angles[idx]), res['feedback_info'])
+
+            measured_snrs = [value for value in snr_values if value is not None]
+            best_snr_so_far = max(measured_snrs) if measured_snrs else None
+            best_idx_so_far = int(np.nanargmax(np.array(measured_snrs))) if measured_snrs else None
+            best_angle_so_far = None
+            if best_snr_so_far is not None:
+                for candidate_idx, candidate_snr in enumerate(snr_values):
+                    if candidate_snr == best_snr_so_far:
+                        best_angle_so_far = float(angles[candidate_idx])
+                        break
+
+            self._emit_progress(
+                progress_callback,
+                event='measurement',
+                phase='coarse',
+                total=num_angles,
+                completed=sum(value is not None for value in snr_values),
+                local_angle_deg=float(angles[idx]),
+                abs_angle_deg=float(abs_a),
+                snr_dB=float(snr_val) if snr_val is not None else None,
+                best_snr_dB=float(best_snr_so_far) if best_snr_so_far is not None else None,
+                best_angle_deg=best_angle_so_far,
+            )
 
         # Measure ML-suggested angles first (if provided)
         if ml_angles:
@@ -200,5 +234,15 @@ class LinearBruteForceSweep(SweepAlgorithmBase):
         if use_waveform and ser_values:
             result['ser_coarse'] = ser_values
             result['ser_fine'] = []
+
+        self._emit_progress(
+            progress_callback,
+            event='complete',
+            phase='coarse',
+            total=num_angles,
+            completed=num_angles,
+            best_snr_dB=float(best_snr),
+            best_angle_deg=float(best_angle),
+        )
 
         return result
