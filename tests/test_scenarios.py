@@ -10,6 +10,7 @@ from risnet import (
     ScenarioRunResult,
     ScenarioRunner,
     ScenarioSequenceResult,
+    SweepScenario,
 )
 
 
@@ -47,6 +48,7 @@ def test_scenario_runner_executes_connect_with_auto_resolved_names(tmp_path):
     run = runner.run_connect(topology_path, seed=42, use_get_snr=False)
 
     assert isinstance(run, ScenarioRunResult)
+    assert run.action == "connect"
     assert run.ap_name == "AP1"
     assert run.ris_name == "R1"
     assert run.ue_name == "UE1"
@@ -123,6 +125,8 @@ def test_scenario_runner_executes_action_list_on_shared_network(tmp_path):
 
     assert isinstance(run, ScenarioSequenceResult)
     assert len(run.steps) == 2
+    assert run.steps[0].action == "connect"
+    assert run.steps[1].action == "connect"
     assert run.steps[0].network is run.network
     assert run.steps[1].network is run.network
     assert run.steps[0].result["snr_dB"] == pytest.approx(run.steps[1].result["snr_dB"])
@@ -141,4 +145,65 @@ def test_scenario_request_requires_connect_or_actions(tmp_path):
     with pytest.raises(ValueError) as exc_info:
         runner.run(ScenarioRequest(topology_path=topology_path))
 
-    assert "requires either `connect` or `actions`" in str(exc_info.value)
+    assert "requires `connect`, `sweep`, or `actions`" in str(exc_info.value)
+
+
+def test_scenario_runner_executes_request_sweep(tmp_path):
+    topology_path = tmp_path / "scenario_sweep.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Sweep",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest(
+        topology_path=topology_path,
+        sweep=SweepScenario(kwargs={"fov": 60, "step": 10, "seed": 42}),
+    )
+
+    run = runner.run(request)
+
+    assert isinstance(run, ScenarioRunResult)
+    assert run.action == "sweep"
+    assert run.ap_name == "AP1"
+    assert run.ris_name == "R1"
+    assert run.ue_name == "UE1"
+    assert "best_snr_fine" in run.result
+
+
+def test_scenario_runner_executes_mixed_action_list(tmp_path):
+    topology_path = tmp_path / "scenario_mixed_actions.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Mixed Actions",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest(
+        topology_path=topology_path,
+        actions=[
+            ConnectScenario(kwargs={"seed": 42, "use_get_snr": False}),
+            SweepScenario(kwargs={"fov": 60, "step": 10, "seed": 42}),
+        ],
+    )
+
+    run = runner.run(request)
+
+    assert isinstance(run, ScenarioSequenceResult)
+    assert [step.action for step in run.steps] == ["connect", "sweep"]
+    assert run.steps[0].network is run.network
+    assert run.steps[1].network is run.network

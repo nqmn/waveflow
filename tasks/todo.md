@@ -328,3 +328,28 @@ Change budget: [files 3] [functions: additive action-list request handling and s
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: The action list currently supports repeated connect actions only; additional action types such as sweep remain future work.
+
+## Task: Phase 5 sweep action support
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive sweep-action changes in `risnet/scenarios.py`, exports, and focused tests.
+Change budget: [files 3] [functions: additive sweep dataclass and runner path, targeted tests, additive export if required] [interfaces: additive risnet scenario sweep surface only] [state mutations: none beyond existing network/load/sweep side effects]
+
+### Scope
+- `risnet/scenarios.py` — additive `SweepScenario` and sweep execution path
+- `risnet/__init__.py` — only for additive exports
+- `tests/test_scenarios.py` — focused sweep coverage
+
+### Steps
+- [x] Add dedicated sweep action support while preserving existing connect paths
+- [x] Add focused tests for request-based sweep execution
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Added `SweepScenario`, request-based sweep execution, and mixed connect/sweep action-list support with shared-network execution.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The action list now supports connect and sweep only; richer declarative scenario documents and additional action types remain future work.

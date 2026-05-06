@@ -38,6 +38,7 @@ from .scenarios import (
     ScenarioRunner,
     ScenarioRunResult,
     ScenarioSequenceResult,
+    SweepScenario,
 )
 
 

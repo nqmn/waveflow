@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from cli.helpers import NetworkIO
 from core import RISNetwork
@@ -17,6 +17,7 @@ class ScenarioRunResult:
 
     topology_path: Path
     network: RISNetwork
+    action: str
     ap_name: str
     ris_name: str
     ue_name: str
@@ -43,12 +44,23 @@ class ConnectScenario:
 
 
 @dataclass
+class SweepScenario:
+    """Declarative sweep action for a loaded topology."""
+
+    ap_name: Optional[str] = None
+    ris_name: Optional[str] = None
+    ue_name: Optional[str] = None
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ScenarioRequest:
     """Minimal explicit request surface for a headless scenario run."""
 
     topology_path: Path
     connect: Optional[ConnectScenario] = None
-    actions: list[ConnectScenario] = field(default_factory=list)
+    sweep: Optional[SweepScenario] = None
+    actions: list[Union[ConnectScenario, SweepScenario]] = field(default_factory=list)
 
 
 class ScenarioRunner:
@@ -102,6 +114,27 @@ class ScenarioRunner:
         return ScenarioRunResult(
             topology_path=topology,
             network=net,
+            action="connect",
+            ap_name=ap_name,
+            ris_name=ris_name,
+            ue_name=ue_name,
+            result=result,
+        )
+
+    def run_sweep(self, topology_path: str | Path, *,
+                  ap_name: Optional[str] = None,
+                  ris_name: Optional[str] = None,
+                  ue_name: Optional[str] = None,
+                  network: Optional[RISNetwork] = None,
+                  **sweep_kwargs) -> ScenarioRunResult:
+        topology = Path(topology_path)
+        net = network if network is not None else self.load_topology(topology)
+        ap_name, ris_name, ue_name = self._resolve_connect_names(net, ap_name, ris_name, ue_name)
+        result = net.sweep(ap_name, ris_name, ue_name, **sweep_kwargs)
+        return ScenarioRunResult(
+            topology_path=topology,
+            network=net,
+            action="sweep",
             ap_name=ap_name,
             ris_name=ris_name,
             ue_name=ue_name,
@@ -112,25 +145,24 @@ class ScenarioRunner:
         """Execute a declarative scenario request."""
         if request.actions:
             net = self.load_topology(request.topology_path)
-            steps = [
-                self.run_connect(
-                    request.topology_path,
-                    ap_name=action.ap_name,
-                    ris_name=action.ris_name,
-                    ue_name=action.ue_name,
-                    network=net,
-                    **action.kwargs,
-                )
-                for action in request.actions
-            ]
+            steps = [self._run_action(request.topology_path, action, network=net) for action in request.actions]
             return ScenarioSequenceResult(
                 topology_path=Path(request.topology_path),
                 network=net,
                 steps=steps,
             )
 
+        if request.sweep is not None:
+            return self.run_sweep(
+                request.topology_path,
+                ap_name=request.sweep.ap_name,
+                ris_name=request.sweep.ris_name,
+                ue_name=request.sweep.ue_name,
+                **request.sweep.kwargs,
+            )
+
         if request.connect is None:
-            raise ValueError("ScenarioRequest requires either `connect` or `actions`.")
+            raise ValueError("ScenarioRequest requires `connect`, `sweep`, or `actions`.")
 
         return self.run_connect(
             request.topology_path,
@@ -139,3 +171,26 @@ class ScenarioRunner:
             ue_name=request.connect.ue_name,
             **request.connect.kwargs,
         )
+
+    def _run_action(self, topology_path: str | Path,
+                    action: Union[ConnectScenario, SweepScenario],
+                    *, network: RISNetwork) -> ScenarioRunResult:
+        if isinstance(action, ConnectScenario):
+            return self.run_connect(
+                topology_path,
+                ap_name=action.ap_name,
+                ris_name=action.ris_name,
+                ue_name=action.ue_name,
+                network=network,
+                **action.kwargs,
+            )
+        if isinstance(action, SweepScenario):
+            return self.run_sweep(
+                topology_path,
+                ap_name=action.ap_name,
+                ris_name=action.ris_name,
+                ue_name=action.ue_name,
+                network=network,
+                **action.kwargs,
+            )
+        raise TypeError(f"Unsupported scenario action: {type(action).__name__}")
