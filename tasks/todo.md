@@ -1,3 +1,27 @@
+## Task: Expand tutorial coverage for sweep, ML, localization, and vision
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the documentation-only edits in `TUTORIAL.md` and this task entry.
+Change budget: [files 2] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `TUTORIAL.md` — add explicit tutorial coverage for localization-oriented sweep workflows, vision-assisted usage, and richer terminal UX guidance.
+- `tasks/todo.md` — record this documentation task.
+
+### Steps
+- [x] Inspect current tutorial gaps against requested coverage
+- [x] Add tutorial sections for localization, vision, and terminal sweep UX
+- [x] Review diff for scope compliance
+
+### Review
+- Completed: Expanded `TUTORIAL.md` with localization-oriented sweep guidance, vision-assisted workflow coverage, and a richer terminal UX section aligned with the future roadmap.
+- Out-of-scope flagged: Existing tutorial examples remain example-driven for vision; this task did not add or validate new runtime commands.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification was limited to diff review because this task only changed documentation.
+
 ## Task: Phase 2 Array Quantization Helpers
 Mode: Standard
 Risk: Medium

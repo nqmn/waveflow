@@ -688,6 +688,93 @@ PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_xgb.py
 ```
 
+### 12.3 Localization-Oriented Sweep Algorithms
+
+Waveflow also includes sweep modes that do more than maximize SNR. Some
+algorithms use beam measurements to estimate UE location or refine a prior
+position estimate while sweeping.
+
+Available directions in the repository include:
+
+- `prime` / `anm-localization` for localization-oriented estimation
+- `de-localization` for blind UE localization via differential evolution
+- standard sweep algorithms for pure beam optimization baselines
+
+Programmatic example:
+
+```python
+from core import RISNetwork
+from controller.beamsweeping import SweepAlgorithmLoader
+
+net = RISNetwork(enable_messaging=False)
+net.add_ap('ap1',  0, 0)
+net.add_ris('ris1', 5, 0, max_angle_deg=90)
+net.add_ue('ue1', 10, 3)
+
+loader = SweepAlgorithmLoader(net)
+algo = loader.get_algorithm('prime')
+
+result = algo.sweep('ap1', 'ris1', 'ue1', fov=60, step=10)
+print(f"Best SNR: {result.get('best_snr_fine', float('nan')):.1f} dB")
+print("Estimated location:", result.get('location'))
+```
+
+When available, inspect:
+
+- estimated UE location
+- localization error against ground truth
+- measurement consistency across beams
+- recommended steering angle after estimation
+
+CLI discovery example:
+
+```bash
+waveflow ui run sweep ap1 ris1 ue1 60 10 --algo prime
+waveflow ui run sweep ap1 ris1 ue1 60 10 --algo de-localization
+```
+
+Use these modes when the research question is not only "which beam is best?"
+but also "what does the beam response tell us about UE position?"
+
+### 12.4 Vision-Assisted Workflows
+
+Vision support exists as an optional workflow for experiments where the UE or
+target is derived from camera observations instead of being entered manually.
+This is especially useful for ArUco-assisted positioning and HOG-based human
+detection demos.
+
+Install the optional extra first:
+
+```bash
+pip install -e ".[vision]"
+```
+
+ArUco marker generation example:
+
+```bash
+PYTHONPATH=. python3 examples/script/example_18_aruco_markers.py
+```
+
+Expected output includes generated marker files under `aruco_markers/`.
+
+HOG-based detection example:
+
+```bash
+PYTHONPATH=. python3 examples/script/example_19_hog_human_detection.py
+```
+
+Notes:
+
+- example 18 is offline and suitable for setup validation
+- example 19 is interactive and may require a webcam
+- camera-assisted workflows are optional, not part of the base install
+- vision is currently example-driven rather than a complete end-to-end CLI
+  product surface
+
+If you are evaluating vision integration, focus on whether detection output can
+be turned into stable sweep inputs such as target angle, target position, or
+tracked candidate identities.
+
 ---
 
 ## Part 13 — Headless Scenario Runner
@@ -841,6 +928,27 @@ Each command has a `--help` flag:
 waveflow ui connect --help
 waveflow ui sweep --help
 ```
+
+### 14.1 Live Sweep UX with Rich
+
+The `waveflow ui` surface is the natural place to evolve toward richer terminal
+UX for long-running experiments. Even before a full live dashboard exists, the
+intended workflow is:
+
+- run sweeps from the terminal without needing a GUI
+- inspect structured output for best beam, SNR, and related metrics
+- use notebook or file export for deeper post-processing
+
+Target terminal UX for future sweep workflows includes:
+
+- progress bars for long phase or codebook sweeps
+- live metric tables for SNR, gain, AoA, AoD, and candidate ranking
+- pseudo-heatmaps for beam or phase exploration
+- worker monitoring for parallel search jobs
+- convergence views for ML-guided or optimization-based search
+
+This is the right model for SSH, HPC, batch experimentation, and reproducible
+research pipelines where a programmable interface matters more than a GUI shell.
 
 ---
 
@@ -1036,6 +1144,9 @@ done
 | Part 10 — Feedback | `example_12`, `example_13` |
 | Part 11 — Waveform | `example_8`, `example_10`, `example_14` |
 | Part 12 — ML | `example_11` |
+| Part 12.3 — Localization sweep modes | repository algorithms `prime`, `anm-localization`, `de-localization` |
+| Part 12.4 — Vision workflows | `example_18`, `example_19` |
+| Part 14.1 — Terminal sweep UX | `waveflow ui`, `example_17` |
 | Part 16 — Batch study | `example_6` |
 | Vision / hardware | `example_18`, `example_19` |
 | Streaming | `example_15` |
