@@ -7,7 +7,7 @@
 
 Waveflow is a Python simulator for wireless networks assisted by Reconfigurable Intelligent Surfaces (RIS). It lets researchers and engineers model how passive reflective panels can improve signal coverage, optimize beam angles, and evaluate link quality — without physical hardware.
 
-Use it to prototype RIS-assisted network topologies, benchmark beam sweeping algorithms, and study propagation physics through a scriptable Python API or interactive CLI.
+Use it to prototype RIS-assisted network topologies, benchmark beam sweeping algorithms, and study propagation physics through a scriptable Python API, interactive CLI, or modern terminal commands.
 
 ## Quick Start
 
@@ -37,7 +37,8 @@ Step-by-step tutorials: **[TUTORIAL.md](TUTORIAL.md)**
 | Pathfinding | Dijkstra, A\*, Greedy, Exhaustive |
 | Channel | OFDM waveform, multipath, per-subcarrier SNR |
 | ML | Random Forest, XGBoost, SVR, KNN, LGBM beam predictors |
-| Interface | Interactive CLI, Python API |
+| Interface | Interactive CLI, modern terminal UI (`waveflow ui`), Python API |
+| Scenarios | Headless JSON/YAML scenario runner, no Flask required |
 | Feedback | UE→AP SNR feedback loop with adaptive beam tracking |
 
 ## Usage
@@ -53,6 +54,28 @@ waveflow> connect ap1 ris1 ue1
 SNR: 29.9 dB
 waveflow> sweep ap1 ris1 ue1 60 10 --algo de
 waveflow> help
+```
+
+### Modern Terminal UI
+
+```bash
+# Run the full test suite
+waveflow ui testall
+
+# Connect nodes from a topology file
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+
+# Beam sweep
+waveflow ui sweep AP1 R1 UE1 --fov 60 --step 10 --algo coarse-fine
+
+# Run any legacy CLI command non-interactively
+waveflow ui run signal AP1 R1 UE1 --breakdown
+
+# Open interactive shell
+waveflow ui shell
+
+# Full command list
+waveflow ui --help
 ```
 
 ### Python API
@@ -83,6 +106,37 @@ result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
 print(f"SNR: {result['snr_dB']:.1f} dB")
 ```
 
+### Headless Scenario Runner
+
+Run simulations from a JSON or YAML file — no Flask, no interactive shell:
+
+```python
+from risnet import ScenarioRunner, ScenarioRequest
+
+runner = ScenarioRunner()
+result = runner.run_connect(
+    'examples/json/example_1_simple.json',
+    use_get_snr=False,
+)
+print(f"SNR: {result.result['snr_dB']:.1f} dB")
+```
+
+Or from a YAML scenario file:
+
+```yaml
+# scenario.yaml
+topology_path: examples/json/example_1_simple.json
+connect:
+  ap_name: ap1
+  ris_name: ris1
+  ue_name: ue1
+```
+
+```python
+request = ScenarioRequest.from_file('scenario.yaml')
+result = runner.run(request)
+```
+
 ## Beam Sweep Algorithms
 
 ```bash
@@ -111,7 +165,7 @@ waveflow/
 ├── config/             # Configuration management
 ├── utils/              # Link budget, SNR, RSSI helpers
 ├── waveflow/           # Public package (forward-looking name)
-├── risnet/             # Backward-compatible package and high-level API
+├── risnet/             # Backward-compatible package, high-level API, scenario runner
 ├── matlab_integration/ # Optional MATLAB bridge
 ├── examples/
 │   ├── script/         # Runnable Python examples
@@ -131,7 +185,10 @@ python3 -m compileall core controller cli risnet waveflow config utils
 # Physics regression
 PYTHONPATH=. python3 tests/test_physics_fixes.py
 
-# Full suite
+# Full test suite (via terminal UI)
+waveflow ui testall
+
+# Full suite with pytest
 pip install -e ".[dev]"
 pytest tests/ -v
 ```

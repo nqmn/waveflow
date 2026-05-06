@@ -3,7 +3,7 @@
 This tutorial is structured in two tiers:
 
 - **Beginner** (Parts 1–4) — concepts, analogies, and simple examples. No prior wireless engineering knowledge required. Suitable for final-year undergraduates and researchers new to RIS.
-- **Advanced** (Parts 5–12) — full API, physics models, waveform simulation, ML-guided optimization, and custom algorithm development. Suitable for researchers and engineers.
+- **Advanced** (Parts 5–15) — full API, physics models, waveform simulation, ML-guided optimization, scenario runner, and custom algorithm development. Suitable for researchers and engineers.
 
 Prerequisites: completed installation per [INSTALL.md](INSTALL.md).
 
@@ -48,7 +48,7 @@ Waveflow lets you:
 | **Beam angle** | The direction the RIS reflects the signal toward |
 | **Beam sweep** | Searching through angles to find the one with the best SNR |
 | **Phase quantization** | RIS elements can only set phases in discrete steps (1-bit = 2 steps, 2-bit = 4 steps). More bits = less error. |
-| **FOV** (Field of View) | The angular range the RIS can "see". AP and UE must be within this cone. |
+| **FOV** (Field of View) | The angular range the RIS can "see". AP and UE must both fall within this cone. |
 | **Path loss** | Signal weakening over distance. Doubles every time distance increases by a factor. |
 
 ### 1.3 How a Simulation Works (Step by Step)
@@ -85,6 +85,7 @@ Now type these commands one by one:
 waveflow> add ap ap1 0 0
 
 # Step 2: Add a RIS at position (5, 0) with 16 elements and 2-bit phase resolution
+#         max_angle_deg defaults to 60; set it wider via the ris command if needed
 waveflow> add ris ris1 5 0 0 16 2
 
 # Step 3: Add a User Equipment at position (10, 3)
@@ -205,27 +206,24 @@ print(f"Throughput: {throughput['throughput_Mbps']:.1f} Mbps")
 net.stop()
 ```
 
-### 4.2 What Happens If There Is No Path?
+### 4.2 RIS Field of View (FOV)
 
-If the UE is outside the RIS field of view, the connection fails:
+The RIS has a limited field of view — both the AP and UE must fall within its angular cone. The default FOV is ±60°. If either node is outside, the connection will be rejected.
 
 ```python
 from core import RISNetwork
 
 net = RISNetwork(enable_messaging=False)
 net.add_ap('ap1', 0, 0)
-net.add_ris('ris1', 5, 0, N=16, bits=2)  # default FOV = ±60°
-net.add_ue('ue1', 10, 0)  # directly behind RIS — outside FOV
+net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)  # ±90° FOV
+net.add_ue('ue1', 10, 3)
 
 result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
-print(result.get('error', 'OK'))  # will show FOV rejection message
+print(f"SNR: {result['snr_dB']:.1f} dB")
 ```
 
-**Fix**: widen the FOV or reposition nodes:
-
-```python
-net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)  # ±90° FOV
-```
+Setting `max_angle_deg=90` gives the RIS a ±90° cone, which comfortably covers
+collinear AP→RIS→UE layouts where AP is behind the RIS.
 
 ### 4.3 Comparing Two Configurations
 
@@ -310,9 +308,9 @@ net.add_ap(
 net.add_ris(
     name='ris1',
     x=5, y=0, z=0.0,
-    N=32,                 # number of elements
+    N=32,                 # number of elements per side
     bits=2,               # phase shifter resolution (1–4 bits)
-    max_angle_deg=60,     # half-angle FOV
+    max_angle_deg=90,     # half-angle FOV (±degrees from boresight)
     normal_angle_deg=0.0, # boresight direction (0° = +X axis)
 )
 
@@ -669,9 +667,155 @@ PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_xgb.py
 
 ---
 
-## Part 13 — Adding a Custom Beam Sweep Algorithm
+## Part 13 — Headless Scenario Runner
 
-### 13.1 Algorithm Template
+The scenario runner lets you execute simulations from a topology file without the
+interactive shell or Flask. This is suitable for automated pipelines, batch jobs,
+and testing.
+
+### 13.1 Run a Connect from Code
+
+```python
+from risnet import ScenarioRunner
+
+runner = ScenarioRunner()
+
+# Auto-resolves first AP, RIS, UE in the topology
+result = runner.run_connect(
+    'examples/json/example_1_simple.json',
+    use_get_snr=False,
+)
+print(f"SNR: {result.result['snr_dB']:.1f} dB")
+print(f"AP: {result.ap_name}, RIS: {result.ris_name}, UE: {result.ue_name}")
+```
+
+### 13.2 Run a Sweep from Code
+
+```python
+sweep_result = runner.run_sweep(
+    'examples/json/example_1_simple.json',
+    fov=60,
+    step=10,
+)
+print(f"Best SNR: {sweep_result.result['best_snr_fine']:.1f} dB")
+```
+
+### 13.3 Declarative Scenario via Dict
+
+```python
+from risnet import ScenarioRunner, ScenarioRequest
+
+request = ScenarioRequest.from_dict({
+    "topology_path": "examples/json/example_1_simple.json",
+    "connect": {
+        "ap_name": "ap1",
+        "ris_name": "ris1",
+        "ue_name": "ue1",
+    }
+})
+
+runner = ScenarioRunner()
+result = runner.run(request)
+print(f"SNR: {result.result['snr_dB']:.1f} dB")
+```
+
+### 13.4 Declarative Scenario via YAML File
+
+Create `scenario.yaml`:
+
+```yaml
+topology_path: examples/json/example_1_simple.json
+connect:
+  ap_name: ap1
+  ris_name: ris1
+  ue_name: ue1
+```
+
+Run it:
+
+```python
+from risnet import ScenarioRunner, ScenarioRequest
+
+request = ScenarioRequest.from_file('scenario.yaml')
+runner = ScenarioRunner()
+result = runner.run(request)
+print(f"SNR: {result.result['snr_dB']:.1f} dB")
+```
+
+### 13.5 Multi-Action Scenario
+
+Run a connect followed by a sweep in a single topology load:
+
+```python
+from risnet import ScenarioRunner, ScenarioRequest
+
+request = ScenarioRequest.from_dict({
+    "topology_path": "examples/json/example_1_simple.json",
+    "actions": [
+        {"type": "connect", "ap_name": "ap1", "ris_name": "ris1", "ue_name": "ue1"},
+        {"type": "sweep",   "ap_name": "ap1", "ris_name": "ris1", "ue_name": "ue1",
+         "kwargs": {"fov": 60, "step": 10}},
+    ]
+})
+
+runner = ScenarioRunner()
+seq = runner.run(request)
+for step in seq.steps:
+    print(f"{step.action}: {step.result.get('snr_dB') or step.result.get('best_snr_fine'):.1f} dB")
+```
+
+---
+
+## Part 14 — Modern Terminal UI (`waveflow ui`)
+
+`waveflow ui` provides a Typer/Rich terminal surface with structured commands and
+`--help` on every command. It covers all common operations without entering the
+interactive shell.
+
+```bash
+# All available commands
+waveflow ui --help
+
+# Network status
+waveflow ui status --topology examples/json/example_1_simple.json
+
+# Connect nodes from a topology
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+
+# Beam sweep
+waveflow ui sweep AP1 R1 UE1 --fov 60 --step 10
+
+# Add a node (operates on an in-memory network; combine with save/load for persistence)
+waveflow ui add ris R2 --x 8 --y 2 --n 32 --bits 2
+
+# Save and load topology
+waveflow ui save mynet.json
+waveflow ui load mynet.json
+
+# Run the comprehensive test suite
+waveflow ui testall
+
+# Run any legacy CLI command non-interactively
+waveflow ui run signal AP1 R1 UE1 --breakdown
+waveflow ui run plot --type sweep
+waveflow ui run ap AP1 show
+
+# Open the interactive shell
+waveflow ui shell
+```
+
+Each command has a `--help` flag:
+
+```bash
+waveflow ui connect --help
+waveflow ui sweep --help
+```
+
+---
+
+## Part 15 — Adding a Custom Beam Sweep Algorithm
+
+### 15.1 Algorithm Template
 
 ```python
 # File: controller/beamsweeping/algorithms/my_sweep.py
@@ -715,7 +859,7 @@ class MySweep(SweepAlgorithmBase):
         }
 ```
 
-### 13.2 Using Your Algorithm
+### 15.2 Using Your Algorithm
 
 ```python
 import controller.beamsweeping.algorithms.my_sweep  # triggers registration
@@ -741,7 +885,7 @@ waveflow> sweep ap1 ris1 ue1 45 5 --algo my-sweep
 
 ---
 
-## Part 14 — Batch Parameter Study
+## Part 16 — Batch Parameter Study
 
 Useful for research — sweep across RIS configurations and collect results:
 
@@ -775,7 +919,7 @@ for r in results:
 
 ---
 
-## Part 15 — Loading Topologies from JSON
+## Part 17 — Loading Topologies from JSON
 
 ```python
 import json
