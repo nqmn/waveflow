@@ -451,3 +451,28 @@ Change budget: [files 4] [functions: `tests/test_fixes.py::test_rms_phase_error`
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Verification for this slice was targeted to `tests/test_fixes.py`; it did not re-run the broader suite.
+
+## Task: Expand testall diagnostic coverage
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive `cli/test_suite.py` and `tasks/test-suite.md` hunks if the new diagnostic sections prove noisy or incompatible with the current CLI surface.
+Change budget: [files 3] [functions: additive `cli/test_suite.py` sections for contract, channel, and scenario checks; test-suite reference updates] [interfaces: existing `waveflow ui testall` output only] [state mutations: temporary topology files during runtime only]
+
+### Scope
+- `cli/test_suite.py` — preserve the existing testall flow while adding connect contract, `LinkBudgetChannel`, and `ScenarioRunner` diagnostic sections
+- `tasks/test-suite.md` — describe the broader `waveflow ui testall` diagnostic coverage accurately
+- `tasks/todo.md` — record this work
+
+### Steps
+- [x] Inspect the current testall implementation and adjacent APIs for scenario and channel checks
+- [x] Implement additive diagnostic sections and update the test-suite reference
+- [x] Run focused verification and review the diff for scope
+
+### Review
+- Completed: Expanded `waveflow ui testall` with additive connect-contract, `LinkBudgetChannel`, and `ScenarioRunner` sections while preserving the existing physics-heavy diagnostic flow; updated `tasks/test-suite.md` to describe the broader built-in diagnostic coverage.
+- Out-of-scope flagged:
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: `testall` is still a diagnostic suite and does not replace the broader pytest-based regression matrix.

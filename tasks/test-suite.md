@@ -282,6 +282,19 @@ PYTHONPATH=. python3 tests/test_de_accuracy_loop.py   # prints only, no assertio
 waveflow ui testall
 ```
 
+`waveflow ui testall` is a built-in diagnostic suite, not a replacement for the
+full pytest matrix. It now exercises:
+
+- network setup and node inventory
+- AP→RIS→UE link validation and link budget reporting
+- connect-contract health checks (`active_links`, `last_connect_result`,
+  required result keys, missing-node error path)
+- beam sweep diagnostics
+- phase and quantization diagnostics
+- waveform diagnostics
+- `LinkBudgetChannel` parity against direct `connect()`
+- `ScenarioRunner` loading plus declarative request execution
+
 ### Full pytest run (collects all discoverable automated tests)
 
 ```bash

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+import tempfile
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -40,6 +42,9 @@ def run_testall(net) -> SuiteResults:
     link_lines, context = _section_link_validation(net)
     sections.append(SectionResult("Link validation & budget", link_lines))
 
+    contract_lines = _section_connect_contract(net, context)
+    sections.append(SectionResult("Connect contract checks", contract_lines))
+
     sweep_lines = _section_beam_sweeps(net, context)
     sections.append(SectionResult("Beam sweeping suite", sweep_lines))
 
@@ -48,6 +53,12 @@ def run_testall(net) -> SuiteResults:
 
     waveform_lines = _section_waveform_checks(net, context)
     sections.append(SectionResult("Waveform-level diagnostics", waveform_lines))
+
+    channel_lines = _section_link_budget_channel(net, context)
+    sections.append(SectionResult("LinkBudgetChannel parity", channel_lines))
+
+    scenario_lines = _section_scenario_runner(net)
+    sections.append(SectionResult("Scenario runner checks", scenario_lines))
 
     return SuiteResults(sections)
 
@@ -203,6 +214,82 @@ def _section_beam_sweeps(net, ctx) -> List[str]:
 
     except Exception as exc:
         lines.append(f"  ✗ Coarse-fine beam sweep failed: {exc}")
+
+    return lines
+
+
+def _section_connect_contract(net, ctx) -> List[str]:
+    lines: List[str] = []
+    if not ctx:
+        lines.append("  Skipped (link validation failed).")
+        return lines
+
+    try:
+        result = ctx["result"]
+        required_keys = {
+            "snr_dB",
+            "pwr_dBm",
+            "rssi_dBm",
+            "gain_linear",
+            "gain_dBi",
+            "quant_loss_dB",
+            "beam_angle_requested_deg",
+            "ue_present",
+            "no_ue_detected",
+        }
+        missing = sorted(required_keys.difference(result))
+        if missing:
+            lines.append(f"  ✗ Missing result keys: {', '.join(missing)}")
+        else:
+            lines.append(f"  ✓ Required result keys present ({len(required_keys)} checked)")
+
+        link_key = "AP1→R1→UE1 (Connect)"
+        if link_key in net.active_links:
+            active = net.active_links[link_key]
+            lines.extend([
+                "  ✓ Active link stored",
+                f"    • source={active.get('source')} snr_dB={active.get('snr_dB'):.2f} pwr_dBm={active.get('pwr_dBm'):.2f}",
+            ])
+        else:
+            lines.append(f"  ✗ Active link missing: {link_key}")
+
+        last = getattr(net, "last_connect_result", None)
+        if isinstance(last, dict) and last.get("metrics"):
+            lines.extend([
+                "  ✓ Last connect snapshot recorded",
+                f"    • captured_at={last.get('captured_at', 'N/A')}",
+                f"    • metrics.snr_dB={last['metrics'].get('snr_dB', float('nan')):.2f}",
+            ])
+        else:
+            lines.append("  ✗ last_connect_result not populated")
+
+        passive = net.connect(
+            "AP1",
+            "R1",
+            "UE1",
+            seed=42,
+            use_get_snr=False,
+            store_in_active_links=False,
+        )
+        if link_key in net.active_links and passive["snr_dB"] == passive["snr_dB"]:
+            lines.extend([
+                "  ✓ store_in_active_links=False preserves current active link state",
+                f"    • passive SNR={passive['snr_dB']:.2f} dB",
+            ])
+        else:
+            lines.append("  ✗ store_in_active_links=False contract check failed")
+
+        try:
+            net.connect("missing-ap", "R1", "UE1", use_get_snr=False)
+            lines.append("  ✗ Missing-node check did not raise")
+        except Exception as exc:
+            lines.extend([
+                "  ✓ Missing-node check raises current error path",
+                f"    • {exc}",
+            ])
+
+    except Exception as exc:
+        lines.append(f"  ✗ Connect contract checks failed: {exc}")
 
     return lines
 
@@ -375,5 +462,98 @@ def _section_waveform_checks(net, ctx) -> List[str]:
 
     except Exception as exc:
         lines.append(f"  ✗ Waveform diagnostics failed: {exc}")
+
+    return lines
+
+
+def _section_link_budget_channel(net, ctx) -> List[str]:
+    lines: List[str] = []
+    if not ctx:
+        lines.append("  Skipped (link validation failed).")
+        return lines
+
+    try:
+        from risnet.channels import LinkBudgetChannel
+
+        direct = net.connect("AP1", "R1", "UE1", seed=42, use_get_snr=False)
+        evaluation = LinkBudgetChannel().evaluate(
+            net,
+            "AP1",
+            "R1",
+            "UE1",
+            seed=42,
+            use_get_snr=False,
+        )
+        deltas = {
+            "snr_dB": abs(evaluation.snr_dB - direct["snr_dB"]),
+            "pwr_dBm": abs(evaluation.pwr_dBm - direct["pwr_dBm"]),
+            "gain_dBi": abs(evaluation.gain_dBi - direct["gain_dBi"]),
+            "quant_loss_dB": abs(evaluation.quant_loss_dB - direct["quant_loss_dB"]),
+        }
+        lines.append("  ✓ LinkBudgetChannel evaluation completed")
+        for key, delta in deltas.items():
+            lines.append(f"    • Δ {key} = {delta:.6f}")
+
+        if all(delta < 1e-9 for delta in deltas.values()):
+            lines.append("  ✓ Adapter matches direct connect() metrics")
+        else:
+            lines.append("  ✗ Adapter parity drift detected")
+
+    except Exception as exc:
+        lines.append(f"  ✗ LinkBudgetChannel checks failed: {exc}")
+
+    return lines
+
+
+def _section_scenario_runner(net) -> List[str]:
+    lines: List[str] = []
+    try:
+        from cli.helpers import NetworkIO
+        from risnet import ConnectScenario, ScenarioRequest, ScenarioRunner
+
+        with tempfile.TemporaryDirectory(prefix="waveflow-testall-") as tmpdir:
+            tmp_path = Path(tmpdir)
+            topology_path = tmp_path / "testall_topology.json"
+            request_path = tmp_path / "testall_request.json"
+
+            NetworkIO().save(net, str(topology_path))
+            request_path.write_text(
+                (
+                    "{\n"
+                    f'  "topology_path": "{topology_path}",\n'
+                    '  "connect": {\n'
+                    '    "kwargs": {"seed": 42, "use_get_snr": false}\n'
+                    "  }\n"
+                    "}\n"
+                ),
+                encoding="utf-8",
+            )
+
+            runner = ScenarioRunner()
+            loaded = runner.load_topology(topology_path)
+            lines.extend([
+                "  ✓ ScenarioRunner loaded saved topology",
+                f"    • topology nodes={len(loaded.nodes)}",
+            ])
+
+            direct_request = ScenarioRequest(
+                topology_path=topology_path,
+                connect=ConnectScenario(kwargs={"seed": 42, "use_get_snr": False}),
+            )
+            direct_run = runner.run(direct_request)
+            lines.extend([
+                "  ✓ Declarative ScenarioRequest executed",
+                f"    • action={direct_run.action} snr_dB={direct_run.result['snr_dB']:.2f}",
+            ])
+
+            file_request = ScenarioRequest.from_file(request_path)
+            file_run = runner.run(file_request)
+            lines.extend([
+                "  ✓ JSON scenario request file executed",
+                f"    • action={file_run.action} snr_dB={file_run.result['snr_dB']:.2f}",
+            ])
+
+    except Exception as exc:
+        lines.append(f"  ✗ Scenario runner checks failed: {exc}")
 
     return lines

@@ -349,6 +349,32 @@ def run(argv: Optional[List[str]] = None) -> int:
                 console.print(line)
 
     # -------------------------------------------------------------------------
+    # testphysics
+    # -------------------------------------------------------------------------
+
+    @app.command("testphysics")
+    def testphysics() -> None:
+        """Run the physics model validation suite and display results."""
+        from cli.physics_suite import run_testphysics
+
+        results = run_testphysics()
+        for section in results.sections:
+            icon = "✓" if section.passed else "✗"
+            style = "bold green" if section.passed else "bold red"
+            console.rule(f"[{style}]{icon} {section.title}[/{style}]")
+            for check in section.checks:
+                colour = "green" if check.passed else "red"
+                console.print(f"  [{colour}]{'✓' if check.passed else '✗'}[/{colour}] {check.name}: {check.detail}")
+            for line in section.extra_lines:
+                console.print(line)
+
+        if results.all_passed:
+            console.print("\n[bold green]✓ All physics checks passed![/bold green]")
+        else:
+            console.print("\n[bold red]✗ Some checks FAILED — see above.[/bold red]")
+            raise SystemExit(1)
+
+    # -------------------------------------------------------------------------
     # shell
     # -------------------------------------------------------------------------
 

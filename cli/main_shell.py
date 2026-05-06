@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 import numpy as np
 from core import RIS, AccessPoint, UE
-from cli import run_testall
+from cli import run_testall, run_testphysics
 from cli.ris_shell import RISNodeShell
 from cli.ap_shell import APNodeShell
 from cli.ue_shell import UENodeShell
@@ -2513,6 +2513,15 @@ class RISNetCLI(cmd.Cmd):
 
         suite_results = run_testall(self.net)
         print(suite_results.format_text())
+
+    def do_testphysics(self, arg):
+        """testphysics - Run physics model validation suite"""
+        print("\n" + "="*70)
+        print("Waveflow v2.0 - Physics Validation Suite")
+        print("="*70)
+
+        results = run_testphysics()
+        print(results.format_text())
 
     def do_quit(self, arg):
         """quit - Exit the CLI"""
