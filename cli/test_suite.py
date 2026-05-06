@@ -55,9 +55,9 @@ def run_testall(net) -> SuiteResults:
 def _section_network_setup(net) -> List[str]:
     lines = ["  \u2713 Adding AP...", "  \u2713 Adding RIS (16x16, 1-bit)...", "  \u2713 Adding UE...", "", "  Current nodes:"]
     net.nodes.clear()
-    net.add_ap('AP1', 0, 0, 0)
-    net.add_ris('R1', 5, 0, 0, N=16, bits=1)
-    net.add_ue('UE1', 10, 3, 0)
+    net.add_ap('AP1', 2, 5, 0)
+    net.add_ris('R1', 5, 2, 0, N=16, bits=1)
+    net.add_ue('UE1', 8, 5, 0)
 
     for name, node in net.nodes.items():
         lines.append(f"{name:10s} {node}")

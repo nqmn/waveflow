@@ -1048,6 +1048,98 @@ Current status:
 - Entry point reachable via `waveflow --web` but not production-ready
 - Will be completed after the headless scenario runner (Phase 5) is stable
 
+## Known Technical Debt
+
+Findings from codebase audit (2026-05-06). Items are cross-referenced to
+migration phases where resolution is blocked or required.
+
+### Circular Import: core → controller
+
+`core/network.py:20` imports `controller.ris_phase.phase_steering` at module
+level. `core/nodes.py:399,414` imports `controller.ris_phase.phase_hybrid` and
+`controller.ris_phase.phase_steering` at runtime via lazy imports. Core should
+not depend on controller. The lazy imports in `nodes.py` defer the failure but
+do not fix the architectural violation.
+
+Resolution: introduce a `PhaseEngine` abstract base class in `core/` and pass
+concrete implementations from the controller layer via dependency injection.
+This is a prerequisite for Phase 4 decomposition.
+
+### Duplicate CLI Implementations
+
+`risnet/cli.py` (728 lines) and `cli/main_shell.py` (2557 lines) both implement
+`do_add`, `do_list`, `do_clear`, `do_exit`, `do_quit`, and other commands with
+overlapping but non-identical behavior. Neither file documents its relationship
+to the other.
+
+Resolution: decide which is the canonical implementation before Phase 5 CLI
+expansion. The most likely outcome is that `risnet/cli.py` becomes the thin
+entry point and `cli/main_shell.py` is the full feature shell. Document this
+explicitly or consolidate.
+
+### Monolithic CLI Shell
+
+`cli/main_shell.py` is 2557 lines with 56 methods handling node management,
+beam sweep orchestration, signal processing, plotting, and topology
+serialization in a single class. `cli/connection_handler.py` is 1455 lines with
+methods exceeding 500 lines of nested logic.
+
+Resolution: split into focused collaborators (NodeManager,
+BeamSweepOrchestrator, MetricsCalculator) after Phase 1 characterization tests
+lock down current CLI behavior.
+
+### Broken Example: NetworkManager
+
+`examples/hog_human_detection_example.py` imports and instantiates
+`NetworkManager`, a class that does not exist anywhere in the codebase. The
+example will fail on import.
+
+Resolution: update to the current `RISNetwork` + `RISController` API or remove
+the file. This should be done before Phase 5 example migration.
+
+### print() Throughout Library Code
+
+Only 6 files use Python's `logging` module. All other core, controller, and
+utility modules use `print()` directly, coupling diagnostic output to stdout and
+making test capture and production deployment harder.
+
+Resolution: replace `print()` with `logging` at appropriate levels in all
+non-CLI modules. Defer until after Phase 4 so refactoring and logging migration
+do not happen simultaneously.
+
+### Star Imports in waveflow/
+
+`waveflow/__init__.py` re-exports the entire `risnet` namespace via
+`from risnet import *`. This suppresses flake8 with `# noqa: F401,F403` and
+makes it impossible to know what is available in the `waveflow` namespace
+without reading `risnet/__init__.py`.
+
+Resolution: replace with explicit named imports or a documented `__all__` list.
+Low risk, low priority.
+
+### SNR / Link Budget Utilities Scattered
+
+`utils/link_budget.py`, `utils/snr.py`, `utils/rssi.py`, and
+`core/physics.py:compute_snr_dB()` all perform overlapping link budget
+calculations with no clear ownership boundary.
+
+Resolution: consolidate under the `ChannelModel` adapter introduced in Phase 3.
+Route existing callers through the adapter progressively rather than deleting
+utility files immediately.
+
+### Hardcoded Configuration Constants
+
+Physics defaults are scattered as module-level literals: `target_snr_dB = 20.0`
+(`core/nodes.py:69`), `presence_detection_tolerance_deg = 5.0`
+(`core/network.py:48`), and others. The `config/` module exists but is
+minimally used.
+
+Resolution: consolidate into the `Config` object already used by `risnet/
+__init__.py` and inject it at construction time. Do not require Pydantic in the
+base install until Phase 5 or later.
+
+---
+
 ## Immediate Action Items
 
 Status as of 2026-05-06:
@@ -1058,16 +1150,23 @@ Status as of 2026-05-06:
    ".[dev]"` so the test suite can run without `PYTHONPATH` hacks.
 3. Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
    prerequisite before any refactoring).
-4. Add characterization regression tests for `RISNetwork.connect()` output
+4. Fix `examples/hog_human_detection_example.py` — remove or update the
+   `NetworkManager` reference to use the current `RISNetwork` API.
+5. Add characterization regression tests for `RISNetwork.connect()` output
    shape, FOV errors, seeded fading, and active-link behavior (Phase 1).
-5. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests
+6. Introduce a `PhaseEngine` abstract base in `core/` and remove the
+   `core/network.py:20` controller import (prerequisite for Phase 4).
+7. Add a small `arrays/` module with ULA/UPA geometry and steering vector tests
    (Phase 2).
-6. Extract a `ChannelModel` interface and wrap current link-budget behavior
+8. Extract a `ChannelModel` interface and wrap current link-budget behavior
    (Phase 3).
-7. Split `RISNetwork.connect()` into smaller internal services without changing
+9. Split `RISNetwork.connect()` into smaller internal services without changing
    its public return shape (Phase 4).
-8. Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).
-9. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
+10. Replace `print()` with `logging` in all non-CLI library modules (Phase 4).
+11. Decide canonical CLI implementation and document or consolidate the
+    `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).
+12. Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).
+13. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
 
 ## Risks
 
