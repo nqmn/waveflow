@@ -924,3 +924,82 @@ Change budget: [files 2] [functions: none] [interfaces: documentation only] [sta
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Verification was limited to diff review because this slice only changed documentation.
+
+## Task: Fix Interactive RIS-Aware UE Fallback
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the fallback/labeling edits in `cli/main_shell.py`, the focused smoke test, and the task/test-suite updates.
+Change budget: [files 4] [functions: `RISNetCLI._add_ue_within_ris_fov`, `RISNetCLI.do_add`, `RISNetCLI._handle_add_random`, smoke coverage] [interfaces: interactive shell UE placement messaging/behavior only] [state mutations: none]
+
+### Scope
+- `cli/main_shell.py` — stop claiming RIS-aware placement when the AP is unreachable and fall back immediately to unconstrained UE placement
+- `tests/test_smoke.py` — add focused coverage for the unreachable-AP fallback path
+- `tasks/test-suite.md` — record the new interactive-shell fallback coverage
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect the RIS-aware UE placement path and identify the inconsistent fallback branch
+- [x] Fix the helper/caller behavior so unreachable AP geometry falls back cleanly
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: The interactive shell now falls back immediately to unconstrained UE placement when the AP is outside the RIS deflection capability, and the success message no longer claims “RIS-aware placement” in that case.
+- Out-of-scope flagged: This slice does not redesign the shell’s random topology generator or auto-correct RIS/AP placement to guarantee reachability.
+- Assumptions invalidated: None.
+- Known debt (acknowledged): Random AP/RIS placement can still produce unreachable geometries; this fix only prevents the shell from mislabeling the resulting UE placement as RIS-aware.
+- Limitations: Verification covered `tests/test_smoke.py` and compile checks; this slice does not yet add end-to-end subprocess coverage for the full interactive shell transcript.
+
+## Task: Fix DE Sweep Result Printer Compatibility
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the result-normalization edits in `cli/connection_handler.py`, the focused smoke test, and the task/test-suite updates.
+Change budget: [files 4] [functions: `ConnectionHandler.print_sweep_results`, smoke coverage] [interfaces: legacy `connect --sweep ... --algo de` display path only] [state mutations: none]
+
+### Scope
+- `cli/connection_handler.py` — make the legacy sweep result printer tolerate DE-style NumPy payloads instead of assuming list/dict truthiness everywhere
+- `tests/test_smoke.py` — add focused coverage for the DE result-printer compatibility path
+- `tasks/test-suite.md` — record the added printer compatibility coverage
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect the DE result shape and locate the ambiguous truth-value branch in the legacy printer
+- [x] Normalize sequence inputs and guard dict-only measurement table logic
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: The legacy unified sweep printer now normalizes NumPy sequence payloads from DE-style results and only treats `measurements` as a structured table when it is actually a dict. This removes the ambiguous truth-value failure in `connect --sweep ... --algo de`.
+- Out-of-scope flagged: This slice does not redesign the DE algorithm output schema or add end-to-end interactive-shell subprocess coverage for `connect --sweep --algo de`.
+- Assumptions invalidated: The first regression test harness used `list.append` directly as `print_func`, which was incompatible with blank-line calls; it was corrected to a compatible collector.
+- Known debt (acknowledged):
+- Limitations: Verification covered `tests/test_smoke.py` and compile checks; this slice does not yet exercise the full interactive shell transcript under subprocess.
+
+## Task: Fix `waveflow ui run` Legacy Flag Passthrough
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the Typer passthrough edit in `risnet/terminal_cli.py`, the smoke/doc updates, and this task entry.
+Change budget: [files 5] [functions: terminal `run` command, smoke coverage, docs examples] [interfaces: `waveflow ui run` argument parsing only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — allow `waveflow ui run` to pass unknown trailing flags like `--breakdown` through to the legacy shell command
+- `tests/test_smoke.py` — add smoke coverage for `waveflow ui run --topology ... signal ... --breakdown`
+- `tasks/test-suite.md` — record the added passthrough coverage
+- `README.md` and `TUTORIAL.md` — update examples to include `--topology` and the fixed `run` invocation form
+- `tasks/todo.md` — record this task
+
+### Steps
+- [x] Inspect the `run` command wiring and confirm Typer is consuming legacy flags
+- [x] Allow passthrough of trailing legacy options and update examples
+- [x] Verify compile and focused smoke coverage
+
+### Review
+- Completed: `waveflow ui run` now passes unknown trailing flags like `--breakdown` through to the legacy shell command, and the README/TUTORIAL examples now show the correct `--topology` usage and passthrough invocation form.
+- Out-of-scope flagged: This slice does not make the Typer/Rich UI stateful; commands like `waveflow ui sweep` still require `--topology` or explicit node creation in the same command path.
+- Assumptions invalidated: The first implementation used `ctx: typer.Context` without making `typer` visible to Typer’s runtime annotation resolver, which broke multiple `waveflow ui` commands; the fix exposed the local Typer import through module globals before command registration.
+- Known debt (acknowledged):
+- Limitations: Verification covered `tests/test_smoke.py` and compile checks; this slice does not add broader command-by-command coverage for every legacy shell verb through `waveflow ui run`.

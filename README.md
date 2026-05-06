@@ -69,10 +69,10 @@ waveflow ui testphysics
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 
 # Beam sweep
-waveflow ui sweep AP1 R1 UE1 --fov 60 --step 10 --algo coarse-fine
+waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10 --algo coarse-fine
 
 # Run any legacy CLI command non-interactively
-waveflow ui run signal AP1 R1 UE1 --breakdown
+waveflow ui run --topology examples/json/example_1_simple.json signal AP1 R1 UE1 --breakdown
 
 # Open interactive shell
 waveflow ui shell

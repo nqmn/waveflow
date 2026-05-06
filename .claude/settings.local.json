@@ -8,7 +8,8 @@
       "mcp__sequential-thinking__sequentialthinking",
       "Bash(timeout 60 python:*)",
       "Bash(python:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(pip install *)"
     ],
     "deny": [],
     "ask": []

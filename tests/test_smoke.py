@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from cli.connection_handler import ConnectionHandler
+from cli.main_shell import RISNetCLI
 from core import RISNetwork
 from risnet import RISnet
 from waveflow import RISnet as WaveflowRISnet
@@ -190,6 +192,82 @@ def test_example_1_simple_topology_supports_terminal_sweep():
 
     assert "Sweep Result" in result.stdout
     assert "Best SNR (dB)" in result.stdout
+
+
+def test_typer_rich_run_passes_through_legacy_breakdown_flags():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "run",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "signal",
+            "AP1",
+            "R1",
+            "UE1",
+            "--breakdown",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "AP→RIS" in result.stdout
+    assert "RIS→UE" in result.stdout
+
+
+def test_ris_aware_ue_falls_back_when_ap_is_unreachable(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("ap1", 6.52, 8.86, 0.0)
+    net.add_ris("ris1", 13.10, 10.42, 0.0, 16, 1)
+
+    cli = RISNetCLI(net)
+    cli.topology_helper.generate_position = lambda typ: (21.0, 22.0)
+
+    x, y, used_ris_aware = cli._add_ue_within_ris_fov("ue1", distance=14.32)
+
+    assert (x, y) == (21.0, 22.0)
+    assert used_ris_aware is False
+
+
+def test_connection_handler_accepts_de_style_numpy_measurements():
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("ap1", 0.0, 0.0, 0.0)
+    net.add_ris("ris1", 5.0, 2.0, 0.0, 16, 1)
+    net.add_ue("ue1", 8.0, 8.0, 0.0)
+
+    handler = ConnectionHandler(net)
+    printed = []
+    collector = lambda *parts: printed.append("" if not parts else " ".join(str(part) for part in parts))
+    result = handler.print_sweep_results(
+        {
+            "local_coarse": [179.6],
+            "snr_coarse": [-21.51],
+            "local_fine": [],
+            "snr_fine": [],
+            "best_angle": 179.6,
+            "best_snr_fine": -21.51,
+            "beam_angle_deg": 179.6,
+            "measurements": __import__("numpy").array([1 + 1j, 2 + 0j]),
+            "estimated_position": __import__("numpy").array([7.5, 7.0, 0.0]),
+        },
+        fov=60.0,
+        step=10.0,
+        ap="ap1",
+        ris="ris1",
+        ue="ue1",
+        algo_name="de",
+        print_func=collector,
+    )
+
+    assert result["best_final_local"] == 179.6
+    assert any("SINGLE-PHASE SWEEP" in line for line in printed)
 
 
 def test_typer_rich_sweep_invalid_nodes_fails_before_live_ui():

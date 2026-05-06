@@ -17,7 +17,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 11 | Import, CLI, entry points | Includes Typer/Rich live sweep rendering smoke, bundled topology sweep smoke, and invalid-node failure handling |
+| `test_smoke.py` | pytest | 14 | Import, CLI, entry points | Includes Typer/Rich live sweep rendering smoke, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
 | `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
@@ -214,6 +214,9 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `waveflow ui sweep` renders the Rich live/table UX from outside repo root
 - `examples/json/example_1_simple.json` remains sweep-safe for `waveflow ui sweep`
 - `waveflow ui sweep` fails cleanly on missing AP/RIS/UE names before opening the live Rich UI
+- `waveflow ui run` passes legacy trailing flags like `--breakdown` through to the interactive-shell command handler
+- Interactive shell RIS-aware UE placement falls back to unconstrained placement when the AP is outside the RIS deflection capability
+- Legacy unified sweep result printing accepts DE-style NumPy measurement payloads without ambiguous truth-value failures
 - Minimal `RISNetwork.connect()` smoke run
 - `examples/script/example_19_hog_human_detection.py` imports successfully and builds a demo network using current public APIs
 

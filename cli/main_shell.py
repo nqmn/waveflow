@@ -257,13 +257,16 @@ class RISNetCLI(cmd.Cmd):
                 use_ris_aware = ris_aware or (has_ris and not ris_aware)
 
                 if use_ris_aware and has_ris:
-                    x, y = self._add_ue_within_ris_fov(name, distance)
+                    x, y, used_ris_aware = self._add_ue_within_ris_fov(name, distance)
                 else:
                     x, y = self.topology_helper.generate_position(typ)
+                    used_ris_aware = False
 
                 self.net.add_ue(name, x, y, z)
-                if use_ris_aware and has_ris:
+                if use_ris_aware and has_ris and used_ris_aware:
                     print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (RIS-aware placement)")
+                elif use_ris_aware and has_ris:
+                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (unconstrained fallback placement)")
                 else:
                     print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f})")
             else:
@@ -309,7 +312,8 @@ class RISNetCLI(cmd.Cmd):
             distance: Distance from RIS (optional, auto-calculated if None)
 
         Returns:
-            (x, y) position within RIS reachable angles
+            `(x, y, used_ris_aware)` where `used_ris_aware` indicates whether the
+            position was actually constrained by RIS-aware placement.
         """
         import numpy as np
 
@@ -317,7 +321,8 @@ class RISNetCLI(cmd.Cmd):
         ris_list = [n for n in self.net.nodes.values() if type(n).__name__ == 'RIS']
         if not ris_list:
             print("  Warning: No RIS in network, using random position")
-            return self.topology_helper.generate_position('ue')
+            x, y = self.topology_helper.generate_position('ue')
+            return x, y, False
 
         ris = ris_list[0]  # Use first RIS
         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
@@ -355,7 +360,9 @@ class RISNetCLI(cmd.Cmd):
                 ap_reachable = False
                 print(f"  ✗ CRITICAL: AP at angle {ap_angle:.2f}° is {min_dist_to_fov:.1f}° away from nearest RIS FOV point")
                 print(f"  RIS can only deflect ±{ris_max_angle}°. AP is unreachable by this RIS!")
-                print(f"  UE placement will be unconstrained. Connection will likely fail.")
+                print(f"  Falling back to unconstrained UE placement.")
+                x, y = self.topology_helper.generate_position('ue')
+                return x, y, False
             elif not ap_within_fov:
                 print(f"  Warning: AP at angle {ap_angle:.2f}° is outside RIS FOV")
                 print(f"  RIS FOV: [{ris_normal - ris_max_angle:.2f}°, {ris_normal + ris_max_angle:.2f}°]")
@@ -442,7 +449,7 @@ class RISNetCLI(cmd.Cmd):
             print(f"  AP angle: {ap_angle:.2f}° {'✓' if ap_within_fov else '✗ outside FOV'}, deflection: {deflection:.2f}°")
         print(f"  UE angle: {random_angle_deg:.2f}°, distance: {distance:.2f}m")
 
-        return x, y
+        return x, y, True
 
     def _handle_add_random(self, arg):
         """Internal handler for 'add random' subcommand.
@@ -557,9 +564,12 @@ class RISNetCLI(cmd.Cmd):
                 if has_ris:
                     # Use RIS-aware placement with custom distance range
                     distance = np.random.uniform(distance_range[0], distance_range[1])
-                    x, y = self._add_ue_within_ris_fov(name, distance)
+                    x, y, used_ris_aware = self._add_ue_within_ris_fov(name, distance)
                     self.net.add_ue(name, x, y, 0.0)
-                    print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (RIS-aware placement)")
+                    if used_ris_aware:
+                        print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (RIS-aware placement)")
+                    else:
+                        print(f"✓ Added UE {name} at ({x:.2f}, {y:.2f}) (unconstrained fallback placement)")
                 else:
                     # Use random positioning
                     x, y = self.topology_helper.generate_position('ue')

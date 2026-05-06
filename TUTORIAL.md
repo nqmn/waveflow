@@ -910,7 +910,7 @@ waveflow ui testall
 waveflow ui testphysics
 
 # Run any legacy CLI command non-interactively
-waveflow ui run signal AP1 R1 UE1 --breakdown
+waveflow ui run --topology examples/json/example_1_simple.json signal AP1 R1 UE1 --breakdown
 waveflow ui run plot --type sweep
 waveflow ui run ap AP1 show
 

@@ -25,6 +25,9 @@ def run(argv: Optional[List[str]] = None) -> int:
         )
         return 2
 
+    # Typer resolves command annotations from module globals, not this local scope.
+    globals()["typer"] = typer
+
     console = Console()
     app = typer.Typer(
         add_completion=False,
@@ -641,8 +644,9 @@ def run(argv: Optional[List[str]] = None) -> int:
     # run  — delegate any legacy command verbatim
     # -------------------------------------------------------------------------
 
-    @app.command("run")
+    @app.command("run", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
     def run_cmd(
+        ctx: typer.Context,
         command: List[str] = typer.Argument(..., help="Legacy CLI command and arguments."),
         topology: Optional[Path] = typer.Option(
             None, "--topology", "-t",
@@ -666,7 +670,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         cli = RISNetCLI(net)
         if topology is not None:
             cli._load_network_from_file(str(topology))
-        cmd_str = " ".join(command)
+        passthrough = list(command) + list(ctx.args)
+        cmd_str = " ".join(passthrough)
         try:
             cli.onecmd(cmd_str)
         except Exception as exc:

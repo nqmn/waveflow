@@ -846,6 +846,13 @@ class ConnectionHandler:
 
     def print_sweep_results(self, out, fov, step, ap, ris, ue, algo_name, metric='snr', print_func=print):
         """Print detailed sweep results and return best beam angle info"""
+        def _normalize_sequence(values):
+            if values is None:
+                return []
+            if isinstance(values, np.ndarray):
+                return values.tolist()
+            return values
+
         algo = out.get('algo_object') or {'name': algo_name}
         algo_display_name = getattr(algo, 'name', algo_name) if hasattr(algo, 'name') else algo_name
 
@@ -854,7 +861,7 @@ class ConnectionHandler:
         if out.get('suppress_tables'):
             suppress_ml_details = True
 
-        has_fine_phase = 'local_fine' in out and len(out.get('local_fine', [])) > 0
+        has_fine_phase = 'local_fine' in out and len(_normalize_sequence(out.get('local_fine', []))) > 0
 
         if not suppress_ml_details:
             print_func(f'\n[ALGORITHM: {algo_display_name}]')
@@ -945,7 +952,7 @@ class ConnectionHandler:
 
             # Show measurement table for PRIME/ANM algorithms
             measurements = out.get('measurements', {})
-            if measurements and algo_name.lower() in ('prime', 'anm', 'anm-localization') and not out.get('suppress_tables'):
+            if isinstance(measurements, dict) and measurements and algo_name.lower() in ('prime', 'anm', 'anm-localization') and not out.get('suppress_tables'):
                 angles_tested = measurements.get('angles_tested', [])
                 snr_values = measurements.get('snr_values', [])
                 if angles_tested and snr_values and len(angles_tested) == len(snr_values):
@@ -979,19 +986,19 @@ class ConnectionHandler:
 
             print_func()
 
-        local_coarse = out.get('local_coarse', [])
-        snr_coarse = out.get('snr_coarse', [])
-        pwr_coarse = out.get('pwr_coarse', [])
+        local_coarse = _normalize_sequence(out.get('local_coarse', []))
+        snr_coarse = _normalize_sequence(out.get('snr_coarse', []))
+        pwr_coarse = _normalize_sequence(out.get('pwr_coarse', []))
 
-        local_fine = out.get('local_fine', [])
-        snr_fine = out.get('snr_fine', [])
+        local_fine = _normalize_sequence(out.get('local_fine', []))
+        snr_fine = _normalize_sequence(out.get('snr_fine', []))
 
-        ser_coarse = out.get('ser_coarse', [])
-        ser_fine = out.get('ser_fine', [])
+        ser_coarse = _normalize_sequence(out.get('ser_coarse', []))
+        ser_fine = _normalize_sequence(out.get('ser_fine', []))
         is_real_signal = ser_coarse is not None and len(ser_coarse) > 0
 
-        ml_results = out.get('ml_results', [])
-        ml_suggestions = out.get('ml_suggestions', [])
+        ml_results = _normalize_sequence(out.get('ml_results', []))
+        ml_suggestions = _normalize_sequence(out.get('ml_suggestions', []))
 
         if not suppress_ml_details:
             # Calculate efficiency metrics
@@ -1179,7 +1186,7 @@ class ConnectionHandler:
         meta_recommended_abs = meta.get('recommended_abs_angle')
         meta_meas_best_snr = None
         meas = out.get('measurements', {})
-        if meas:
+        if isinstance(meas, dict) and meas:
             meta_meas_best_snr = meas.get('best_snr_dB')
         best_final_abs = None
 
