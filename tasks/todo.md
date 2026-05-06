@@ -228,3 +228,28 @@ Change budget: [files 2] [functions: RISNetwork.connect, new result/persistence 
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: Verification ran through `.venv` because the system Python environment is externally managed.
+
+## Task: Phase 4 connect physics extraction
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the physics helper extraction in `core/network.py` and rerun the focused connect and channel pytest suites.
+Change budget: [files 2] [functions: RISNetwork.connect, new path-loss/gain/SNR helpers, targeted tests only if required] [interfaces: none] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `core/network.py` — extract the remaining path-loss, gain, fading, and array-factor SNR block from `RISNetwork.connect()` while preserving behavior
+- `tests/test_connect_characterization.py` — only if direct helper assertions become necessary
+
+### Steps
+- [x] Append task metadata and rollback notes
+- [x] Extract link-budget setup helper
+- [x] Extract SNR and array-factor computation helper
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Extracted `_prepare_connect_link_budget()` and `_compute_connect_snr()` while preserving the current metric outputs and result ordering.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification ran through `.venv` because the system Python environment is externally managed.

@@ -488,6 +488,116 @@ class RISNetwork:
             'metrics': dict(result)
         }
 
+    def _prepare_connect_link_budget(self, ap, ris, ue, *, d_ap_ris, d_ris_ue, beam_angle_deg,
+                                     target_angle, phase_metadata, bandwidth_MHz=None):
+        """Prepare link-budget inputs and beam metadata for connect calculations."""
+        if bandwidth_MHz is None:
+            bandwidth_MHz = getattr(ap, 'bandwidth_MHz', 100.0)
+
+        if hasattr(ris, 'freq'):
+            ris.freq = ap.freq
+
+        pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
+        pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
+        n_total = ris.N * ris.N
+
+        try:
+            ris.specular_angle_deg = float(target_angle)
+            ris.abs_beam_angle_deg = float(beam_angle_deg)
+            if phase_metadata and 'deflection_angle_deg' in phase_metadata:
+                ris.local_beam_deflection_deg = float(phase_metadata['deflection_angle_deg'])
+            else:
+                ris.local_beam_deflection_deg = float(
+                    abs(beam_angle_deg - target_angle) if beam_angle_deg is not None else 0.0
+                )
+        except Exception:
+            pass
+
+        gain_dBi = Physics.array_gain_dBi(
+            n_total, ris.amplifier_gain, angle_loss_dB=0.0, frequency=ris.freq
+        )
+        quant_loss_dB = Physics.quantization_loss_dB(
+            ris.bits,
+            element_efficiency=getattr(ris, 'element_efficiency', 0.95)
+        )
+        ap_antenna_gain_dBi = getattr(ap, 'antenna_gain_dBi', 3.0)
+        ue_antenna_gain_dBi = getattr(ue, 'antenna_gain_dBi', 3.0)
+        noise_figure_dB = getattr(ue, 'noise_figure_dB', 6.0)
+
+        extra_loss = 0.0
+        impairments = self.impairments or {}
+        if 'extra_path_loss_dB_ris' in impairments:
+            extra_loss = float(impairments.get('extra_path_loss_dB_ris', 0.0))
+        elif impairments.get('apply_extra_path_loss_to_ris', False):
+            extra_loss = float(impairments.get('extra_path_loss_dB', 0.0))
+
+        pwr_dBm = (
+            ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi
+            - pl_ap_ris - pl_ris_ue - extra_loss + quant_loss_dB
+        )
+        total_loss_dB = pl_ap_ris + pl_ris_ue + extra_loss
+        total_gain_dBi = gain_dBi + quant_loss_dB + ap_antenna_gain_dBi + ue_antenna_gain_dBi
+
+        return {
+            "bandwidth_MHz": float(bandwidth_MHz),
+            "gain_dBi": float(gain_dBi),
+            "quant_loss_dB": float(quant_loss_dB),
+            "ap_antenna_gain_dBi": float(ap_antenna_gain_dBi),
+            "ue_antenna_gain_dBi": float(ue_antenna_gain_dBi),
+            "noise_figure_dB": float(noise_figure_dB),
+            "pwr_dBm": float(pwr_dBm),
+            "total_loss_dB": float(total_loss_dB),
+            "total_gain_dBi": float(total_gain_dBi),
+        }
+
+    def _compute_connect_snr(self, ap, ris, *, bandwidth_MHz, noise_figure_dB,
+                             total_loss_dB, total_gain_dBi, target_angle, seed=None):
+        """Compute deterministic connect SNR and optional array-factor adjusted gain."""
+        snr_computed_dB = Physics.compute_snr_dB(
+            tx_power_dBm=ap.power_dBm,
+            total_loss_dB=total_loss_dB,
+            gain_dBi=total_gain_dBi,
+            bandwidth_MHz=bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB
+        )
+
+        if seed is None:
+            fading_coeff = Physics.rician_fading(ris.K_db)
+            if fading_coeff < 1.0:
+                snr_computed_dB += 20 * np.log10(fading_coeff)
+
+        snr_dB = snr_computed_dB
+        reported_gain_dBi = total_gain_dBi
+
+        if ris.current_phases is not None and len(ris.current_phases) > 0:
+            steering_angle_deg = target_angle
+            if hasattr(ris, 'phase_metadata') and ris.phase_metadata:
+                steering_angle_deg = ris.phase_metadata.get('azimuth_out_deg', target_angle)
+
+            af_dB = Physics.angle_loss_dB(steering_angle_deg, target_angle)
+            total_gain_dBi_with_af = total_gain_dBi + af_dB
+            snr_computed_dB_with_af = Physics.compute_snr_dB(
+                tx_power_dBm=ap.power_dBm,
+                total_loss_dB=total_loss_dB,
+                gain_dBi=total_gain_dBi_with_af,
+                bandwidth_MHz=bandwidth_MHz,
+                noise_figure_dB=noise_figure_dB
+            )
+
+            if seed is None:
+                fading_coeff = Physics.rician_fading(ris.K_db)
+                if fading_coeff < 1.0:
+                    snr_computed_dB_with_af += 20 * np.log10(fading_coeff)
+
+            snr_dB = snr_computed_dB_with_af
+            reported_gain_dBi = total_gain_dBi_with_af
+
+        return {
+            "snr_dB": float(snr_dB),
+            "snr_computed_dB": float(snr_computed_dB),
+            "gain_dBi": float(reported_gain_dBi),
+        }
+
     # Basic connectivity method
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
@@ -574,139 +684,40 @@ class RISNetwork:
             compute_phases=compute_phases,
         )
 
-        # Calculate link SNR using physics models
-        if bandwidth_MHz is None:
-            bandwidth_MHz = getattr(ap, 'bandwidth_MHz', 100.0)
-
-        # Align RIS frequency with AP if not manually overridden
-        if hasattr(ris, 'freq'):
-            ris.freq = ap.freq
-
-        # AP -> RIS
-        pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
-
-        # RIS -> UE (with beam steering)
-        pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
-
-        # RIS gain (total elements = N × N)
-        N_total = ris.N * ris.N
-
-        angle_loss = Physics.angle_loss_dB(beam_angle_deg, target_angle)
-        # Track beam metadata on RIS for visualization
-        try:
-            ris.specular_angle_deg = float(target_angle)
-            ris.abs_beam_angle_deg = float(beam_angle_deg)
-            # Use the deflection angle from phase metadata if available, otherwise compute it
-            if phase_metadata and 'deflection_angle_deg' in phase_metadata:
-                ris.local_beam_deflection_deg = float(phase_metadata['deflection_angle_deg'])
-            else:
-                # Fallback: compute as the difference between incident and reflected angles
-                ris.local_beam_deflection_deg = float(abs(beam_angle_deg - target_angle) if beam_angle_deg is not None else 0.0)
-        except Exception:
-            pass
-        # Calculate max array gain (at peak)
-        # We pass angle_loss_dB=0 here because we will apply the full directional loss
-        # via the Array Factor (af_dB) later.
-        # If we passed angle_loss here, we would double-count the penalty.
-        gain_dBi = Physics.array_gain_dBi(N_total, ris.amplifier_gain, angle_loss_dB=0.0, frequency=ris.freq)
-
-        # Quantization loss (negative dB = loss)
-        quant_loss_dB = Physics.quantization_loss_dB(
-            ris.bits,
-            element_efficiency=getattr(ris, 'element_efficiency', 0.95)
-        )
-
-        # AP and UE antenna gains (default 3 dBi each for omnidirectional)
-        ap_antenna_gain_dBi = getattr(ap, 'antenna_gain_dBi', 3.0)
-        ue_antenna_gain_dBi = getattr(ue, 'antenna_gain_dBi', 3.0)
-        noise_figure_dB = getattr(ue, 'noise_figure_dB', 6.0)
-
-        # Received power calculation (coherent link)
-        # Pr = Pt + G_AP + G_UE + G_RIS - PL_AP_RIS - PL_RIS_UE - |quant_loss|
-        # NOTE: quant_loss_dB is NEGATIVE (e.g., -1.67 dB), so we subtract it (subtract negative = add less)
-        extra_loss = 0.0
-        impairments = self.impairments or {}
-        if 'extra_path_loss_dB_ris' in impairments:
-            extra_loss = float(impairments.get('extra_path_loss_dB_ris', 0.0))
-        elif impairments.get('apply_extra_path_loss_to_ris', False):
-            extra_loss = float(impairments.get('extra_path_loss_dB', 0.0))
-        pwr_dBm = (ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi -
-                   pl_ap_ris - pl_ris_ue - extra_loss + quant_loss_dB)
-
-        # SNR calculation using physics module (100 MHz default, 6 dB NF)
-        # This properly accounts for noise floor = -174 + 10*log10(BW) + NF
-        total_loss_dB = pl_ap_ris + pl_ris_ue + extra_loss
-        total_gain_dBi = (gain_dBi + quant_loss_dB +
-                          ap_antenna_gain_dBi + ue_antenna_gain_dBi)
-
-
-        # Always compute deterministic SNR first
-        snr_computed_dB = Physics.compute_snr_dB(
-            tx_power_dBm=ap.power_dBm,
-            total_loss_dB=total_loss_dB,
-            gain_dBi=total_gain_dBi,
+        budget = self._prepare_connect_link_budget(
+            ap,
+            ris,
+            ue,
+            d_ap_ris=d_ap_ris,
+            d_ris_ue=d_ris_ue,
+            beam_angle_deg=beam_angle_deg,
+            target_angle=target_angle,
+            phase_metadata=phase_metadata,
             bandwidth_MHz=bandwidth_MHz,
-            noise_figure_dB=noise_figure_dB
         )
+        bandwidth_MHz = budget["bandwidth_MHz"]
+        gain_dBi = budget["gain_dBi"]
+        quant_loss_dB = budget["quant_loss_dB"]
+        ap_antenna_gain_dBi = budget["ap_antenna_gain_dBi"]
+        ue_antenna_gain_dBi = budget["ue_antenna_gain_dBi"]
+        noise_figure_dB = budget["noise_figure_dB"]
+        pwr_dBm = budget["pwr_dBm"]
+        total_loss_dB = budget["total_loss_dB"]
+        total_gain_dBi = budget["total_gain_dBi"]
 
-        if seed is None:
-            fading_coeff = Physics.rician_fading(ris.K_db)
-            if fading_coeff < 1.0:
-                snr_computed_dB += 20 * np.log10(fading_coeff)
-
-        snr_dB = snr_computed_dB
-
-        # ARRAY FACTOR INTEGRATION: Model beam pattern gain/loss based on steering direction
-        #
-        # When phases are computed to steer towards the UE, the array factor is at peak (0 dB).
-        # When steering elsewhere, we compute angular loss based on deviation from UE direction.
-        #
-        # NOTE: We use Physics.angle_loss_dB instead of compute_array_factor because:
-        # - The stored phases include incident compensation + steering
-        # - compute_array_factor expects pure steering phases and produces incorrect results
-        # - angle_loss_dB provides smooth, predictable beam pattern behavior
-        if ris.current_phases is not None and len(ris.current_phases) > 0:
-            # Get the steering direction from phase metadata (where beam is actually pointing)
-            steering_angle_deg = target_angle  # Default: assume pointing at UE
-            if hasattr(ris, 'phase_metadata') and ris.phase_metadata:
-                # Use the actual azimuth_out from phase computation
-                steering_angle_deg = ris.phase_metadata.get('azimuth_out_deg', target_angle)
-
-            # Compute angular loss based on deviation from steering direction to UE
-            # This provides smooth beam pattern: 0 dB at steering direction, -20 dB at ±60°
-            af_dB = Physics.angle_loss_dB(steering_angle_deg, target_angle)
-
-            # Apply array factor to gain
-            # af_dB is normalized so peak (steering direction) = 0 dB
-            # Sidelobes naturally show -10 to -30 dB depending on distance from steering dir
-            # Apply array factor to gain
-            # af_dB is normalized so peak (steering direction) = 0 dB
-            # Sidelobes naturally show -10 to -30 dB depending on distance from steering dir
-            # Since we set angle_loss_dB=0 in array_gain_dBi, this af_dB provides the
-            # sole directional penalty, avoiding double-counting.
-            total_gain_dBi_with_af = total_gain_dBi + af_dB
-
-            # Recompute SNR with array factor included
-            snr_computed_dB_with_af = Physics.compute_snr_dB(
-                tx_power_dBm=ap.power_dBm,
-                total_loss_dB=total_loss_dB,
-                gain_dBi=total_gain_dBi_with_af,
-                bandwidth_MHz=bandwidth_MHz,
-                noise_figure_dB=noise_figure_dB
-            )
-
-            # Apply fading if not deterministic
-            if seed is None:
-                fading_coeff = Physics.rician_fading(ris.K_db)
-                if fading_coeff < 1.0:
-                    snr_computed_dB_with_af += 20 * np.log10(fading_coeff)
-
-            snr_dB = snr_computed_dB_with_af
-            gain_dBi = total_gain_dBi_with_af
-        else:
-            # No current phases available - use computed value as-is
-            # This handles initialization before phase computation
-            pass
+        snr_metrics = self._compute_connect_snr(
+            ap,
+            ris,
+            bandwidth_MHz=bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB,
+            total_loss_dB=total_loss_dB,
+            total_gain_dBi=total_gain_dBi,
+            target_angle=target_angle,
+            seed=seed,
+        )
+        snr_dB = snr_metrics["snr_dB"]
+        snr_computed_dB = snr_metrics["snr_computed_dB"]
+        gain_dBi = snr_metrics["gain_dBi"]
 
         gain_linear = 10 ** (gain_dBi / 10)
 
