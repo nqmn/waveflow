@@ -24,18 +24,28 @@ The current repository already contains useful foundations for the v3 direction:
   research workflows.
 
 The main blocker is not missing RF math. The main blocker is coupling:
-`RISNetwork.connect()` currently combines topology lookup, phase computation,
-FOV validation, link-budget calculation, fading, feedback handling, active-link
-state updates, and API serialization. This method should be decomposed before
-introducing the v3 kernel, entity-component model, or spatial channel engine.
+`RISNetwork.connect()` (lines 211–727, `core/network.py`) combines node lookup,
+phase computation via `HybridPhaseEngine`, FOV validation, link-budget
+calculation, Rician fading, adaptive feedback loop, active-link state updates,
+UE metadata persistence, SNR messaging queries, and quantized phase
+serialization. This method must be decomposed before introducing the v3 kernel,
+entity-component model, or spatial channel engine.
 
-Packaging also needs cleanup before a full v3 package layout. `pyproject.toml`
-currently packages only `risnet`, while most implementation modules live as
-top-level packages such as `core`, `controller`, `cli`, `app`, `config`, and
-`utils`. After editable installation, importing `risnet` from outside the
-repository fails because `risnet/__init__.py` imports unpackaged top-level
-modules such as `core`. The console entry point also references
-`risnet.__main__:main`, but there is no `risnet/__main__.py`.
+Packaging is resolved. `pyproject.toml` includes all top-level implementation
+packages in its discovery (`app*`, `cli*`, `config*`, `controller*`, `core*`,
+`utils*`, `risnet*`). `risnet/__main__.py` exists and backs both
+`python -m risnet` and the `risnet` console entry point. `from core import
+RISNetwork` and `from risnet import RISnet` import successfully.
+
+One known test failure exists in `tests/test_fixes.py` (TEST 3: RMS Phase Error
+with Angle Wrapping — unexpected RMS value). This is a stale test expectation,
+not a physics regression, and must be resolved in Phase 1.
+
+The verification snippet in the Recommended Development Phases section uses
+collinear geometry `(ap1 at 0,0 → ris1 at 5,0 → ue1 at 10,0)` which triggers a
+FOV rejection because the AP sits at 180° behind the RIS normal of 0°. The
+snippet has been corrected below to use geometry that passes the default ±60°
+FOV check.
 
 ## Vision
 
@@ -778,6 +788,17 @@ Exit gate:
 - New characterization tests fail on intentional compatibility breaks and pass
   on the current implementation.
 - No production code refactor is included in this phase.
+
+Current status:
+
+- Complete: `tests/test_connect_characterization.py` covers the current
+  `RISNetwork.connect()` result shape, deterministic seeded metrics,
+  `active_links`, `last_connect_result`, phase persistence, no-active-link mode,
+  missing-node errors, FOV rejection, `compute_phases=False`, and beam-miss
+  reporting.
+- Complete: import, module CLI, console CLI, and minimal runtime smoke tests are
+  covered by `tests/test_smoke.py`.
+- Complete: no production refactor was introduced for this phase.
 
 ### Phase 2 - Extract Array and Phase Primitives
 
