@@ -763,3 +763,30 @@ Change budget: [files 2] [functions: HOG sweep diagnostics, adaptive-window logs
 - Assumptions invalidated: None.
 - Known debt (acknowledged): There are still non-CLI `print()` calls elsewhere in miscellaneous utilities and demos, but the main vision sweep algorithms are now migrated.
 - Limitations: Verification passed with `python3 -m compileall controller/beamsweeping/algorithms/hog_sweep.py` and `.venv/bin/pytest tests/test_smoke.py -q`.
+
+## Task: Complete Phase 4 Exit Gate
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the Phase 4 closeout hunks in `tests/test_connect_characterization.py`, `tasks/test-suite.md`, `FUTURE.md`, and `tasks/todo.md`.
+Change budget: [files 4] [functions: extracted connect helper tests and roadmap closeout only] [interfaces: test coverage and documentation only] [state mutations: none]
+
+### Scope
+- `tests/test_connect_characterization.py` — add focused regression coverage for extracted `RISNetwork.connect()` helpers
+- `tasks/test-suite.md` — record the expanded connect-helper coverage
+- `FUTURE.md` — mark Phase 4 complete where the verified exit gate is now satisfied
+- `tasks/todo.md` — record the Phase 4 closeout
+
+### Steps
+- [x] Identify which extracted `connect()` helpers still lacked focused tests
+- [x] Add helper-level regression coverage without changing the public facade
+- [x] Verify focused connect/smoke coverage and compile checks
+- [x] Mark Phase 4 complete in the roadmap once the exit gate passed
+
+### Review
+- Completed: Added focused regression coverage for extracted `RISNetwork.connect()` helpers including phase computation, phase payload persistence, result assembly, metadata persistence, messaging override resolution, active-link persistence, last-result persistence, link-budget preparation, and SNR evaluation. Updated `tasks/test-suite.md` and `FUTURE.md` to reflect that the Phase 4 exit gate is now satisfied.
+- Out-of-scope flagged: Utility/demo scripts still contain some direct `print()` calls, but the core/library and main sweep algorithm surfaces required for Phase 4 are migrated to logging.
+- Assumptions invalidated: One helper test initially assumed a nonexistent `UE.link_metrics` attribute; it was corrected to assert against the actual `UE.get_link_metadata()` contract.
+- Known debt (acknowledged): Broader architecture cleanup beyond the Phase 4 exit gate remains for later phases, especially wider Phase 5 client adoption and residual utility-script cleanup.
+- Limitations: Verification passed with `python3 -m compileall core controller risnet tests` and `.venv/bin/pytest tests/test_connect_characterization.py tests/test_smoke.py -q`.

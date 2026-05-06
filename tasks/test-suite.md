@@ -18,7 +18,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
 | `test_smoke.py` | pytest | 8 | Import, CLI, entry points | |
-| `test_connect_characterization.py` | pytest | 13 | `RISNetwork.connect()` contract | |
+| `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
@@ -198,6 +198,10 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Missing-node error message format
 - FOV rejection for collinear (opposite-direction) geometry
 - Beam miss reporting with directional-loss SNR
+- Extracted helper services for node resolution, geometry/FOV prep, phase
+  computation, phase payload persistence, result assembly, feedback persistence,
+  metadata persistence, messaging override resolution, active-link persistence,
+  last-result persistence, link-budget prep, and SNR evaluation
 
 ---
 

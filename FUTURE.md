@@ -1147,13 +1147,13 @@ Exit gate:
 
 Current status:
 
-- Mostly complete: `RISNetwork.connect()` now delegates node lookup,
+- Complete: `RISNetwork.connect()` now delegates node lookup,
   geometry/FOV preparation, phase computation, channel/link-budget evaluation,
-  and result persistence through focused internal helpers while preserving the
-  public facade.
-- In Progress: the public compatibility surface is stable and covered by the
-  Phase 1 characterization tests, but the surrounding architectural debt is not
-  fully resolved yet.
+  feedback persistence, active-link persistence, and last-result persistence
+  through focused internal helpers while preserving the public facade.
+- Complete: the public compatibility surface is covered by the Phase 1
+  characterization tests, and the extracted helper services now have focused
+  regression coverage in `tests/test_connect_characterization.py`.
 
 ### Phase 5 - Scenario API and Headless Runner
 
@@ -1359,13 +1359,13 @@ example path.
 
 ### print() Throughout Library Code
 
-Only 6 files use Python's `logging` module. All other core, controller, and
-utility modules use `print()` directly, coupling diagnostic output to stdout and
-making test capture and production deployment harder.
+Core simulation modules and the main beam-sweeping algorithm surfaces now use
+Python's `logging` module instead of direct `print()` diagnostics, which keeps
+test capture and production embedding cleaner.
 
-Resolution: replace `print()` with `logging` at appropriate levels in all
-non-CLI modules. Defer until after Phase 4 so refactoring and logging migration
-do not happen simultaneously.
+Residual note: a few utility/demo scripts still print directly, particularly
+camera helper scripts under `utils/` and standalone mock/demo entrypoints.
+Those are now tooling cleanup rather than Phase 4 blockers.
 
 ### Star Imports in waveflow/
 
@@ -1430,12 +1430,13 @@ Status as of 2026-05-06:
    RIS link-budget helpers are in place and reused by the overlapping utility
    paths without changing compatibility surfaces.
 9. ~~Split `RISNetwork.connect()` into smaller internal services without changing
-   its public return shape (Phase 4).~~ — Mostly Done. The public facade is
-   preserved and the major internal steps are extracted behind it.
-10. Replace `print()` with `logging` in all non-CLI library modules (Phase 4).
-    Status: In Progress. Public/library-facing modules now use logger-based
-    reporting, but print-heavy diagnostics still remain in some algorithm and
-    helper modules outside the canonical CLI surfaces.
+   its public return shape (Phase 4).~~ — Done. The public facade is preserved,
+   the major internal steps are extracted behind focused helpers, and helper
+   coverage now lives alongside the public characterization tests.
+10. ~~Replace `print()` with `logging` in all non-CLI library modules (Phase 4).~~
+    — Done for the core/library surface. Core simulation modules and the main
+    sweep algorithms now use logger-based reporting; remaining direct prints are
+    limited to utility/demo scripts and are no longer Phase 4 blockers.
 11. ~~Decide canonical CLI implementation and document or consolidate the
     `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).~~ —
     Done for documentation. `cli/main_shell.py` is the canonical full shell;
