@@ -28,7 +28,7 @@ def example_basic_without_feedback():
 
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=18.0)
-    net.add_ris('R1', 5, 0, 0, N=16, bits=2)
+    net.add_ris('R1', 5, 0, 0, N=16, bits=2, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     result = net.connect('AP1', 'R1', 'UE1')
@@ -58,7 +58,7 @@ def example_with_automatic_feedback():
 
     net = RISNetwork()
     net.add_ap('AP1', 0, 0, 0, power_dBm=15.0)
-    net.add_ris('R1', 5, 0, 0, N=16, bits=2)
+    net.add_ris('R1', 5, 0, 0, N=16, bits=2, max_angle_deg=90)
     net.add_ue('UE1', 10, 0, 0)
 
     ap = net.get('AP1')
@@ -119,7 +119,7 @@ def example_power_only():
 
     net = RISNetwork()
     net.add_ap('AP2', 0, 0, 0, power_dBm=16.0)
-    net.add_ris('R2', 5, 0, 0, N=16, bits=2)
+    net.add_ris('R2', 5, 0, 0, N=16, bits=2, max_angle_deg=90)
     net.add_ue('UE2', 10, 0, 0)
 
     ap = net.get('AP2')
@@ -149,7 +149,7 @@ def example_rate_only():
 
     net = RISNetwork()
     net.add_ap('AP3', 0, 0, 0, power_dBm=20.0)
-    net.add_ris('R3', 5, 0, 0, N=16, bits=2)
+    net.add_ris('R3', 5, 0, 0, N=16, bits=2, max_angle_deg=90)
     net.add_ue('UE3', 10, 0, 0)
 
     ap = net.get('AP3')

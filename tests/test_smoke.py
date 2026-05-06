@@ -31,8 +31,8 @@ def test_minimal_connect_smoke():
 
 
 def test_hog_example_module_imports_with_current_public_apis():
-    example_path = Path(__file__).resolve().parents[1] / "examples" / "hog_human_detection_example.py"
-    spec = importlib.util.spec_from_file_location("hog_human_detection_example", example_path)
+    example_path = Path(__file__).resolve().parents[1] / "examples" / "script" / "example_19_hog_human_detection.py"
+    spec = importlib.util.spec_from_file_location("example_19_hog_human_detection", example_path)
     assert spec is not None
     assert spec.loader is not None
 
@@ -71,8 +71,11 @@ def test_legacy_module_help_from_outside_repo():
 
 
 def test_console_help_from_outside_repo():
-    bin_dir = os.path.dirname(sys.executable)
-    risnet_executable = os.path.join(bin_dir, "waveflow")
+    import shutil
+    risnet_executable = shutil.which("waveflow")
+    if risnet_executable is None:
+        import pytest
+        pytest.skip("waveflow not found on PATH — run pip install -e .")
 
     result = subprocess.run(
         [risnet_executable, "help", "--exec-only"],
