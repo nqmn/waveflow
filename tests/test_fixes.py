@@ -142,12 +142,18 @@ def test_rms_phase_error():
 
     error_deg_wrapped = np.degrees(error_wrapped)
     rms_error = np.degrees(np.sqrt(np.mean(error_wrapped**2)))
+    expected_wrapped_deg = np.array([10.0, 10.0, 20.0, -10.0])
+    expected_rms_deg = np.sqrt(175.0)
 
     print(f"  Ideal phases: {ideal_phases}")
     print(f"  Quantized phases: {quantized_phases}")
     print(f"  Wrapped errors (deg): {np.degrees(error_wrapped)}")
     print(f"  RMS error: {rms_error:.2f}°")
-    print(f"  Expected range: 20-90° for 1-bit ✓" if 20 < rms_error < 100 else "  Unexpected RMS value ✗")
+    print(f"  Expected wrapped errors: {expected_wrapped_deg}")
+    print(f"  Expected RMS error: {expected_rms_deg:.2f}°")
+
+    assert np.allclose(error_deg_wrapped, expected_wrapped_deg)
+    assert np.isclose(rms_error, expected_rms_deg)
 
 
 if __name__ == "__main__":

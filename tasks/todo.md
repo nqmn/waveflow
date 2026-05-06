@@ -425,3 +425,29 @@ Change budget: [files 2] [functions: N/A] [interfaces: none] [state mutations: d
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: This pass aligns wording and guidance only; it does not convert the remaining manual or weak tests into stronger automated coverage.
+
+## Task: Fix stale RMS phase error expectation
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the targeted test and roadmap/test-suite doc hunks if the corrected expectation proves inconsistent with the current wrapped phase-error implementation.
+Change budget: [files 4] [functions: `tests/test_fixes.py::test_rms_phase_error`, related roadmap/test-suite status text] [interfaces: none] [state mutations: docs and test assertions only]
+
+### Scope
+- `tests/test_fixes.py` — replace the stale RMS phase-error expectation with an enforced current wrapped-error assertion
+- `tasks/test-suite.md` — remove stale-failure language if the targeted verification passes
+- `FUTURE.md` — clear the stale test note from current status/action items if the fix lands
+- `tasks/todo.md` — record this work
+
+### Steps
+- [x] Inspect the current test and confirm whether the stale note still reflects repo reality
+- [x] Patch the test to assert the correct wrapped RMS expectation and update the related docs
+- [x] Re-run targeted verification and review the diff for scope
+
+### Review
+- Completed: Confirmed `tests/test_fixes.py` TEST 3 had no assertion, replaced the stale range check with explicit wrapped-error and RMS assertions, and cleared the stale-failure notes from `tasks/test-suite.md` and `FUTURE.md`.
+- Out-of-scope flagged:
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Verification for this slice was targeted to `tests/test_fixes.py`; it did not re-run the broader suite.

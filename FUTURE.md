@@ -37,9 +37,8 @@ packages in its discovery (`app*`, `cli*`, `config*`, `controller*`, `core*`,
 `python -m risnet` and the `risnet` console entry point. `from core import
 RISNetwork` and `from risnet import RISnet` import successfully.
 
-One known test failure exists in `tests/test_fixes.py` (TEST 3: RMS Phase Error
-with Angle Wrapping — unexpected RMS value). This is a stale test expectation,
-not a physics regression, and must be resolved in Phase 1.
+No known baseline test failures are currently documented in the targeted
+Phase 0/1 compatibility suite.
 
 The verification snippet in the Recommended Development Phases section uses
 collinear geometry `(ap1 at 0,0 → ris1 at 5,0 → ue1 at 10,0)` which triggers a
@@ -726,9 +725,7 @@ print("Baseline OK — snr_dB:", result["snr_dB"])
 PY
 ```
 
-Note: `tests/test_fixes.py` TEST 3 (RMS Phase Error with Angle Wrapping) has a
-stale expected value and will report one failure until Phase 1 resolves it. All
-other checks in that file pass. `pytest` requires installation; use
+Note: `pytest` requires installation; use
 `PYTHONPATH=. python3 tests/<file>.py` as the fallback runner until a virtual
 environment is established.
 
@@ -779,8 +776,6 @@ Current status (verified 2026-05-06):
   currently be run via `PYTHONPATH=. python3 tests/<file>.py`. A virtual
   environment with `pip install -e ".[dev]"` is needed before pytest-based CI
   can run.
-- Incomplete: `tests/test_fixes.py` TEST 3 (RMS Phase Error with Angle
-  Wrapping) fails due to a stale expected value. Must be fixed in Phase 1.
 - Incomplete: the baseline verification snippet in this document used broken
   collinear geometry (AP behind RIS FOV). Fixed above.
 - Remaining decision: whether top-level packages stay top-level long term or
@@ -1180,8 +1175,8 @@ Status as of 2026-05-06:
    `risnet/__main__.py` exists, imports verified.
 2. Set up a virtual environment and install `pytest` via `pip install -e
    ".[dev]"` so the test suite can run without `PYTHONPATH` hacks.
-3. Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
-   prerequisite before any refactoring).
+3. ~~Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
+   prerequisite before any refactoring).~~ — Done.
 4. Fix `examples/hog_human_detection_example.py` — remove or update the
    `NetworkManager` reference to use the current `RISNetwork` API.
 5. ~~Add characterization regression tests for `RISNetwork.connect()` output

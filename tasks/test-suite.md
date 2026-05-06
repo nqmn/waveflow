@@ -28,7 +28,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 | `test_hybrid_mode.py` | dual-mode | 4 | Hybrid phase engine | pytest-compatible `def test_*` with `assert` |
 | `test_de_localization_sweep.py` | dual-mode | 3 | DE beam sweep algorithm | pytest-compatible `def test_*` with `assert` |
 | `test_de_accuracy_loop.py` | dual-mode | 1 | DE convergence loop | **No assertions** — prints results only; pytest passes vacuously |
-| `test_fixes.py` | dual-mode | 3 | Legacy physics regression | pytest-compatible `def test_*` with `assert`; TEST 3 stale |
+| `test_fixes.py` | dual-mode | 3 | Legacy physics regression | pytest-compatible `def test_*` with `assert` |
 | `test_adaptive_with_ml.py` | manual | 0 | ML adaptive beam tracking | `run_adaptive_comparison()` only — not pytest-discoverable |
 | `test_sweep_with_ml.py` | manual | 0 | ML sweep comparison | `run_sweep_comparison()` only — not pytest-discoverable |
 | `test_sweep_coarse_step.py` | manual | 0 | Sweep coarse step behavior | `run_coarse_sweep_comparison()` only — not pytest-discoverable |
@@ -56,12 +56,6 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
    `test_fixes.py`, `test_de_localization_sweep.py` — use `def test_*` with
    `assert` but also have `if __name__ == "__main__"` runners. They work under
    both pytest and direct execution. Keep this dual-mode pattern.
-
-**Known stale failure**: `test_fixes.py` TEST 3 (RMS Phase Error with Angle
-Wrapping) has a stale expected value. One failure is expected until Phase 1
-resolves it. Do not suppress with `xfail`; fix the expectation.
-
----
 
 ## 2. Coverage by Validation Category
 
@@ -299,9 +293,7 @@ pytest tests/ -v
 
 ### Known expected failure
 
-`tests/test_fixes.py` TEST 3 (`test_rms_phase_error`) — stale expected value.
-One failure is expected until Phase 1 resolves it. Do not suppress with
-`xfail`; fix the expectation.
+No known expected failures are documented in the current baseline suite.
 
 ---
 
