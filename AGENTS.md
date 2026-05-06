@@ -3,6 +3,8 @@
 > Read at session start. Hard constraints, not suggestions.
 > Goal: reliable execution at scale with minimal orchestration overhead.
 > At session start, also read `tasks/lessons.md` if it exists and apply all rules within.
+> Before any task that adds, removes, or modifies tests — or changes behavior covered
+> by existing tests — read `tasks/test-suite.md` and update it as part of the task.
 
 ---
 
@@ -318,10 +320,31 @@ Change budget: [files N] [functions: list] [interfaces: list] [state mutations: 
 **What happened**: ... **Root cause**: ... **Rule going forward**: ...
 ```
 
+### `tasks/test-suite.md`
+
+The authoritative map of what is tested, what is not, and what each test file
+covers. It must remain current at all times.
+
+**Read before**:
+- Adding, removing, or renaming test files
+- Changing behavior that is covered by existing tests
+- Adding new features or physics models that should be validated
+
+**Update as part of the task** (not after) when:
+- A new test file is added → add row to File Inventory, update Coverage section
+- An existing test is removed or renamed → update File Inventory
+- A gap in Section 3 is closed by new tests → remove it from the gap list
+- New unvalidated behavior is introduced → add it to Section 3
+
+**Do not**:
+- Claim a validation gap is closed without a test that enforces the tolerance
+- Add a test without recording it in `test-suite.md`
+- Suppress stale failures with `xfail` — fix the expectation instead
+
 **Execution sequence**:
 Classify risk → Assess operational risk → Discover patterns → Set confidence →
 Plan + budget → Approve (if required) → Execute (incrementally if Guarded) →
-Verify → Update confidence → Review → Capture lessons
+Verify → Update confidence → Review → Update `test-suite.md` → Capture lessons
 
 ---
 
