@@ -1026,6 +1026,23 @@ Exit gate:
 - Hardware-facing tests use mocks by default.
 - Optional integration tests are isolated from core CI.
 
+## Web Interface (Planned)
+
+The Flask-based web interface (`app/`) exists in the codebase but is not yet complete or supported as a user-facing feature. It is excluded from the current README.
+
+Planned capabilities:
+
+- REST API endpoints (`/api/*`) for network control and monitoring
+- HTML UI for topology visualization and node management
+- Real-time SNR and beam state display
+- Integration with the headless scenario runner (Phase 5)
+
+Current status:
+
+- `app/` module exists with `api/bp.py`, `web/bp.py`, `thread_safe_network.py`, and `state_manager.py`
+- Entry point reachable via `waveflow --web` but not production-ready
+- Will be completed after the headless scenario runner (Phase 5) is stable
+
 ## Immediate Action Items
 
 Status as of 2026-05-06:

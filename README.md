@@ -42,7 +42,7 @@ Step-by-step tutorials from basic to advanced: **[TUTORIAL.md](TUTORIAL.md)**
 | Pathfinding | Dijkstra, A\*, Greedy, Exhaustive |
 | Channel | OFDM waveform, multipath, per-subcarrier SNR |
 | ML | Random Forest, XGBoost, SVR, KNN, LGBM beam predictors |
-| Interface | Interactive CLI, REST API (Flask), Python API |
+| Interface | Interactive CLI, Python API |
 | Feedback | UE→AP SNR feedback loop with adaptive beam tracking |
 
 ## Project Structure
@@ -111,12 +111,6 @@ result = net.ping(ap, ue)
 print(f"SNR: {result['snr_dB']:.1f} dB, hops: {result['hops']}")
 ```
 
-### Web interface
-
-```bash
-waveflow --web
-# Open http://127.0.0.1:5000
-```
 
 ## Beam Sweep Algorithms
 
