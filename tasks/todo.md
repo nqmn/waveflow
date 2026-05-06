@@ -278,3 +278,28 @@ Change budget: [files 3] [functions: new scenario runner API, targeted tests, ad
 - Assumptions invalidated: The stock `example_1_simple.json` topology is not directly connectable under default RIS FOV, so the execution test now uses a valid temporary topology while keeping the stock file for load-only coverage.
 - Known debt (acknowledged):
 - Limitations: This first slice supports JSON topology loading and a single headless connect flow; batch scenarios and richer scenario schemas remain future work.
+
+## Task: Phase 5 scenario request schema
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive request-schema changes in `risnet/scenarios.py`, exports, and focused tests.
+Change budget: [files 3] [functions: additive request dataclasses and run entrypoint, targeted tests, additive export if required] [interfaces: additive risnet scenario request surface only] [state mutations: none beyond existing network/load/connect side effects]
+
+### Scope
+- `risnet/scenarios.py` — additive request dataclasses and `run()` entrypoint for connect scenarios
+- `risnet/__init__.py` — only for additive exports
+- `tests/test_scenarios.py` — focused request-schema coverage
+
+### Steps
+- [x] Add minimal request dataclasses and `run()` entrypoint
+- [x] Add focused tests for request-based execution
+- [x] Run focused pytest verification and diff review
+
+### Review
+- Completed: Added `ConnectScenario`, `ScenarioRequest`, and `ScenarioRunner.run()` as a minimal explicit request surface on top of the headless runner, with focused request-schema coverage.
+- Out-of-scope flagged: Existing roadmap and branding changes remain untouched outside the current task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The request schema currently supports one connect action only; multi-step scenarios and richer declarative formats remain future work.

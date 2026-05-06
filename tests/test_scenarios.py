@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from risnet import ScenarioRunResult, ScenarioRunner
+from risnet import ConnectScenario, ScenarioRequest, ScenarioRunResult, ScenarioRunner
 
 
 EXAMPLE_SIMPLE = Path("examples/json/example_1_simple.json")
@@ -58,3 +58,33 @@ def test_scenario_runner_reports_missing_required_node_types():
         runner._resolve_connect_names(net, None, None, None)
 
     assert "No RIS nodes available" in str(exc_info.value)
+
+
+def test_scenario_runner_executes_request_schema(tmp_path):
+    topology_path = tmp_path / "scenario_request.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Scenario Request",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+    runner = ScenarioRunner()
+    request = ScenarioRequest(
+        topology_path=topology_path,
+        connect=ConnectScenario(kwargs={"seed": 42, "use_get_snr": False}),
+    )
+
+    run = runner.run(request)
+
+    assert run.ap_name == "AP1"
+    assert run.ris_name == "R1"
+    assert run.ue_name == "UE1"
+    assert run.result["snr_dB"] == pytest.approx(
+        runner.run_connect(topology_path, seed=42, use_get_snr=False).result["snr_dB"]
+    )

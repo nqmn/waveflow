@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from cli.helpers import NetworkIO
 from core import RISNetwork
@@ -21,6 +21,24 @@ class ScenarioRunResult:
     ris_name: str
     ue_name: str
     result: Dict
+
+
+@dataclass
+class ConnectScenario:
+    """Declarative connect action for a loaded topology."""
+
+    ap_name: Optional[str] = None
+    ris_name: Optional[str] = None
+    ue_name: Optional[str] = None
+    kwargs: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ScenarioRequest:
+    """Minimal explicit request surface for a headless scenario run."""
+
+    topology_path: Path
+    connect: ConnectScenario
 
 
 class ScenarioRunner:
@@ -77,4 +95,14 @@ class ScenarioRunner:
             ris_name=ris_name,
             ue_name=ue_name,
             result=result,
+        )
+
+    def run(self, request: ScenarioRequest) -> ScenarioRunResult:
+        """Execute a declarative scenario request."""
+        return self.run_connect(
+            request.topology_path,
+            ap_name=request.connect.ap_name,
+            ris_name=request.connect.ris_name,
+            ue_name=request.connect.ue_name,
+            **request.connect.kwargs,
         )
