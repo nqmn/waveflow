@@ -49,6 +49,15 @@ def run(argv: Optional[List[str]] = None) -> int:
         net.set_controller(ctrl)
         return net
 
+    def _new_legacy_shell(topology: Optional[Path] = None):
+        from cli.main_shell import RISNetCLI
+
+        net = _new_network_with_controller()
+        cli = RISNetCLI(net)
+        if topology is not None:
+            cli._load_network_from_file(str(topology))
+        return cli
+
     def _load_topology(net, topology: Optional[Path]) -> None:
         if topology is None:
             return
@@ -344,8 +353,9 @@ def run(argv: Optional[List[str]] = None) -> int:
     # add
     # -------------------------------------------------------------------------
 
-    @app.command("add")
+    @app.command("add", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
     def add(
+        ctx: typer.Context,
         node_type: str = typer.Argument(..., help="Node type: ap, ris, or ue."),
         name: Optional[str] = typer.Argument(None, help="Node name (auto-generated if omitted)."),
         x: float = typer.Option(0.0, "--x", help="X position."),
@@ -368,33 +378,118 @@ def run(argv: Optional[List[str]] = None) -> int:
         t = node_type.lower()
         auto_name = name
         if t == "random":
-            ris_name = topology_helper.generate_auto_name("ris")
-            ris_x, ris_y = topology_helper.generate_position("ris")
-            net.add_ris(ris_name, ris_x, ris_y, z, N=n, bits=bits)
+            import numpy as np
 
-            ap_name = topology_helper.generate_auto_name("ap")
-            ap_x, ap_y = topology_helper.generate_position("ap")
-            net.add_ap(ap_name, ap_x, ap_y, z, power_dBm=power)
+            parts = ([name] if name is not None else []) + list(ctx.args)
+            num_ap = 1
+            num_ris = 1
+            num_ue = 1
+            distance_range = (5.0, 7.0)
 
-            ue_name = topology_helper.generate_auto_name("ue")
-            ue_x, ue_y = topology_helper.generate_position("ue", distance_range=(5.0, 7.0))
-            net.add_ue(ue_name, ue_x, ue_y, z)
+            idx = 0
+            try:
+                if idx < len(parts) and not parts[idx].startswith("--"):
+                    num_ap = int(parts[idx])
+                    idx += 1
+                if idx < len(parts) and not parts[idx].startswith("--"):
+                    num_ris = int(parts[idx])
+                    idx += 1
+                if idx < len(parts) and not parts[idx].startswith("--"):
+                    num_ue = int(parts[idx])
+                    idx += 1
+            except ValueError as exc:
+                console.print(f"[red]Invalid random-node count:[/red] {exc}")
+                raise typer.Exit(1)
+
+            while idx < len(parts):
+                token = parts[idx]
+                if token == "--distance" and idx + 1 < len(parts):
+                    try:
+                        min_dist, max_dist = map(float, parts[idx + 1].split("-"))
+                    except (ValueError, IndexError):
+                        console.print(
+                            f"[red]Invalid distance format:[/red] {parts[idx + 1]}. Use min-max, e.g. 5-15."
+                        )
+                        raise typer.Exit(1)
+                    distance_range = (min_dist, max_dist)
+                    idx += 2
+                    continue
+                if token == "--no-ue":
+                    num_ue = 0
+                    idx += 1
+                    continue
+                console.print(f"[red]Unknown random add option:[/red] {token}")
+                raise typer.Exit(1)
+
+            if min(num_ap, num_ris, num_ue) < 0:
+                console.print("[red]Node counts must be non-negative.[/red]")
+                raise typer.Exit(1)
+            if distance_range[0] < 0 or distance_range[1] < 0 or distance_range[0] > distance_range[1]:
+                console.print("[red]Distance range must be positive and min <= max.[/red]")
+                raise typer.Exit(1)
+
+            ris_positions = []
+            added = []
+            for _ in range(num_ris):
+                ris_name = topology_helper.generate_auto_name("ris")
+                ris_x, ris_y = topology_helper.generate_position("ris")
+                net.add_ris(ris_name, ris_x, ris_y, z, N=n, bits=bits)
+                ris_positions.append((ris_name, ris_x, ris_y))
+                added.append(ris_name)
+
+            if num_ris > 0 and num_ap > 0:
+                _, ris_x, ris_y = ris_positions[0]
+                for _ in range(num_ap):
+                    ap_distance = np.random.uniform(5.0, 15.0)
+                    ap_angle_deg = np.random.uniform(-60.0, 60.0)
+                    ap_angle_rad = np.radians(ap_angle_deg)
+                    ap_x = ris_x + ap_distance * np.cos(ap_angle_rad)
+                    ap_y = ris_y + ap_distance * np.sin(ap_angle_rad)
+                    ap_name = topology_helper.generate_auto_name("ap")
+                    net.add_ap(ap_name, ap_x, ap_y, z, power_dBm=power)
+                    added.append(ap_name)
+            else:
+                for _ in range(num_ap):
+                    ap_name = topology_helper.generate_auto_name("ap")
+                    ap_x, ap_y = topology_helper.generate_position("ap")
+                    net.add_ap(ap_name, ap_x, ap_y, z, power_dBm=power)
+                    added.append(ap_name)
+
+            for _ in range(num_ue):
+                ue_name = topology_helper.generate_auto_name("ue")
+                ue_x, ue_y = topology_helper.generate_position("ue", distance_range=distance_range)
+                net.add_ue(ue_name, ue_x, ue_y, z)
+                added.append(ue_name)
 
             console.print(
                 "[green]Added random topology[/green] "
-                f"[cyan]{ap_name}[/cyan], [cyan]{ris_name}[/cyan], [cyan]{ue_name}[/cyan]"
+                f"({num_ap} AP, {num_ris} RIS, {num_ue} UE)"
             )
+            if distance_range != (5.0, 7.0):
+                console.print(
+                    f"[cyan]UE distance range[/cyan] {distance_range[0]:.1f}m-{distance_range[1]:.1f}m"
+                )
+            console.print("[cyan]Nodes[/cyan] " + ", ".join(added) if added else "[cyan]Nodes[/cyan] none")
         elif t == "ap":
+            if ctx.args:
+                console.print(f"[red]Unexpected extra arguments for '{node_type}':[/red] {' '.join(ctx.args)}")
+                raise typer.Exit(1)
             if auto_name is None:
                 auto_name = f"AP{len([n for n in net.nodes if n.upper().startswith('AP')]) + 1}"
             net.add_ap(auto_name, x, y, z, power_dBm=power)
             console.print(f"[green]Added AP[/green] [cyan]{auto_name}[/cyan] at ({x}, {y}, {z})")
         elif t == "ris":
+            if ctx.args:
+                console.print(f"[red]Unexpected extra arguments for '{node_type}':[/red] {' '.join(ctx.args)}")
+                raise typer.Exit(1)
             if auto_name is None:
                 auto_name = f"R{len([n for n in net.nodes if n.upper().startswith('R')]) + 1}"
             net.add_ris(auto_name, x, y, z, N=n, bits=bits)
             console.print(f"[green]Added RIS[/green] [cyan]{auto_name}[/cyan] at ({x}, {y}, {z}) N={n} bits={bits}")
         elif t == "ue":
+            if ctx.args:
+                console.print(f"[red]Unexpected extra arguments for '{node_type}':[/red] {' '.join(ctx.args)}")
+                raise typer.Exit(1)
             if auto_name is None:
                 auto_name = f"UE{len([n for n in net.nodes if n.upper().startswith('UE')]) + 1}"
             net.add_ue(auto_name, x, y, z)
@@ -576,6 +671,45 @@ def run(argv: Optional[List[str]] = None) -> int:
             console.print("[yellow]Network cleared.[/yellow]")
 
     # -------------------------------------------------------------------------
+    # links
+    # -------------------------------------------------------------------------
+
+    @app.command("links", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def links_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before inspecting links.",
+        ),
+    ) -> None:
+        """Show active links or forward `links plot ...` to the legacy handler."""
+        cli = _new_legacy_shell(topology)
+        cmd_str = " ".join(["links", *ctx.args]).strip()
+        try:
+            cli.onecmd(cmd_str)
+        except Exception as exc:
+            console.print(f"[red]Links command failed:[/red] {exc}")
+            raise typer.Exit(1)
+
+    # -------------------------------------------------------------------------
+    # plot
+    # -------------------------------------------------------------------------
+
+    @app.command("plot", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def plot_cmd(
+        ctx: typer.Context,
+    ) -> None:
+        """Plot saved sweep/connect results through the established legacy handler."""
+        cli = _new_legacy_shell()
+        cmd_str = " ".join(["plot", *ctx.args]).strip()
+        try:
+            cli.onecmd(cmd_str)
+        except Exception as exc:
+            console.print(f"[red]Plot command failed:[/red] {exc}")
+            raise typer.Exit(1)
+
+    # -------------------------------------------------------------------------
     # demo-connect
     # -------------------------------------------------------------------------
 
@@ -712,8 +846,12 @@ def run(argv: Optional[List[str]] = None) -> int:
             console.print(f"[red]Command failed:[/red] {exc}")
             raise typer.Exit(1)
 
+    args = list(argv or [])
+    if not args:
+        args = ["shell"]
+
     try:
-        app(args=list(argv or []), prog_name="waveflow ui")
+        app(args=args, prog_name="waveflow ui")
     except SystemExit as exc:
         return int(exc.code or 0)
     return 0

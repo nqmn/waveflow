@@ -1,27 +1,27 @@
-## Task: Support `waveflow ui add random`
+## Task: Support `waveflow ui` command surface
 Mode: Standard
 Risk: Medium
-Confidence: Guarded
+Confidence: Stable
 Operational risk: Contained / Trivial
-Rollback plan: Revert the `risnet/terminal_cli.py` command branch, the focused smoke test, and the `tasks/test-suite.md` update for this task.
-Change budget: [files 4] [functions: `risnet.terminal_cli.add`, one focused smoke test] [interfaces: extend existing `ui add` CLI surface to accept `random`] [state mutations: in-memory network additions only during command execution]
+Rollback plan: Revert the `risnet/terminal_cli.py` UI command additions, the focused smoke tests, and the `tasks/test-suite.md` update for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.add`, `risnet.terminal_cli.links`, `risnet.terminal_cli.plot`, focused smoke tests] [interfaces: extend the direct `waveflow ui` CLI surface to cover `add random`, `links`, and `plot`] [state mutations: in-memory network additions/results loading only during command execution]
 
 ### Scope
-- `risnet/terminal_cli.py` — extend the Typer/Rich `ui add` command to support `random` node creation.
-- `tests/test_smoke.py` — add focused smoke coverage for `ui add random`.
-- `tasks/test-suite.md` — record the added CLI smoke coverage.
+- `risnet/terminal_cli.py` — expose the requested direct `ui` commands, adding `random` support to `add` and first-class `links`/`plot` wrappers where missing.
+- `tests/test_smoke.py` — add focused smoke coverage for the requested `ui` command surface.
+- `tasks/test-suite.md` — record the expanded CLI smoke coverage.
 - `tasks/todo.md` — record this task.
 
 ### Steps
-- [ ] Record task metadata and scope
-- [ ] Extend `ui add` with `random` support
-- [ ] Add focused smoke coverage and update test map
-- [ ] Run focused verification and review diff scope
+- [x] Record task metadata and scope
+- [x] Ensure the requested direct `ui` commands are exposed
+- [x] Add focused smoke coverage and update test map
+- [x] Run focused verification and review diff scope
 
 ### Review
-- Completed:
-- Out-of-scope flagged:
-- Assumptions invalidated:
+- Completed: Extended the Typer/Rich `ui add` command to accept `random`, AP/RIS/UE count arguments, `--distance min-max`, and `--no-ue`; added first-class `ui links` and `ui plot` wrappers over the established legacy handlers; and expanded smoke coverage for `status`, `list`, `add random`, `connect`, `save`, `load`, `links`, `clear links`, and `plot`.
+- Out-of-scope flagged: Existing uncommitted task-file and terminal CLI changes from earlier work, including separate bare-`ui` default-shell changes, remain in the worktree and were not modified beyond the lines required for this task.
+- Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations:
 
@@ -53,6 +53,32 @@ Change budget: [files 7] [functions: risnet.scenarios shared execution services 
 - Assumptions invalidated: The obstacle example topology uses a legacy `obstacles` block rather than `walls`, and `NetworkIO.load()` previously ignored environment restoration; this task closed that compatibility gap.
 - Known debt (acknowledged):
 - Limitations: Non-interactive CLI adoption is intentionally limited to the terminal `connect` path in this phase; sweep live-progress execution still uses the direct algorithm path.
+
+## Task: Make `waveflow ui` Default to Interactive Shell
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the bare-`ui` routing change, smoke test addition, and documentation inventory updates.
+Change budget: [files 4] [functions: risnet.terminal_cli.run, tests/test_smoke.py, tasks/test-suite.md, tasks/todo.md] [interfaces: `waveflow ui` / `python -m risnet ui` no-args behavior only] [state mutations: none beyond existing interactive shell behavior]
+
+### Scope
+- `risnet/terminal_cli.py` — route bare `waveflow ui` to the interactive shell.
+- `tests/test_smoke.py` — add subprocess smoke coverage for the new bare-`ui` interactive entry behavior.
+- `tasks/test-suite.md` — record the new CLI smoke coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Change bare `waveflow ui` behavior to launch interactive shell
+- [x] Add focused smoke coverage for entering and exiting the shell
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Bare `waveflow ui` now routes to the interactive shell by default when no subcommand is supplied, and smoke coverage verifies that the shell accepts commands over stdin and exits cleanly.
+- Out-of-scope flagged: `waveflow ui add random` remains a stateless one-shot command; this task only changes the no-args entry path into the interactive shell.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The interactive shell opened by bare `waveflow ui` is still the established legacy shell surface, now made easier to reach from the `ui` namespace.
 
 ## Task: Expand tutorial coverage for sweep, ML, localization, and vision
 Mode: Standard

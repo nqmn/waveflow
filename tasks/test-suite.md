@@ -17,7 +17,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 16 | Import, CLI, entry points | Includes Typer/Rich `ui add random` smoke, live sweep rendering smoke, topology-backed terminal connect coverage, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
+| `test_smoke.py` | pytest | 25 | Import, CLI, entry points | Includes bare `waveflow ui` interactive-shell entry smoke, Typer/Rich `ui` smoke for status/list/add/connect/save/load/links/clear/plot, `ui add random` count/distance/no-UE parsing, live sweep rendering smoke, topology-backed terminal connect coverage, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
 | `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
@@ -216,9 +216,15 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 **Covered**:
 - `from waveflow import RISnet` and `from risnet import RISnet` succeed
 - `python -m risnet --help` and `waveflow --help` exit cleanly
-- `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
+- bare `waveflow ui` opens the interactive shell and accepts commands over stdin
+- `waveflow ui status`, `list`, and `demo-connect` run from outside repo root
 - `waveflow ui add random` creates a one-AP/one-RIS/one-UE topology from outside repo root
+- `waveflow ui add random` accepts AP/RIS/UE counts, `--distance min-max`, and `--no-ue`
 - `waveflow ui connect` runs against a topology file through the shared scenario service path
+- `waveflow ui save` and `load` round-trip a topology JSON
+- `waveflow ui links` renders stored active links from a saved state file
+- `waveflow ui clear links` executes against a saved state file
+- `waveflow ui plot ... --type connect --out ...` saves a connect-metrics plot from a saved state file
 - `waveflow ui sweep` renders the Rich live/table UX from outside repo root
 - `examples/json/example_1_simple.json` remains sweep-safe for `waveflow ui sweep`
 - `waveflow ui sweep` fails cleanly on missing AP/RIS/UE names before opening the live Rich UI

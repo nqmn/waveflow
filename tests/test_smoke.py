@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from cli.connection_handler import ConnectionHandler
+from cli.helpers import NetworkIO
 from cli.main_shell import RISNetCLI
 from core import RISNetwork
 from risnet import RISnet
@@ -91,6 +92,20 @@ def test_console_help_from_outside_repo():
     assert "Available commands:" in result.stdout
 
 
+def test_bare_ui_opens_interactive_shell_and_accepts_commands():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui"],
+        cwd="/home/user/project/risnet",
+        input="status\nquit\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Opening interactive shell" in result.stdout
+    assert "waveflow>" in result.stdout.lower() or "risnet>" in result.stdout.lower()
+
+
 def test_typer_rich_status_from_outside_repo():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "--terminal", "status"],
@@ -117,6 +132,16 @@ def test_typer_rich_demo_connect_from_outside_repo():
     assert "snr_dB" in result.stdout
 
 
+def _write_saved_network_state(path: Path) -> Path:
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("AP1", 0.0, 0.0, 0.0)
+    net.add_ris("R1", 5.0, 0.0, 0.0, 16, 2, max_angle_deg=180.0)
+    net.add_ue("UE1", 10.0, 0.0, 0.0)
+    net.connect("AP1", "R1", "UE1", seed=42, use_get_snr=False)
+    NetworkIO().save(net, str(path))
+    return path
+
+
 def test_typer_rich_add_random_from_outside_repo():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui", "add", "random"],
@@ -127,6 +152,71 @@ def test_typer_rich_add_random_from_outside_repo():
     )
 
     assert "Added random topology" in result.stdout
+    assert "Waveflow Terminal" in result.stdout
+    assert "AP1" in result.stdout
+    assert "R1" in result.stdout
+    assert "UE1" in result.stdout
+
+
+def test_typer_rich_add_random_accepts_counts():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "add", "random", "2", "1", "3"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Added random topology (2 AP, 1 RIS, 3 UE)" in result.stdout
+    assert "Nodes         6" in result.stdout
+    assert "AP2" in result.stdout
+    assert "UE3" in result.stdout
+
+
+def test_typer_rich_add_random_accepts_distance_range():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "add", "random", "--distance", "8-12"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Added random topology (1 AP, 1 RIS, 1 UE)" in result.stdout
+    assert "UE distance range 8.0m-12.0m" in result.stdout
+
+
+def test_typer_rich_add_random_accepts_no_ue():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "add", "random", "1", "1", "--no-ue"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Added random topology (1 AP, 1 RIS, 0 UE)" in result.stdout
+    assert "Nodes         2" in result.stdout
+    assert "UE1" not in result.stdout
+
+
+def test_typer_rich_list_from_outside_repo_uses_topology():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "list",
+            "--topology",
+            "examples/json/example_1_simple.json",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
     assert "Waveflow Terminal" in result.stdout
     assert "AP1" in result.stdout
     assert "R1" in result.stdout
@@ -157,6 +247,98 @@ def test_typer_rich_connect_from_outside_repo_uses_topology():
 
     assert "Link Result" in result.stdout
     assert "snr_dB" in result.stdout
+
+
+def test_typer_rich_save_and_load_round_trip(tmp_path):
+    saved = tmp_path / "waveflow_ui_saved.json"
+
+    save_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "save",
+            str(saved),
+            "--topology",
+            "examples/json/example_1_simple.json",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert saved.exists()
+    assert "Saved" in save_result.stdout
+
+    load_result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "load", str(saved)],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Loaded" in load_result.stdout
+    assert "Waveflow Terminal" in load_result.stdout
+    assert "AP1" in load_result.stdout
+
+
+def test_typer_rich_links_from_saved_state(tmp_path):
+    state_file = _write_saved_network_state(tmp_path / "state_with_links.json")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "links", "--topology", str(state_file)],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "ACTIVE LINKS" in result.stdout
+    assert "AP1→R1→UE1" in result.stdout
+
+
+def test_typer_rich_clear_links_from_saved_state(tmp_path):
+    state_file = _write_saved_network_state(tmp_path / "state_to_clear.json")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "clear", "links", "--topology", str(state_file)],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Active links cleared." in result.stdout
+
+
+def test_typer_rich_plot_connect_from_saved_state(tmp_path):
+    state_file = _write_saved_network_state(tmp_path / "state_for_plot.json")
+    output_path = tmp_path / "connect_plot.png"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "plot",
+            str(state_file),
+            "--type",
+            "connect",
+            "--out",
+            str(output_path),
+        ],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert output_path.exists()
+    assert "Plot saved to" in result.stdout
 
 
 def test_typer_rich_sweep_table_from_outside_repo():
