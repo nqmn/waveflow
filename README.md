@@ -325,7 +325,7 @@ If you use Waveflow in your research, please cite:
 
 ```bibtex
 @software{waveflow,
-  title  = {Waveflow: Wireless Propagation, Waveform, and RIS-Assisted Network Simulator},
+  title  = {Waveflow: RIS-Assisted Wireless Network Simulator with Beam Sweeping, OFDM Waveform, and ML Predictors},
   author = {Mohd Adil},
   year   = {2026},
   url    = {https://github.com/nqmn/waveflow}
