@@ -3,7 +3,7 @@
 This tutorial is structured in two tiers:
 
 - **Beginner** (Parts 1–4) — concepts, analogies, and simple examples. No prior wireless engineering knowledge required. Suitable for final-year undergraduates and researchers new to RIS.
-- **Advanced** (Parts 5–15) — full API, physics models, waveform simulation, ML-guided optimization, scenario runner, and custom algorithm development. Suitable for researchers and engineers.
+- **Advanced** (Parts 5–17) — full API, physics models, waveform simulation, ML-guided optimization, scenario runner, and custom algorithm development. Suitable for researchers and engineers.
 
 Prerequisites: completed installation per [INSTALL.md](INSTALL.md).
 
@@ -30,11 +30,37 @@ With RIS:
 ```
 
 Waveflow lets you:
-- Place nodes (AP, RIS, UE) in a 2D space
-- Add walls and obstacles
-- Compute how well the signal reaches the UE (measured as SNR)
-- Optimize the RIS reflection angle (beam sweeping)
-- Compare different beam search algorithms
+
+**Network setup**
+- Place nodes (AP, RIS, UE) in 2D or 3D space with configurable parameters
+- Add walls and obstacles with per-wall attenuation
+- Load and save network topologies from JSON or YAML files
+- Generate random RIS-aware topologies automatically
+
+**Signal computation**
+- Compute received SNR, power, and path loss across a RIS-assisted link
+- Apply realistic physics: free-space path loss, atmospheric absorption, Rician fading, mutual coupling
+- Simulate waveform-level OFDM signals and measure per-subcarrier SNR
+- Model phase quantization loss for 1–4 bit RIS phase shifters
+
+**Beam control**
+- Search for the best RIS beam angle using multiple sweep algorithms (linear, coarse-fine, differential evolution, ML-guided)
+- Run closed-loop feedback where the UE reports SNR back to adapt the beam
+- Estimate UE location from beam response measurements (localization sweep modes)
+
+**Pathfinding**
+- Find the best route through a multi-hop RIS network (Dijkstra, A\*, greedy, exhaustive)
+- Compute link quality along each hop of the path
+
+**Streaming and throughput**
+- Simulate a live data stream over an active RIS link and measure per-chunk BER and throughput
+- Estimate Shannon capacity with and without the RIS
+
+**Analysis and validation**
+- Compare beam search algorithms side by side
+- Validate physics models against published reference values
+- Train and apply ML predictors for beam angle estimation
+- Optionally integrate camera-based positioning (ArUco markers, HOG detection)
 
 ### 1.2 Key Terms (Plain Language)
 
@@ -68,9 +94,20 @@ Every Waveflow simulation follows the same flow:
 
 ## Part 2 — Your First Simulation
 
-### 2.1 Using the Interactive CLI
+Waveflow gives you two CLI modes. They run the same underlying simulator — the difference is in how you interact with it:
 
-The easiest way to start is the command-line interface. Launch it:
+| Mode | How it works | Best for |
+|---|---|---|
+| **Interactive shell** (`waveflow`) | Persistent session — type commands one at a time at a `waveflow>` prompt | Exploration, manual testing, building up a network step by step |
+| **Terminal UI** (`waveflow ui`) | One-shot commands — each command runs and exits, output is formatted tables | Scripts, automation, SSH sessions, reproducible experiments |
+
+Both are covered below. Start with the interactive shell if you are new; use `waveflow ui` when you want clean output you can copy or pipe.
+
+---
+
+### 2.1 Interactive Shell
+
+Launch the shell:
 
 ```bash
 waveflow
@@ -96,6 +133,7 @@ waveflow> connect ap1 ris1 ue1
 ```
 
 You should see output like:
+
 ```
 SNR: 29.9 dB   Power: -52.3 dBm   Beam angle: 16.7°
 ```
@@ -127,6 +165,381 @@ waveflow> connect ap1 ris1 ue1
 ```
 
 The wall adds 20 dB of attenuation. The RIS helps maintain the connection by reflecting around the obstacle.
+
+### 2.5 Add a Random Network Instantly
+
+If you want to test without picking positions manually, `add random` generates a valid AP, RIS, and UE automatically — positions are chosen so the geometry is physically coherent (AP and UE inside RIS FOV).
+
+```bash
+waveflow> add random
+```
+
+```
+ADDING RANDOM NODES TO NETWORK
+Target: 1 AP(s), 1 RIS(s), 1 UE(s)
+UE distance range: 5.0m - 7.0m
+----------------------------------------------------------------------
+✓ Added RIS R1  at (4.82, 13.34) (N=16, bits=1)
+✓ Added AP AP1  at (9.69, 15.48) (RIS-aware, angle: 23.73°)
+✓ Added UE UE1  at (11.56, 13.71) (RIS-aware placement)
+----------------------------------------------------------------------
+✓ Successfully added 3 nodes to network
+```
+
+You can also specify counts: `add random 2 1 3` adds 2 APs, 1 RIS, and 3 UEs.
+
+### 2.6 List — View the Network Map
+
+`list` prints an ASCII map of all nodes and their coordinates:
+
+```bash
+waveflow> list
+```
+
+```
+Topology View (ASCII):
+Legend: 0=AP1  1=R1  2=UE1
+----------------------------------------------------
+| .................................................. |
+| .................................0................ |
+| .................................................. |
+| .............................................2.... |
+| .................................................. |
+| ....1............................................. |
+| .................................................. |
+----------------------------------------------------
+
+Node Coordinates:
+Name         Type            Position (x,y,z)
+----------------------------------------------------
+AP1          AccessPoint     (  9.69,  15.48,   0.00)
+R1           RIS             (  4.82,  13.34,   0.00)
+UE1          UE              ( 11.56,  13.71,   0.00)
+```
+
+Each node is shown as a numbered dot on the grid. Useful for visually verifying your layout before connecting.
+
+### 2.7 Status — Full Network Summary
+
+`status` shows node details, all pairwise distances, and active links in one view:
+
+```bash
+waveflow> status
+```
+
+```
+NETWORK STATUS
+======================================================================
+
+NODES (3):
+----------------------------------------------------------------------
+  ap1   : AccessPoint  at (11.7, 13.5, 0.0)
+      Frequency:   5.80 GHz  |  Power: 20.0 dBm  |  BW: 20.0 MHz
+
+  ris1  : RIS          at (5.6, 10.8, 0.0)
+      RIS Elements: 16  |  Phase Bits: 1
+
+  ue1   : UE           at (13.3, 12.9, 0.0)
+      Noise Figure: 6.0 dB  |  Antenna Gain: 3.0 dBi
+
+DISTANCES:
+----------------------------------------------------------------------
+  ap1  ↔ ris1:     6.60 m
+  ap1  ↔ ue1 :     1.70 m
+  ris1 ↔ ue1 :     7.96 m
+
+ACTIVE LINKS (1):
+----------------------------------------------------------------------
+  [1] ap1→ris1→ue1 (Connect)
+      SNR:          17.41 dB
+      Power:       -77.14 dBm
+      Gain:         32.68 dBi
+      Deflection:   -8.06°
+      Quant Penalty: 1.67 dB
+
+======================================================================
+```
+
+### 2.8 Links — Show Active Links Only
+
+`links` is a focused view — it shows only the established connections, without the full node table:
+
+```bash
+waveflow> links
+```
+
+```
+ACTIVE LINKS
+======================================================================
+
+ACTIVE LINKS (1):
+----------------------------------------------------------------------
+  [1] ap1→ris1→ue1 (Connect)
+      Source:                   Connect
+      SNR:                      17.41 dB
+      Power:                   -77.14 dBm
+      Gain:                     32.68 dBi
+      Steering Angle:           -8.06°
+      Quant Penalty:             1.67 dB
+
+======================================================================
+```
+
+### 2.9 Clear — Remove Links or the Whole Network
+
+`clear links` removes all active connections but keeps the nodes in place — useful when you want to re-run a connect with different parameters:
+
+```bash
+waveflow> clear links
+```
+
+```
+✓ Cleared 1 active link(s) (nodes kept)
+```
+
+`clear` (without arguments) wipes everything — nodes and links:
+
+```bash
+waveflow> clear
+```
+
+```
+✓ Cleared entire network (nodes + links)
+```
+
+### 2.10 Plot — Visualise Sweep or Connect Results
+
+`plot` renders a chart of your most recent sweep or connect result. It requires `matplotlib` (`pip install -e ".[plot]"`). The chart is saved to a file if `--out` is specified, or displayed in a window otherwise.
+
+```bash
+# Plot the last sweep result
+waveflow> plot
+
+# Plot the last connect result
+waveflow> plot --type connect
+
+# Save to file instead of displaying
+waveflow> plot --out sweep_chart.png
+```
+
+If no stored result exists yet, you will see:
+
+```
+✗ No stored sweep results found. Run and save a sweep first.
+```
+
+Run a sweep first (`sweep ap1 ris1 ue1 60 10`), then `plot` will render it.
+
+### 2.11 Save and Load — Persist Your Network
+
+`save` writes the current network (all nodes, walls, and links) to a JSON file so you can reload it later. Without a filename it saves to the default `.risnet_network.json`, which is also loaded automatically on the next startup.
+
+```bash
+# Save to default file (auto-loaded on next startup)
+waveflow> save
+```
+
+```
+✓ Network saved to .risnet_network.json
+```
+
+```bash
+# Save to a named file
+waveflow> save mynet.json
+```
+
+```
+✓ Network saved to mynet.json
+```
+
+`load` reads a saved file back into the current session, replacing whatever is in memory. This is useful for switching between experiments without retyping all your `add` commands.
+
+```bash
+waveflow> clear
+waveflow> load mynet.json
+waveflow> status
+```
+
+```
+✓ Network loaded from mynet.json
+
+NETWORK STATUS
+======================================================================
+
+NODES (3):
+----------------------------------------------------------------------
+  ap1   : AccessPoint  at (0.2, 0.7, 0.0)   | power=20.0 dBm
+  ris1  : RIS          at (14.5, 2.0, 0.0)  | N=16, bits=1
+  ue1   : UE           at (20.2, -1.8, 0.0) | NF=6.0 dB
+
+DISTANCES:
+----------------------------------------------------------------------
+  ap1  ↔ ris1:    14.38 m
+  ap1  ↔ ue1 :    20.19 m
+  ris1 ↔ ue1 :     6.88 m
+
+✗ No active links
+======================================================================
+```
+
+Loading without a filename (`load`) reads from `.risnet_network.json`. Topology files in `examples/json/` can also be loaded directly:
+
+```bash
+waveflow> load examples/json/example_1_simple.json
+```
+
+### 2.12 Viewing All Shell Commands
+
+```bash
+waveflow> help
+```
+
+Exit the shell with `quit` or Ctrl-D.
+
+---
+
+### 2.13 Terminal UI (`waveflow ui`)
+
+`waveflow ui` runs each command directly from your shell without entering an interactive session. It reads a topology from a JSON file instead of requiring you to add nodes manually. Output is formatted with Rich tables — suitable for copying into reports or piping into other tools.
+
+See what commands are available:
+
+```bash
+waveflow ui --help
+```
+
+```
+Commands:
+  status        Show network status with Rich tables.
+  list          List all nodes in the network.
+  add           Add a node (ap, ris, or ue) to the network.
+  connect       Compute a cascaded AP→RIS→UE link and display metrics.
+  sweep         Run a beam sweep and display the best angle and SNR.
+  save          Save current network state to disk.
+  load          Load network state from disk and display it.
+  clear         Clear the network (nodes + links) or active links only.
+  demo-connect  Run a deterministic AP-RIS-UE demo link and print metrics.
+  testall       Run the comprehensive test suite and display results.
+  testphysics   Run the physics model validation suite and display results.
+  shell         Open the interactive shell (access to all legacy commands).
+  run           Run any legacy CLI command non-interactively.
+```
+
+Every command accepts `--help` for usage details.
+
+### 2.14 Status — Inspect a Topology (`waveflow ui`)
+
+```bash
+waveflow ui status --topology examples/json/example_1_simple.json
+```
+
+```
+╭─ Waveflow Terminal ─╮
+│ Nodes         3     │
+│ Active links  0     │
+│ Walls         0     │
+╰─────────────────────╯
+                               Nodes
+┏━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Name ┃ Type        ┃ Position           ┃ Details               ┃
+┡━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
+│ AP1  │ AccessPoint │ (0.00, 2.00, 0.00) │ power=20.0 dBm        │
+│ R1   │ RIS         │ (5.00, 2.00, 0.00) │ N=16 bits=1, fov=±60° │
+│ UE1  │ UE          │ (8.00, 8.00, 0.00) │ fov=±180°             │
+└──────┴─────────────┴────────────────────┴───────────────────────┘
+```
+
+### 2.15 Connect — Compute SNR Without Entering the Shell
+
+```bash
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+```
+
+```
+Link Result
+┏━━━━━━━━━━━━━━━┳━━━━━━━━━┓
+┃ Metric        ┃   Value ┃
+┡━━━━━━━━━━━━━━━╇━━━━━━━━━┩
+│ snr_dB        │  21.741 │
+│ pwr_dBm       │ -73.249 │
+│ rssi_dBm      │ -73.249 │
+│ gain_dBi      │  32.683 │
+│ quant_loss_dB │  -1.671 │
+└───────────────┴─────────┘
+```
+
+### 2.16 Sweep — Find the Best Beam Angle
+
+```bash
+waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
+```
+
+A live progress bar runs during the sweep, then the results table appears:
+
+```
+╭───────────────────── Live Sweep ──────────────────────╮
+│   fine ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 11/11 0:00:00 │
+╰───────────────────────────────────────────────────────╯
+
+Sweep Result (coarse-fine)
+┏━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ Metric               ┃  Value ┃
+┡━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━┩
+│ Best angle (deg)     │  60.00 │
+│ Best SNR (dB)        │ -13.81 │
+│ Coarse angles tested │     13 │
+│ Fine angles tested   │     11 │
+└──────────────────────┴────────┘
+
+Top 5 Sweep Measurements
+┏━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ Rank ┃ Phase  ┃ Angle (deg) ┃ SNR (dB) ┃
+┡━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━┩
+│    1 │ coarse │       60.00 │   -13.81 │
+│    2 │ fine   │       60.00 │   -13.81 │
+│    3 │ fine   │       59.00 │   -15.08 │
+│    4 │ fine   │       58.00 │   -16.37 │
+│    5 │ fine   │       57.00 │   -17.68 │
+└──────┴────────┴─────────────┴──────────┘
+```
+
+### 2.17 Stream — Simulate a Live Data Stream
+
+`stream` simulates a continuous data transmission over the active RIS link, printing per-chunk throughput as it runs. It shows how the RIS-assisted link performs as a streaming medium — think of it like running a real-time bandwidth test.
+
+```bash
+waveflow> connect ap1 ris1 ue1
+waveflow> stream ap1 ris1 ue1
+```
+
+```
+[Streaming over ap1→ris1→ue1]
+  Chunk 01: SNR=-49.75 dB | BER=61.75% | Tput=3.06 Mbps | Time=0.036s
+  Chunk 02: SNR=-50.08 dB | BER=61.79% | Tput=3.06 Mbps | Time=0.034s
+  Chunk 03: SNR=-50.52 dB | BER=63.13% | Tput=2.95 Mbps | Time=0.031s
+  Chunk 04: SNR=-48.55 dB | BER=56.73% | Tput=3.46 Mbps | Time=0.030s
+  Chunk 05: SNR=-46.65 dB | BER=47.46% | Tput=4.20 Mbps | Time=0.031s
+  Chunk 06: SNR=-46.62 dB | BER=48.78% | Tput=4.10 Mbps | Time=0.030s
+
+Summary:
+  Chunks sent:     6
+  Avg throughput:  3.47 Mbps
+  Payload/chunk:   8,000 bits (1,000 bytes)
+```
+
+The stream command uses waveform-level simulation (OFDM + 16QAM) rather than the simplified link budget. See Part 13 for a full streaming scenario with capacity analysis.
+
+### 2.18 When to Use Which
+
+The interactive shell and `waveflow ui` are equivalent in capability. Choose based on your workflow:
+
+```
+Exploring a new topology?          → waveflow           (interactive shell)
+Running the same command in CI?    → waveflow ui connect (one-shot)
+Demoing to someone over SSH?       → waveflow ui         (clean Rich tables)
+Need legacy commands (plot, etc)?  → waveflow ui shell   (opens the shell)
+                                     waveflow ui run <command>
+```
 
 ---
 
@@ -876,92 +1289,26 @@ for step in seq.steps:
 
 ---
 
-## Part 14 — Modern Terminal UI (`waveflow ui`)
+## Part 14 — Adding a Custom Beam Sweep Algorithm
 
-`waveflow ui` provides a Typer/Rich terminal surface with structured commands and
-`--help` on every command. It covers all common operations without entering the
-interactive shell.
+### 14.1 Why Write a Custom Algorithm?
 
-```bash
-# All available commands
-waveflow ui --help
+Waveflow ships with several built-in sweep algorithms (`linear`, `coarse-fine`, `de`, `ml-guided`). But sometimes you need your own strategy — for example, a domain-specific search based on prior measurements, a reinforcement-learning agent, or a sweep that logs extra diagnostics.
 
-# Network status
-waveflow ui status --topology examples/json/example_1_simple.json
+Waveflow uses a **registry pattern**: you write a class, decorate it with `@register_algorithm`, and it becomes available by name in both Python and the CLI — no changes to the core codebase needed.
 
-# Connect nodes from a topology
-waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+### 14.2 The Four Things Every Algorithm Must Do
 
-# Beam sweep
-waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
+1. Inherit from `SweepAlgorithmBase`
+2. Define `name` and `description` properties
+3. Implement a `sweep()` method that tests angles and returns SNR results
+4. Return a dictionary with the standard result keys
 
-# Add a node (operates on an in-memory network; combine with save/load for persistence)
-waveflow ui add ris R2 --x 8 --y 2 --n 32 --bits 2
+### 14.3 Algorithm Template
 
-# Save and load topology
-waveflow ui save mynet.json
-waveflow ui load mynet.json
-
-# Run the comprehensive test suite
-waveflow ui testall
-
-# Run physics model validation suite (FSPL, atmospheric loss, Rician fading,
-# mutual coupling, quantization, SNR/EVM, Shannon capacity, and more)
-waveflow ui testphysics
-
-# Run any legacy CLI command non-interactively
-waveflow ui run --topology examples/json/example_1_simple.json signal AP1 R1 UE1 --breakdown
-waveflow ui run plot --type sweep
-waveflow ui run ap AP1 show
-
-# Open the interactive shell
-waveflow ui shell
-```
-
-CLI relationship note:
-- The canonical full interactive shell lives in `cli/main_shell.py` and is what `python -m risnet`, the `waveflow` console entry point, and `waveflow ui shell` use today.
-- `risnet/cli.py` remains as a legacy alternate shell implementation and is not the primary user entry point.
-
-Each command has a `--help` flag:
-
-```bash
-waveflow ui connect --help
-waveflow ui sweep --help
-```
-
-The bundled `examples/json/example_1_simple.json` topology is safe for `status`,
-`connect`, and `sweep` under the current default RIS FOV rules.
-
-### 14.1 Live Sweep UX with Rich
-
-`waveflow ui sweep` now includes a live Rich-based terminal path for the
-supported `linear` and `coarse-fine` algorithms. The current workflow is:
-
-- run sweeps from the terminal without needing a GUI
-- watch a live progress bar, phase/status view, and recent measurements while
-  the sweep runs
-- inspect structured final output for best beam, SNR, and related metrics
-- use notebook or file export for deeper post-processing
-
-Remaining terminal UX work for future sweep workflows includes:
-
-- live progress support for algorithms beyond `linear` and `coarse-fine`
-- richer metric tables for SNR, gain, AoA, AoD, and candidate ranking
-- pseudo-heatmaps for beam or phase exploration
-- worker monitoring for parallel search jobs
-- convergence views for ML-guided or optimization-based search
-
-This is the right model for SSH, HPC, batch experimentation, and reproducible
-research pipelines where a programmable interface matters more than a GUI shell.
-
----
-
-## Part 15 — Adding a Custom Beam Sweep Algorithm
-
-### 15.1 Algorithm Template
+Create `controller/beamsweeping/algorithms/my_sweep.py`:
 
 ```python
-# File: controller/beamsweeping/algorithms/my_sweep.py
 from ..base import SweepAlgorithmBase
 from ..registry import register_algorithm
 import numpy as np
@@ -978,10 +1325,12 @@ class MySweep(SweepAlgorithmBase):
         return "Custom beam sweep algorithm"
 
     def sweep(self, ap_name, ris_name, ue_name, fov=60, step=10, **kwargs):
+        # Generate candidate angles within ±fov degrees
         angles = np.arange(-fov, fov + step, step)
         snrs, powers = [], []
 
         for angle in angles:
+            # Test each angle by calling connect() with a fixed beam direction
             result = self.network.connect(
                 ap_name, ris_name, ue_name,
                 beam_angle_deg=float(angle),
@@ -991,6 +1340,8 @@ class MySweep(SweepAlgorithmBase):
             powers.append(result['pwr_dBm'])
 
         best_idx = int(np.argmax(snrs))
+
+        # All sweep algorithms must return these keys
         return {
             'local_coarse':    list(angles),
             'snr_coarse':      snrs,
@@ -1002,7 +1353,13 @@ class MySweep(SweepAlgorithmBase):
         }
 ```
 
-### 15.2 Using Your Algorithm
+Then register it by adding an import to `controller/beamsweeping/algorithms/__init__.py`:
+
+```python
+from . import my_sweep   # add this line
+```
+
+### 14.4 Using Your Algorithm
 
 ```python
 import controller.beamsweeping.algorithms.my_sweep  # triggers registration
@@ -1015,31 +1372,78 @@ net.add_ap('ap1',  0, 0)
 net.add_ris('ris1', 5, 0, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
-loader = SweepAlgorithmLoader(net)
-algo = loader.get_algorithm('my-sweep')
+algo = SweepAlgorithmLoader.get_algorithm('my-sweep', net)
 result = algo.sweep('ap1', 'ris1', 'ue1', fov=45, step=5)
-print(f"Best SNR: {result['best_snr_fine']:.1f} dB")
+
+print(f"Best SNR:      {result['best_snr_fine']:.1f} dB")
+print(f"Best angle:    {result['best_local_fine']:.1f}°")
+print(f"Angles tested: {len(result['local_coarse'])}")
 ```
 
-From the CLI:
+Expected output:
+
+```
+Best SNR:      29.9 dB
+Best angle:    30.0°
+Angles tested: 19
+```
+
+From the CLI (once registered via `__init__.py`):
+
 ```bash
 waveflow> sweep ap1 ris1 ue1 45 5 --algo my-sweep
 ```
 
----
+### 14.5 Standard Return Dictionary
 
-## Part 16 — Batch Parameter Study
+All sweep algorithms must return exactly these keys so that the CLI, terminal UI, and post-processing tools work correctly:
 
-Useful for research — sweep across RIS configurations and collect results:
+| Key | Type | Meaning |
+|---|---|---|
+| `local_coarse` | list[float] | Angles tested in the coarse phase (degrees, offset from boresight) |
+| `snr_coarse` | list[float] | SNR at each coarse angle (dB) |
+| `pwr_coarse` | list[float] | Received power at each coarse angle (dBm) |
+| `local_fine` | list[float] | Angles tested in the fine phase |
+| `snr_fine` | list[float] | SNR at each fine angle (dB) |
+| `best_local_fine` | float | Best offset angle found (degrees) |
+| `best_snr_fine` | float | SNR at the best angle (dB) |
+
+For simple algorithms where there is no coarse/fine distinction, return the same lists for both phases (as shown in the template above).
+
+### 14.6 Debugging Your Algorithm
 
 ```python
-import numpy as np
+# List all currently registered algorithm names
+from controller.beamsweeping import list_registered_algorithms
+print(list_registered_algorithms())
+# ['linear', 'coarse-fine', 'de', 'ml', ..., 'my-sweep']
+
+# Inspect per-angle SNR from your sweep
+for angle, snr in zip(result['local_coarse'], result['snr_coarse']):
+    print(f"  {angle:+6.1f}°  {snr:.2f} dB")
+```
+
+See `controller/beamsweeping/ALGORITHM_TEMPLATE.md` for the full annotated template with optional features (early stopping, ML integration, localization output).
+
+---
+
+## Part 15 — Batch Parameter Study
+
+### 15.1 What Is a Batch Study?
+
+In research, you rarely test just one configuration. You want to know: **does adding more RIS elements help? Does using more phase-resolution bits matter?** A batch study runs the same simulation many times, varying one parameter at a time, and collects results into a table.
+
+Think of it like testing different camera lenses — you want to measure sharpness at different focal lengths, not just pick one and hope for the best.
+
+### 15.2 Sweeping Array Size and Quantization Bits
+
+```python
 from core import RISNetwork
 
 results = []
 
-for N in [8, 16, 32, 64]:
-    for bits in [1, 2, 3]:
+for N in [8, 16, 32, 64]:        # number of RIS elements
+    for bits in [1, 2, 3]:       # phase resolution
         net = RISNetwork(enable_messaging=False)
         net.add_ap('ap1',  0, 0)
         net.add_ris('ris1', 5, 0, N=N, bits=bits, max_angle_deg=90)
@@ -1060,19 +1464,85 @@ for r in results:
           f"{r['quant_loss_dB']:>12.3f}")
 ```
 
+Expected output:
+
+```
+   N  bits    SNR (dB)  Gain (dBi)   Q-loss (dB)
+   8     1       16.91       26.66        -1.671
+   8     2       16.28       27.59        -0.745
+   8     3       18.09       27.81        -0.520
+  16     1       22.94       32.68        -1.671
+  16     2       23.88       33.61        -0.745
+  16     3       19.70       33.83        -0.520
+  32     1       28.02       38.70        -1.671
+  32     2       29.90       39.63        -0.745
+  32     3       29.65       39.85        -0.520
+  64     1       35.00       44.72        -1.671
+  64     2       35.55       45.65        -0.745
+  64     3       36.15       45.88        -0.520
+```
+
+### 15.3 Reading the Table
+
+| Column | What It Tells You |
+|---|---|
+| `N` | Number of RIS elements. Doubling N adds ~6 dBi of array gain. |
+| `bits` | Phase resolution. 1-bit loses ~1.67 dB; 2-bit loses ~0.75 dB; 3-bit loses ~0.52 dB. |
+| `SNR (dB)` | Final received signal quality — higher is better. |
+| `Gain (dBi)` | Raw array gain before quantization losses. |
+| `Q-loss (dB)` | How much SNR is lost due to phase rounding. Negative means a penalty. |
+
+**Key insight**: Going from N=8 to N=64 gains ~18 dB of SNR. Going from 1-bit to 3-bit at N=64 adds ~1.15 dB — less impactful at this scale but still measurable.
+
+### 15.4 Running the Prebuilt Example
+
+```bash
+PYTHONPATH=. python3 examples/script/example_6_batch_testing.py
+```
+
+This script runs a broader study across more configurations and prints a formatted comparison table.
+
 ---
 
-## Part 17 — Loading Topologies from JSON
+## Part 16 — Loading Topologies from JSON
+
+### 16.1 What Is a Topology File?
+
+Instead of defining nodes in Python code every time, you can describe your network layout in a **JSON file** — a plain text format that both humans and programs can read easily.
+
+Think of it like a blueprint. You draw the building once (the JSON file), then load it whenever you need to simulate inside it.
+
+### 16.2 JSON File Structure
+
+A topology file lists all nodes (AP, RIS, UE) and optional walls. Here is what `examples/json/example_1_simple.json` looks like:
+
+```json
+{
+  "name": "Example 1: Simple Network",
+  "description": "Basic network with 1 AP, 1 RIS, and 1 UE",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1",  "type": "RIS",         "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1},
+    {"name": "UE1", "type": "UE",          "pos": [8.0, 8.0, 0.0]}
+  ]
+}
+```
+
+Each node entry needs a `name`, `type`, and `pos` (x, y, z coordinates). RIS nodes also carry `N` (elements) and `bits`.
+
+### 16.3 Loading and Using a Topology in Python
 
 ```python
 import json
 from core import RISNetwork
 
+# Load the JSON file
 with open('examples/json/example_1_simple.json') as f:
     topo = json.load(f)
 
 net = RISNetwork(enable_messaging=False)
 
+# Register every node
 for node in topo['nodes']:
     name = node['name']
     x, y = node['pos'][0], node['pos'][1]
@@ -1083,28 +1553,77 @@ for node in topo['nodes']:
     elif node['type'] == 'UE':
         net.add_ue(name, x, y)
 
+# Register walls if present
 for wall in topo.get('walls', []):
     net.add_wall(wall['start'], wall['end'],
                  attenuation_dB=wall.get('attenuation_dB', 20))
 
 print("Nodes loaded:", list(net.nodes.keys()))
+
+# Now connect and run
+result = net.connect('AP1', 'R1', 'UE1', use_get_snr=False)
+print(f"SNR: {result['snr_dB']:.1f} dB")
 ```
+
+Expected output:
+
+```
+Nodes loaded: ['AP1', 'R1', 'UE1']
+SNR: 29.9 dB
+```
+
+### 16.4 Using the ScenarioRunner (Simpler)
+
+If you just want to load a topology and run a connect or sweep without writing the loop above, use `ScenarioRunner` from Part 13:
+
+```python
+from risnet import ScenarioRunner
+
+runner = ScenarioRunner()
+result = runner.run_connect('examples/json/example_1_simple.json', use_get_snr=False)
+print(f"SNR: {result.result['snr_dB']:.1f} dB")
+print(f"Nodes: {result.ap_name} → {result.ris_name} → {result.ue_name}")
+```
+
+Expected output:
+
+```
+SNR: 29.9 dB
+Nodes: AP1 → R1 → UE1
+```
+
+`ScenarioRunner` auto-detects the first AP, RIS, and UE in the file — no need to name them manually.
+
+### 16.5 Bundled Topology Files
+
+| File | Contents |
+|---|---|
+| `example_1_simple.json` | 1 AP, 1 RIS, 1 UE — basic test |
+| `example_2_predefined_topology.json` | Multi-hop network |
+| `example_3_custom_topology.json` | Custom geometry with multiple RIS |
+| `example_4_obstacles.json` | Walls and attenuation |
+| `example_5_grid_topology.json` | Grid of nodes |
+| `example_7_complex_network.json` | Dense multi-node scenario |
 
 ---
 
-## Part 18 — Example Scripts Reference
+## Part 17 — Example Scripts Reference
 
-All runnable scripts live in `examples/script/`. Run any of them from the project root:
+### 17.1 What Are the Example Scripts?
+
+The `examples/script/` directory contains standalone Python scripts — each one demonstrates a specific capability end-to-end. They are the fastest way to see Waveflow in action without writing code from scratch.
+
+### 17.2 Running an Example
 
 ```bash
-# If installed via pip install -e .
+# With pip install -e . (recommended)
 python3 examples/script/example_1_simple.py
 
 # Without installing (development mode)
 PYTHONPATH=. python3 examples/script/example_1_simple.py
 ```
 
-To run all non-interactive examples in sequence:
+To run a batch of non-interactive examples in sequence:
 
 ```bash
 for f in examples/script/example_{1,2,3,4,5,6,8,10,12,13,14,15,16,17,18}_*.py; do
@@ -1113,30 +1632,97 @@ for f in examples/script/example_{1,2,3,4,5,6,8,10,12,13,14,15,16,17,18}_*.py; d
 done
 ```
 
-### Scripts, levels, and expected output
+### 17.3 Script Catalogue
 
-| Script | Level | Deps | Expected last line / key output |
-|---|---|---|---|
-| `example_1_simple.py` | Beginner | core | `SNR: 73.3 dB` |
-| `example_2_topology.py` | Beginner | core | `ap1 -> ue3: SNR = 71.5 dB` |
-| `example_3_custom_topology.py` | Beginner | core | `ap1 -> ris3 -> ue3: SNR = ...` |
-| `example_4_obstacles.py` | Beginner | core | `SNR: 70.7 dB` (wall-attenuated) |
-| `example_5_context_manager.py` | Beginner | core | `Network auto-stopped` |
-| `example_6_batch_testing.py` | Intermediate | core | SNR table across array sizes |
-| `example_8_sdr_validation.py` | Intermediate | core | `RIS assisted  : SNR=59.75 dB` |
-| `example_9_interactive_cli.py` | Beginner | core | Opens interactive `waveflow>` shell |
-| `example_10_waveform_level.py` | Advanced | core | `All examples completed!` |
-| `example_11_ml_beam_prior.py` | Advanced | `[ml]` | Beam prediction results table |
-| `example_12_feedback_integration.py` | Advanced | core | `# All examples completed!` |
-| `example_13_adaptive_control.py` | Advanced | core | `# All examples completed successfully!` |
-| `example_14_full_integration.py` | Advanced | core | `All integration examples completed successfully!` |
-| `example_15_video_streaming.py` | Advanced | core | Throughput and capacity summary |
-| `example_16_quantization_codebook.py` | Advanced | core | Codebook SNR table |
-| `example_17_beam_sweeping_trials.py` | Advanced | core | Algorithm comparison results |
-| `example_18_aruco_markers.py` | Advanced | `[vision]` | `✓ Successfully saved: aruco_markers/aruco_id_0.png` |
-| `example_19_hog_human_detection.py` | Advanced | `[vision]` + webcam | Interactive menu (requires hardware) |
+| Script | Level | Extra deps | What it shows | Key output |
+|---|---|---|---|---|
+| `example_1_simple.py` | Beginner | — | Basic AP→RIS→UE connect | `SNR: 73.3 dB` |
+| `example_2_topology.py` | Beginner | — | Multi-UE topology from JSON | `ap1 -> ue3: SNR = 71.5 dB` |
+| `example_3_custom_topology.py` | Beginner | — | User-defined geometry | SNR table per path |
+| `example_4_obstacles.py` | Beginner | — | Walls and attenuation | `SNR: 70.7 dB` |
+| `example_5_context_manager.py` | Beginner | — | `with RISnet()` context manager | `Network auto-stopped` |
+| `example_6_batch_testing.py` | Intermediate | — | SNR across N and bits configs | Formatted result table |
+| `example_8_sdr_validation.py` | Intermediate | — | SDR hardware-matched validation | `RIS assisted: SNR=59.75 dB` |
+| `example_9_interactive_cli.py` | Beginner | — | Launches interactive shell | `waveflow>` prompt |
+| `example_10_waveform_level.py` | Advanced | — | OFDM waveform through RIS channel | `All examples completed!` |
+| `example_11_ml_beam_prior.py` | Advanced | `[ml]` | ML predictor for beam angle | Prediction accuracy table |
+| `example_12_feedback_integration.py` | Advanced | — | Closed-loop UE→AP feedback | `All examples completed!` |
+| `example_13_adaptive_control.py` | Advanced | — | Adaptive beam tracking | `All examples completed successfully!` |
+| `example_14_full_integration.py` | Advanced | — | Combined waveform + feedback + sweep | `All integration examples completed successfully!` |
+| `example_15_video_streaming.py` | Advanced | — | RIS-assisted streaming link budget | Throughput and capacity summary |
+| `example_16_quantization_codebook.py` | Advanced | — | 1-bit codebook analytics vs paper | Codebook SNR table |
+| `example_17_beam_sweeping_trials.py` | Advanced | — | Algorithm comparison across scenarios | AoA estimation results |
+| `example_18_aruco_markers.py` | Advanced | `[vision]` | ArUco marker generation | `✓ Successfully saved: aruco_markers/aruco_id_0.png` |
+| `example_19_hog_human_detection.py` | Advanced | `[vision]` + webcam | HOG human detection (live camera) | Interactive menu |
 
-### TUTORIAL part cross-reference
+### 17.4 What to Expect from Key Examples
+
+**example_15** — Video streaming simulation. Shows how RIS improves a 28 GHz mmWave link for a streaming scenario:
+
+```
+[0] Direct AP→UE baseline (no RIS)
+    Distance=90.6 m | SNR (direct, ideal receiver)=23.48 dB | Capacity=780.49 Mbps
+
+[1] System-level connect (AP→RIS→UE)
+    SNR=-39.96 dB, Gain=32.68 dBi, Beam angle (absolute)=11.31°
+
+[3] Waveform baseline
+    RIS SNR (pre-combiner)=49.45 dB | Effective SNR=45.94 dB
+    (Δ +22.46 dB vs direct) | Capacity=1.221 Gbps (1.6× of direct)
+
+Summary:
+  Chunks sent:        6
+  Avg throughput:     3.47 Mbps
+  Capacity gain:      1.56× | +56.4% vs direct
+```
+
+**example_16** — Quantization codebook analytics. Validates 1-bit phase quantization against published results:
+
+```
+[Random prephasing validation (Fig. 2)] φ_out=120.0°
+  Measured quant beam (standard 1-bit) : 39.825°
+  Reported (paper) quant beam          : 39.833° (Δ = -0.0080°)
+
+Elements  PathLoss  Two-bit  1-bit  Random  MapFusion
+      64     -10.0  13.176  9.364   8.960     10.836
+     128     -10.0  17.564  13.165  13.141     14.944
+     256     -10.0  22.237  17.565  17.677     19.510
+```
+
+**example_17** — Beam sweeping trials. Runs outdoor and indoor scenarios to compare beam direction accuracy:
+
+```
+Outdoor field trial (Tx=-15°, Rx 0→60°):
+  Actual Rx=10.0° -> best beam @ 10.0° (Δ power = 49.42 dB span)
+  Actual Rx=30.0° -> best beam @ 30.0° (Δ power = 33.66 dB span)
+  Actual Rx=45.0° -> best beam @ 45.0° (Δ power = 38.56 dB span)
+```
+
+**example_18** — ArUco marker generation (requires `pip install -e ".[vision]"`):
+
+```
+EXAMPLE 1: Generate and Save a Single Marker
+  ✓ Successfully saved: aruco_markers/aruco_id_0.png
+
+EXAMPLE 2: Generate Multiple Markers in Batch
+  Generated 5 markers:
+    ID 0: aruco_markers/batch/aruco_id_0.png
+
+EXAMPLE 6: Dictionary Information
+  Dictionary       Max ID   Total   Bits
+  DICT_4X4_50        49      50      16
+  DICT_5X5_100       99     100      25
+```
+
+### 17.5 Dependency Notes
+
+- **Core examples** (1–10, 12–17): work with base `pip install -e .`; no extras needed.
+- **`[ml]` extra** (`example_11`): `pip install -e ".[ml]"` — requires scikit-learn and PyTorch.
+- **`[vision]` extra** (`example_18`, `example_19`): `pip install -e ".[vision]"` — requires opencv-python. Example 19 also requires a connected webcam.
+- **`example_15`**: expects `streaming/video.mp4`; the demo runs with simulated throughput if the file is absent.
+- **`example_9`**: opens an interactive shell — exit with `quit` or Ctrl-D.
+
+### 17.6 TUTORIAL Cross-Reference
 
 | TUTORIAL Part | Relevant examples |
 |---|---|
@@ -1148,21 +1734,13 @@ done
 | Part 10 — Feedback | `example_12`, `example_13` |
 | Part 11 — Waveform | `example_8`, `example_10`, `example_14` |
 | Part 12 — ML | `example_11` |
-| Part 12.3 — Localization sweep modes | repository algorithms `prime`, `anm-localization`, `de-localization` |
-| Part 12.4 — Vision workflows | `example_18`, `example_19` |
-| Part 14.1 — Terminal sweep UX | `waveflow ui`, `example_17` |
-| Part 16 — Batch study | `example_6` |
-| Vision / hardware | `example_18`, `example_19` |
-| Streaming | `example_15` |
+| Part 12.3 — Localization | `prime`, `anm-localization`, `de-localization` algorithms |
+| Part 12.4 — Vision | `example_18`, `example_19` |
+| Part 2 — Terminal UI | `waveflow ui`, `example_17` |
+| Part 13 — Streaming | `example_15` |
+| Part 15 — Batch study | `example_6` |
 
-### Dependency notes
-
-- **`[ml]` extra** (`example_11`): `pip install -e ".[ml]"` — requires scikit-learn / torch.
-- **`[vision]` extra** (`example_18`, `example_19`): `pip install -e ".[vision]"` — requires opencv-python. Example 19 also requires a connected webcam.
-- **`example_15`**: expects `streaming/video.mp4`; the demo runs with simulated throughput if the file is absent.
-- **`example_9`**: opens an interactive shell — exit with `quit` or Ctrl-D.
-
-### MATLAB examples
+### 17.7 MATLAB Examples
 
 Standalone MATLAB scripts live in `examples/matlab/`:
 
@@ -1183,6 +1761,8 @@ Run from MATLAB command window (from the `examples/matlab/` directory):
 ```
 
 The `matlab_integration/scripts/` functions (`compute_beam_pattern`, `plot_ris_geometry`, etc.) are library functions called by the Python `MatlabBridge` — they are not intended to be run directly.
+
+---
 
 ## Next Steps
 

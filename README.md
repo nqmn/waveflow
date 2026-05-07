@@ -5,9 +5,9 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-nqmn%2Fwaveflow-lightgrey?logo=github)](https://github.com/nqmn/waveflow)
 
-Waveflow is a Python simulator for wireless networks assisted by Reconfigurable Intelligent Surfaces (RIS). It lets researchers and engineers model how passive reflective panels can improve signal coverage, optimize beam angles, and evaluate link quality — without physical hardware.
+Waveflow is a Python simulator for wireless networks assisted by Reconfigurable Intelligent Surfaces (RIS). It lets researchers and engineers model how passive reflective panels improve signal coverage, optimize beam angles, and evaluate link quality — without physical hardware.
 
-Use it to prototype RIS-assisted network topologies, benchmark beam sweeping algorithms, and study propagation physics through a scriptable Python API, interactive CLI, or modern terminal commands.
+Use it to prototype RIS-assisted network topologies, benchmark beam sweeping algorithms, study propagation physics, simulate OFDM waveforms, and run ML-guided beam prediction — through a scriptable Python API, interactive CLI, or modern terminal commands.
 
 ## Quick Start
 
@@ -32,14 +32,17 @@ Step-by-step tutorials: **[TUTORIAL.md](TUTORIAL.md)**
 
 | Category | Capability |
 |---|---|
-| Physics | FSPL, atmospheric loss, Rician fading, RIS array gain, phase quantization |
-| Beam sweeping | Linear, coarse-fine, DE, ML-guided, hierarchical, PRIME |
-| Pathfinding | Dijkstra, A\*, Greedy, Exhaustive |
-| Channel | OFDM waveform, multipath, per-subcarrier SNR |
-| ML | Random Forest, XGBoost, SVR, KNN, LGBM beam predictors |
-| Interface | Interactive CLI, modern terminal UI (`waveflow ui`), Python API |
-| Scenarios | Headless JSON/YAML scenario runner, no Flask required |
-| Feedback | UE→AP SNR feedback loop with adaptive beam tracking |
+| **Network** | 2D/3D node placement (AP, RIS, UE), walls and obstacles, JSON/YAML topology files, random RIS-aware layout generation |
+| **Physics** | FSPL, atmospheric absorption, Rician fading, mutual coupling, RIS array gain, phase quantization loss (1–4 bit) |
+| **Beam sweeping** | Linear, coarse-fine, differential evolution, ML-guided, hierarchical, PRIME localization, HOG/ArUco vision |
+| **Pathfinding** | Dijkstra, A\*, Greedy, Exhaustive across multi-hop RIS networks |
+| **Waveform** | OFDM signal simulation, per-subcarrier SNR, multipath, PAPR, waveform-level vs system-level comparison |
+| **Feedback** | Closed-loop UE→AP SNR feedback with adaptive beam tracking |
+| **ML** | Random Forest, XGBoost, SVR, KNN, LGBM, MLP beam angle predictors; trainable from generated datasets |
+| **Streaming** | Per-chunk BER, SER, throughput, and Shannon capacity over active RIS links |
+| **Interface** | Interactive CLI, Typer/Rich terminal UI (`waveflow ui`), Python API, headless scenario runner |
+| **Validation** | 14-section physics validation suite, 66 pytest checks against analytical reference values |
+| **MATLAB** | Optional bridge for far-field beam pattern plots and phase visualisation |
 
 ## Usage
 
@@ -51,42 +54,66 @@ waveflow> add ap ap1 0 0
 waveflow> add ris ris1 5 0 0 16 2
 waveflow> add ue ue1 10 3
 waveflow> connect ap1 ris1 ue1
-SNR: 29.9 dB
-waveflow> sweep ap1 ris1 ue1 60 10 --algo de
+SNR: 29.9 dB   Power: -52.3 dBm   Beam angle: 16.7°
+waveflow> sweep ap1 ris1 ue1 60 10 --algo coarse-fine
+waveflow> stream ap1 ris1 ue1
+waveflow> status
+waveflow> save mynet.json
 waveflow> help
 ```
 
+Key shell commands:
+
+| Command | What it does |
+|---|---|
+| `add ap/ris/ue` | Add a node at specific coordinates |
+| `add random` | Auto-generate a valid AP + RIS + UE layout |
+| `connect` | Compute SNR, power, and beam angle for a link |
+| `sweep` | Search for the best beam angle using a chosen algorithm |
+| `stream` | Simulate a live data stream and measure throughput |
+| `status` | Show all nodes, distances, and active links |
+| `list` | Print an ASCII map of the network |
+| `links` | Show active links only |
+| `clear` | Remove links or the entire network |
+| `save / load` | Persist and restore network state to/from JSON |
+| `plot` | Visualise sweep or connect results (requires `[plot]`) |
+| `signal` | Detailed per-hop signal breakdown |
+| `testall` | Run the built-in test suite |
+| `testphysics` | Run the physics validation suite |
+
 ### Modern Terminal UI
 
+Non-interactive commands with Rich-formatted output — suitable for scripts, CI, and SSH sessions:
+
 ```bash
-# Run the full test suite
-waveflow ui testall
+# Network status from a topology file
+waveflow ui status --topology examples/json/example_1_simple.json
 
-# Run physics model validation suite
-waveflow ui testphysics
-
-# Connect nodes from a topology file
+# Connect and get link metrics
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 
-# Beam sweep
-waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10 --algo coarse-fine
+# Beam sweep with live progress bar
+waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
+
+# Run physics validation suite
+waveflow ui testphysics
+
+# Run the comprehensive test suite
+waveflow ui testall
 
 # Run any legacy CLI command non-interactively
 waveflow ui run --topology examples/json/example_1_simple.json signal AP1 R1 UE1 --breakdown
 
-# Open interactive shell
+# Open the full interactive shell
 waveflow ui shell
 
-# Full command list
+# All available commands
 waveflow ui --help
 ```
 
-CLI surfaces:
-- `python -m risnet` and the `waveflow` console entry point launch the canonical full interactive shell from `cli/main_shell.py`.
-- `waveflow ui ...` provides the Typer/Rich terminal command surface; `waveflow ui shell` bridges into that same full interactive shell.
-- `risnet/cli.py` remains in the repository as a legacy alternate shell implementation and is not the primary entry point.
-
 ### Python API
+
+High-level API:
 
 ```python
 from waveflow import RISnet
@@ -99,50 +126,56 @@ net.start()
 
 result = net.ping(ap, ue)
 print(f"SNR: {result['snr_dB']:.1f} dB, hops: {result['hops']}")
+
+throughput = net.iperf(ap, ue)
+print(f"Throughput: {throughput['throughput_Mbps']:.1f} Mbps")
+
+net.stop()
 ```
 
+Low-level API:
+
 ```python
-# Low-level API
 from core import RISNetwork
 
-net = RISNetwork()
+net = RISNetwork(enable_messaging=False)
 net.add_ap('ap1', 0, 0)
 net.add_ris('ris1', 5, 0, N=16, bits=2, max_angle_deg=90)
 net.add_ue('ue1', 10, 3)
 
 result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
-print(f"SNR: {result['snr_dB']:.1f} dB")
+print(f"SNR:        {result['snr_dB']:.1f} dB")
+print(f"Beam angle: {result['beam_angle']:.1f}°")
+print(f"Array gain: {result['gain_dBi']:.1f} dBi")
+print(f"Quant loss: {result['quant_loss_dB']:.2f} dB")
 ```
 
 ### Headless Scenario Runner
 
-Run simulations from a JSON or YAML file — no Flask, no interactive shell:
+Run simulations from JSON or YAML files — no Flask, no interactive shell:
 
 ```python
 from risnet import ScenarioRunner, ScenarioRequest
 
 runner = ScenarioRunner()
-result = runner.run_connect(
-    'examples/json/example_1_simple.json',
-    use_get_snr=False,
-)
+
+# From a topology file
+result = runner.run_connect('examples/json/example_1_simple.json', use_get_snr=False)
 print(f"SNR: {result.result['snr_dB']:.1f} dB")
+
+# From a YAML scenario file
+request = ScenarioRequest.from_file('scenario.yaml')
+result = runner.run(request)
 ```
 
-Or from a YAML scenario file:
+`scenario.yaml`:
 
 ```yaml
-# scenario.yaml
 topology_path: examples/json/example_1_simple.json
 connect:
   ap_name: ap1
   ris_name: ris1
   ue_name: ue1
-```
-
-```python
-request = ScenarioRequest.from_file('scenario.yaml')
-result = runner.run(request)
 ```
 
 ## Beam Sweep Algorithms
@@ -152,33 +185,51 @@ waveflow> sweep ap1 ris1 ue1 60 10 --algo linear
 waveflow> sweep ap1 ris1 ue1 60 10 --algo coarse-fine
 waveflow> sweep ap1 ris1 ue1 60 10 --algo de
 waveflow> sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf
+waveflow> sweep ap1 ris1 ue1 60 10 --algo prime
 ```
 
 | Algorithm | Key | Notes |
 |---|---|---|
-| Linear brute-force | `linear` | Uniform steps, coarse→fine |
-| Coarse-fine | `coarse-fine` | Two-phase, ~30% faster than linear |
+| Linear brute-force | `linear` | Uniform steps over full FOV |
+| Coarse-fine | `coarse-fine` | Two-phase search, ~30% fewer evaluations |
 | Differential Evolution | `de` | Population-based global search |
-| ML-guided | `ml-guided` | RF/XGBoost/SVR/KNN/LGBM predictor + refinement |
+| ML-guided | `ml-guided` | RF / XGBoost / SVR / KNN / LGBM predictor + refinement |
 | Hierarchical | `hierarchical` | Multi-resolution sweep |
-| PRIME localization | `prime` | Localization-assisted |
+| PRIME localization | `prime` | Beam measurement → UE position estimate |
+| DE localization | `de-localization` | Blind UE localization via DE |
+
+## Optional Extras
+
+```bash
+pip install -e ".[plot]"        # matplotlib — enables plot command and charts
+pip install -e ".[ml]"          # scikit-learn + torch — ML beam predictors
+pip install -e ".[terminal]"    # typer + rich — waveflow ui commands
+pip install -e ".[vision]"      # opencv-python — ArUco / HOG vision workflows
+pip install -e ".[web]"         # flask + waitress — web interface
+pip install -e ".[optimization]" # cvxpy + scs — phase optimization
+pip install -e ".[dev]"         # pytest, black, flake8, mypy
+pip install -e ".[all]"         # everything above
+```
 
 ## Project Structure
 
 ```
 waveflow/
-├── core/               # Physics, nodes, network, waveform
-├── controller/         # Beam sweeping, pathfinding, ML, phase control
-├── cli/                # Interactive shell
+├── core/               # Physics, nodes, network manager, waveform, environment
+├── controller/         # Beam sweeping, pathfinding, ML predictors, phase control
+├── cli/                # Interactive shell (main_shell.py)
+├── risnet/             # High-level API, scenario runner (backward-compatible package)
+├── waveflow/           # Public package alias (forward-looking name)
+├── app/                # Optional Flask web interface
 ├── config/             # Configuration management
-├── utils/              # Link budget, SNR, RSSI helpers
-├── waveflow/           # Public package (forward-looking name)
-├── risnet/             # Backward-compatible package, high-level API, scenario runner
-├── matlab_integration/ # Optional MATLAB bridge
+├── utils/              # Link budget, SNR, RSSI, CSI helpers
+├── matlab_integration/ # Optional MATLAB bridge for beam pattern plots
+├── risformula/         # Standalone formula implementations
 ├── examples/
-│   ├── script/         # Runnable Python examples
-│   └── json/           # Topology fixture files
-├── tests/              # Test suite
+│   ├── script/         # 19 runnable Python examples
+│   ├── json/           # Topology fixture files
+│   └── matlab/         # Standalone MATLAB scripts
+├── tests/              # Test suite (pytest)
 ├── INSTALL.md
 ├── TUTORIAL.md
 └── FUTURE.md           # v3 architecture roadmap
@@ -196,17 +247,17 @@ PYTHONPATH=. python3 tests/test_physics_fixes.py
 # Physics model validation suite (14 sections, 53 checks)
 waveflow ui testphysics
 
-# Full test suite (via terminal UI)
+# Full test suite via terminal UI
 waveflow ui testall
 
-# Full suite with pytest (includes test_physics_core.py — 66 checks)
+# Full suite with pytest (66 checks including test_physics_core.py)
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
 ## Roadmap
 
-See [FUTURE.md](FUTURE.md) for the full v3 architecture migration plan — phased arrays, spatial channels, runtime kernel, AI-native interfaces, and web interface.
+See [FUTURE.md](FUTURE.md) for the full v3 architecture migration plan — phased arrays, spatial channels, AI-native runtime, and web interface.
 
 ## Contributing
 
