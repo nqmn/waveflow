@@ -201,15 +201,71 @@ waveflow> sweep ap1 ris1 ue1 60 10 --algo prime
 ## Optional Extras
 
 ```bash
-pip install -e ".[plot]"        # matplotlib — enables plot command and charts
-pip install -e ".[ml]"          # scikit-learn + torch — ML beam predictors
-pip install -e ".[terminal]"    # typer + rich — waveflow ui commands
-pip install -e ".[vision]"      # opencv-python — ArUco / HOG vision workflows
-pip install -e ".[web]"         # flask + waitress — web interface
+pip install -e ".[plot]"         # matplotlib — enables plot command and charts
+pip install -e ".[ml]"           # scikit-learn + torch — ML beam predictors
+pip install -e ".[terminal]"     # typer + rich — waveflow ui commands
+pip install -e ".[vision]"       # opencv-python — ArUco / HOG vision workflows
+pip install -e ".[web]"          # flask + waitress — web interface
 pip install -e ".[optimization]" # cvxpy + scs — phase optimization
-pip install -e ".[dev]"         # pytest, black, flake8, mypy
-pip install -e ".[all]"         # everything above
+pip install -e ".[dev]"          # pytest, black, flake8, mypy
+pip install -e ".[all]"          # everything above
 ```
+
+## Vision Integration
+
+The `[vision]` extra enables two camera-assisted workflows:
+
+**ArUco marker positioning** — generate printable fiducial markers, detect them from a camera feed, and derive UE position estimates for use as sweep inputs:
+
+```bash
+pip install -e ".[vision]"
+PYTHONPATH=. python3 examples/script/example_18_aruco_markers.py
+```
+
+```
+✓ Successfully saved: aruco_markers/aruco_id_0.png
+Generated 5 markers: aruco_markers/batch/aruco_id_{0..4}.png
+```
+
+**HOG human detection** — use a histogram-of-oriented-gradients detector on a live webcam feed to locate a person and derive a candidate beam direction:
+
+```bash
+PYTHONPATH=. python3 examples/script/example_19_hog_human_detection.py
+# Requires a connected webcam
+```
+
+Vision is example-driven rather than a full CLI product surface. The intended workflow is: detection output → target angle or position → feed into a sweep algorithm as a candidate beam direction.
+
+## MATLAB Integration
+
+Waveflow includes an optional MATLAB bridge for far-field beam pattern visualisation. The bridge is lazy-loaded — if MATLAB is not installed, all non-MATLAB functionality continues to work normally.
+
+Standalone MATLAB scripts (no Python required) live in `examples/matlab/`:
+
+| Script | What it shows |
+|---|---|
+| `example_1_beam_pattern_3d.m` | 3D far-field beam pattern, 1D/polar cuts, phase heatmap |
+| `example_2_compare_steering_angles.m` | Side-by-side patterns for 6 steering angles |
+| `example_3_ris_phase_farfield.m` | Phase maps + 3D far-field (Python-matched parameters) |
+| `example_4_ris_phase_farfield_cst_style.m` | CST-style annotated 3D pattern with source/beam arrows |
+
+Run from the MATLAB command window:
+
+```matlab
+cd examples/matlab
+example_1_beam_pattern_3d
+example_3_ris_phase_farfield(0, 5.8e9, 0.45, 0, 45, 0, 16, 16)
+```
+
+From Python, the bridge is accessed via `MatlabBridge`:
+
+```python
+from matlab_integration import MatlabBridge
+bridge = MatlabBridge.get_instance()   # lazy-loaded; MATLAB starts on first use
+bridge.plot_beam_pattern(...)
+```
+
+The library functions under `matlab_integration/scripts/` (`compute_beam_pattern`, `plot_ris_geometry`, etc.) are called by the Python bridge — they are not intended to be run directly.
 
 ## Project Structure
 
