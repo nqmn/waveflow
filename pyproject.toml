@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waveflow-sim"
-version = "2.0.0"
-description = "Waveflow: wireless propagation, waveform, and RIS-assisted network simulator"
+version = "2.0.1"
+description = "Waveflow: RIS-assisted wireless network simulator with beam sweeping, OFDM waveform, ML predictors, and interactive CLI"
 readme = "README.md"
 requires-python = ">=3.7"
 license = "Apache-2.0"
 authors = [
     {name = "Waveflow Contributors"},
 ]
-keywords = ["wireless", "waveform", "simulation", "network", "ris", "reconfigurable-intelligent-surface"]
+keywords = ["wireless", "waveform", "simulation", "network", "ris", "reconfigurable-intelligent-surface", "beam-sweeping", "ofdm", "snr", "pathfinding", "machine-learning", "5g", "mmwave"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
