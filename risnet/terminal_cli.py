@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
+import math
+import shlex
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -17,6 +21,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         from rich.panel import Panel
         from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
         from rich.table import Table
+        from rich.text import Text
     except ImportError:
         print(
             "The terminal UI requires optional dependencies. "
@@ -34,6 +39,10 @@ def run(argv: Optional[List[str]] = None) -> int:
         help="Modern terminal commands for Waveflow.",
         no_args_is_help=True,
     )
+    interactive_context: Dict[str, object] = {
+        "net": None,
+        "legacy_cli": None,
+    }
 
     def _new_network():
         from core import RISNetwork
@@ -49,14 +58,28 @@ def run(argv: Optional[List[str]] = None) -> int:
         net.set_controller(ctrl)
         return net
 
-    def _new_legacy_shell(topology: Optional[Path] = None):
+    def _new_legacy_shell(topology: Optional[Path] = None, net=None):
         from cli.main_shell import RISNetCLI
 
-        net = _new_network_with_controller()
+        net = net or _new_network_with_controller()
         cli = RISNetCLI(net)
         if topology is not None:
             cli._load_network_from_file(str(topology))
         return cli
+
+    def _resolve_context_net(topology: Optional[Path], *, with_controller: bool = False):
+        if interactive_context["net"] is not None and topology is None:
+            return interactive_context["net"]
+
+        net = _new_network_with_controller() if with_controller else _new_network()
+        _load_topology(net, topology)
+        return net
+
+    def _resolve_context_legacy_shell(topology: Optional[Path] = None):
+        if interactive_context["legacy_cli"] is not None and topology is None:
+            return interactive_context["legacy_cli"]
+
+        return _new_legacy_shell(topology)
 
     def _load_topology(net, topology: Optional[Path]) -> None:
         if topology is None:
@@ -120,14 +143,346 @@ def run(argv: Optional[List[str]] = None) -> int:
 
         console.print(table)
 
-    def _render_connect_result(result: dict) -> None:
+    def _render_status_view(net) -> None:
+        if not net.nodes:
+            console.print(Panel("No nodes in network", title="Network Status", border_style="yellow"))
+        else:
+            nodes_table = Table(title=f"Nodes ({len(net.nodes)})")
+            nodes_table.add_column("Name", style="cyan")
+            nodes_table.add_column("Type")
+            nodes_table.add_column("Position")
+            nodes_table.add_column("Details")
+
+            for name, node in net.nodes.items():
+                pos = tuple(float(v) for v in node.pos[:3])
+                details: List[str] = []
+                if hasattr(node, "freq"):
+                    freq_ghz = float(node.freq) / 1e9 if node.freq else 0.0
+                    details.append(f"freq={freq_ghz:.2f} GHz")
+                if hasattr(node, "bandwidth_MHz"):
+                    bw = float(node.bandwidth_MHz) if node.bandwidth_MHz else 0.0
+                    details.append(f"bw={bw:.1f} MHz")
+                if hasattr(node, "power_dBm"):
+                    details.append(f"power={float(node.power_dBm):.1f} dBm")
+                if hasattr(node, "N"):
+                    details.append(f"elements={int(node.N)}")
+                    if hasattr(node, "bits"):
+                        details.append(f"bits={int(node.bits)}")
+                if hasattr(node, "noise_figure_dB"):
+                    details.append(f"noise={float(node.noise_figure_dB):.1f} dB")
+                if hasattr(node, "antenna_gain_dBi"):
+                    details.append(f"gain={float(node.antenna_gain_dBi):.1f} dBi")
+
+                nodes_table.add_row(
+                    name,
+                    _node_type(node),
+                    f"({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f})",
+                    ", ".join(details),
+                )
+
+            console.print(nodes_table)
+
+            node_names = list(net.nodes.keys())
+            if len(node_names) > 1:
+                distances = Table(title="Distances")
+                distances.add_column("Pair", style="cyan")
+                distances.add_column("Distance (m)", justify="right")
+                for idx, node1_name in enumerate(node_names):
+                    for node2_name in node_names[idx + 1:]:
+                        node1 = net.nodes[node1_name]
+                        node2 = net.nodes[node2_name]
+                        distance = math.sqrt(
+                            sum((float(a) - float(b)) ** 2 for a, b in zip(node1.pos[:3], node2.pos[:3]))
+                        )
+                        distances.add_row(f"{node1_name} ↔ {node2_name}", f"{distance:.2f}")
+                console.print(distances)
+
+        active_links = net.get_active_links()
+        if not active_links:
+            console.print(Panel("No active links", title="Active Links", border_style="yellow"))
+        else:
+            links_table = Table(title=f"Active Links ({len(active_links)})")
+            links_table.add_column("#", justify="right")
+            links_table.add_column("Link", style="cyan")
+            links_table.add_column("Source")
+            links_table.add_column("SNR (dB)", justify="right")
+            links_table.add_column("Power (dBm)", justify="right")
+            links_table.add_column("Gain (dBi)", justify="right")
+            links_table.add_column("Deflection (deg)", justify="right")
+            links_table.add_column("Quant Penalty (dB)", justify="right")
+
+            for idx, (link_name, link_info) in enumerate(active_links.items(), start=1):
+                origin = link_info.get("source", "unknown")
+                origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
+                steering = link_info.get("beam_angle_local")
+                if steering is None:
+                    steering = link_info.get("deflection_angle_deg")
+                penalty = abs(float(link_info.get("quant_loss_dB", 0.0)))
+                links_table.add_row(
+                    str(idx),
+                    link_name,
+                    origin_label,
+                    f"{float(link_info['snr_dB']):.2f}",
+                    f"{float(link_info['pwr_dBm']):.2f}",
+                    f"{float(link_info['gain_dBi']):.2f}",
+                    "N/A" if steering is None else f"{float(steering):.2f}",
+                    f"{penalty:.2f}",
+                )
+
+            console.print(links_table)
+
+    def _render_links_view(net) -> None:
+        active_links = net.get_active_links()
+        if not active_links:
+            console.print(Panel("No active links", title="Active Links", border_style="yellow"))
+            return
+
+        console.print(Panel(f"{len(active_links)} active link(s)", title="Active Links", border_style="cyan"))
+        ordered_links = sorted(active_links.items(), key=lambda item: item[0].casefold())
+        for idx, (link_name, link_info) in enumerate(ordered_links, start=1):
+            origin = link_info.get("source", "unknown")
+            origin_label = origin.capitalize() if isinstance(origin, str) else str(origin)
+            steering = link_info.get("beam_angle_local")
+            if steering is None:
+                steering = link_info.get("deflection_angle_deg")
+            penalty = abs(float(link_info.get("quant_loss_dB", 0.0)))
+            details = Table.grid(padding=(0, 2))
+            details.add_column(style="bold cyan")
+            details.add_column()
+            details.add_row("Source", origin_label)
+            details.add_row("SNR (dB)", f"{float(link_info['snr_dB']):.2f}")
+            details.add_row("Power (dBm)", f"{float(link_info['pwr_dBm']):.2f}")
+            details.add_row("Gain (dBi)", f"{float(link_info['gain_dBi']):.2f}")
+            details.add_row("Deflection (deg)", "N/A" if steering is None else f"{float(steering):.2f}")
+            details.add_row("Quant Penalty (dB)", f"{penalty:.2f}")
+            console.print(Panel(details, title=f"[{idx}] {link_name}", border_style="cyan"))
+
+    def _node_style(node) -> str:
+        node_type = _node_type(node)
+        if node_type == "AccessPoint":
+            return "bold blue"
+        if node_type == "RIS":
+            return "bold yellow"
+        if node_type == "UE":
+            return "bold green"
+        return "bold white"
+
+    def _build_ascii_topology_data(net):
+        if not net.nodes:
+            return {
+                "legend": [],
+                "lines": ["Network is empty"],
+            }
+
+        positions = {name: node.pos for name, node in net.nodes.items()}
+        xs = [float(pos[0]) for pos in positions.values()]
+        ys = [float(pos[1]) for pos in positions.values()]
+
+        x_min, x_max = min(xs), max(xs)
+        y_min, y_max = min(ys), max(ys)
+
+        x_range = max(x_max - x_min, 1.0)
+        y_range = max(y_max - y_min, 1.0)
+
+        x_min -= x_range * 0.1
+        x_max += x_range * 0.1
+        y_min -= y_range * 0.1
+        y_max += y_range * 0.1
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+
+        width, height = 50, 20
+        x_scale = (width - 2) / x_range if x_range > 0 else 1
+        y_scale = (height - 2) / y_range if y_range > 0 else 1
+
+        char_pool = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+        name_to_char: Dict[str, str] = {}
+        for idx, name in enumerate(sorted(net.nodes.keys())):
+            name_to_char[name] = char_pool[idx] if idx < len(char_pool) else "?"
+
+        grid = [[None for _ in range(width)] for _ in range(height)]
+        for name, pos in positions.items():
+            x_char = int((float(pos[0]) - x_min) * x_scale + 1)
+            y_char = int((y_max - float(pos[1])) * y_scale + 1)
+            x_char = max(1, min(x_char, width - 2))
+            y_char = max(1, min(y_char, height - 2))
+            grid[y_char][x_char] = name
+
+        lines = ["Topology View (ASCII):", "=" * 52, "-" * 52]
+
+        for row in grid:
+            lines.append(row)
+
+        lines.append("-" * 52)
+        legend = [
+            {
+                "symbol": name_to_char[name],
+                "name": name,
+                "style": _node_style(net.nodes[name]),
+            }
+            for name in sorted(net.nodes.keys())
+        ]
+        return {
+            "legend": legend,
+            "lines": lines,
+            "name_to_char": name_to_char,
+        }
+
+    def _render_list_view(net) -> None:
+        topology = _build_ascii_topology_data(net)
+        ascii_text = Text()
+        lines = topology["lines"]
+        for idx, line in enumerate(lines):
+            if isinstance(line, str):
+                style = "cyan" if line.startswith("=") or line.startswith("-") else None
+                ascii_text.append(line, style=style)
+            else:
+                ascii_text.append("| ", style="cyan")
+                for cell in line:
+                    if cell is None:
+                        ascii_text.append(".", style="dim")
+                    else:
+                        ascii_text.append(topology["name_to_char"][cell], style=_node_style(net.nodes[cell]))
+                ascii_text.append(" |", style="cyan")
+            if idx != len(lines) - 1:
+                ascii_text.append("\n")
+        console.print(Panel(ascii_text, title="List Output", border_style="cyan"))
+
+        if topology["legend"]:
+            legend = Text("Legend: ", style="bold")
+            for idx, entry in enumerate(topology["legend"]):
+                if idx:
+                    legend.append("  ")
+                legend.append(entry["symbol"], style=entry["style"])
+                legend.append("=")
+                legend.append(entry["name"], style=entry["style"])
+            console.print(Panel(legend, title="Topology Legend", border_style="cyan"))
+
+        coords = Table(title="Node Coordinates")
+        coords.add_column("Name", style="cyan")
+        coords.add_column("Type")
+        coords.add_column("Position (x, y, z)", justify="right")
+        for name in sorted(net.nodes.keys()):
+            node = net.nodes[name]
+            pos = tuple(float(v) for v in node.pos[:3])
+            coords.add_row(
+                name,
+                _node_type(node),
+                f"({pos[0]:6.2f}, {pos[1]:6.2f}, {pos[2]:6.2f})",
+            )
+
+        if not net.nodes:
+            coords.add_row("-", "empty", "-")
+
+        console.print(coords)
+
+    def _render_connect_result(
+        net,
+        ap: str,
+        ris: str,
+        ue: str,
+        result: dict,
+        *,
+        requested_angle_deg: Optional[float] = None,
+        enable_feedback: bool = True,
+        use_waveform: bool = True,
+        modulation: str = "QPSK",
+        seed: Optional[int] = None,
+    ) -> None:
+        ap_node = net.get(ap)
+        ris_node = net.get(ris)
+        ue_node = net.get(ue)
+
+        def _fmt_pos(node) -> str:
+            if node is None or not hasattr(node, "pos"):
+                return "N/A"
+            pos = tuple(float(v) for v in node.pos[:3])
+            return f"({pos[0]:.2f}, {pos[1]:.2f}, {pos[2]:.2f})"
+
+        def _distance(a, b) -> Optional[float]:
+            if a is None or b is None or not hasattr(a, "pos") or not hasattr(b, "pos"):
+                return None
+            deltas = [float(x) - float(y) for x, y in zip(a.pos[:3], b.pos[:3])]
+            return math.sqrt(sum(delta * delta for delta in deltas))
+
+        context = Table.grid(padding=(0, 2))
+        context.add_column(style="bold cyan")
+        context.add_column()
+        context.add_row("AP", ap)
+        context.add_row("RIS", ris)
+        context.add_row("UE", ue)
+        context.add_row("Feedback", "adaptive" if enable_feedback else "single-shot")
+        context.add_row("Waveform", modulation if use_waveform else "disabled")
+        context.add_row("Seed", "auto" if seed is None else str(seed))
+        console.print(Panel(context, title="Connect Context", expand=False))
+
+        geometry = Table(title="Connect Diagnostics")
+        geometry.add_column("Metric", style="cyan")
+        geometry.add_column("Value", justify="right")
+        geometry.add_row("AP position", _fmt_pos(ap_node))
+        geometry.add_row("RIS position", _fmt_pos(ris_node))
+        geometry.add_row("UE position", _fmt_pos(ue_node))
+
+        d_ap_ris = _distance(ap_node, ris_node)
+        d_ris_ue = _distance(ris_node, ue_node)
+        if d_ap_ris is not None:
+            geometry.add_row("AP→RIS distance (m)", f"{d_ap_ris:.3f}")
+        if d_ris_ue is not None:
+            geometry.add_row("RIS→UE distance (m)", f"{d_ris_ue:.3f}")
+
+        if requested_angle_deg is not None:
+            geometry.add_row("Requested angle (deg)", f"{requested_angle_deg:.3f}")
+        if result.get("incident_azimuth_deg") is not None:
+            geometry.add_row("Incident azimuth (deg)", f"{float(result['incident_azimuth_deg']):.3f}")
+        if result.get("reflected_azimuth_deg") is not None:
+            geometry.add_row("Reflected azimuth (deg)", f"{float(result['reflected_azimuth_deg']):.3f}")
+        if result.get("deflection_angle_deg") is not None:
+            geometry.add_row("RIS deflection (deg)", f"{float(result['deflection_angle_deg']):.3f}")
+        elif result.get("local_deflection_deg") is not None:
+            geometry.add_row("RIS deflection (deg)", f"{float(result['local_deflection_deg']):.3f}")
+        if result.get("max_angle_deg") is not None:
+            geometry.add_row("RIS FOV limit (deg)", f"±{float(result['max_angle_deg']):.3f}")
+        if result.get("fov_clamped") is not None:
+            geometry.add_row("FOV clamped", "yes" if result.get("fov_clamped") else "no")
+        console.print(geometry)
+
         table = Table(title="Link Result")
         table.add_column("Metric", style="cyan")
         table.add_column("Value", justify="right")
-        for key in ("snr_dB", "pwr_dBm", "rssi_dBm", "beam_angle_deg", "gain_dBi", "quant_loss_dB"):
-            if key in result:
-                table.add_row(key, f"{float(result[key]):.3f}")
+        value_keys = (
+            ("snr_dB", "snr_dB"),
+            ("pwr_dBm", "pwr_dBm"),
+            ("rssi_dBm", "rssi_dBm"),
+            ("beam_angle_deg", "beam_angle_deg"),
+            ("beam_angle", "beam_angle_deg"),
+            ("gain_dBi", "gain_dBi"),
+            ("quant_loss_dB", "quant_loss_dB"),
+        )
+        seen = set()
+        for source_key, label in value_keys:
+            if source_key in result and label not in seen and result[source_key] is not None:
+                table.add_row(label, f"{float(result[source_key]):.3f}")
+                seen.add(label)
         console.print(table)
+
+        recommendation = Table.grid(padding=(0, 2))
+        recommendation.add_column(style="bold cyan")
+        recommendation.add_column()
+        steering = result.get("deflection_angle_deg")
+        if steering is None:
+            steering = result.get("local_deflection_deg")
+        recommendation.add_row(
+            "Steering command",
+            "N/A" if steering is None else f"{float(steering):.3f}° local deflection",
+        )
+        recommendation.add_row(
+            "Expected SNR",
+            "N/A" if result.get("snr_dB") is None else f"{float(result['snr_dB']):.3f} dB",
+        )
+        if result.get("fov_clamped"):
+            recommendation.add_row("Constraint", "Requested path exceeds RIS hardware FOV")
+        console.print(Panel(recommendation, title="RIS Recommendation", expand=False))
 
     def _resolve_sweep_metrics(result: dict) -> dict:
         coarse_angles = list(result.get("local_coarse", []) or [])
@@ -215,6 +570,45 @@ def run(argv: Optional[List[str]] = None) -> int:
                 f"{row['snr_dB']:.2f}",
             )
         console.print(top_table)
+
+    def _print_shell_help() -> None:
+        help_table = Table(title="Waveflow UI Shell")
+        help_table.add_column("Command", style="cyan")
+        help_table.add_column("Description")
+        help_table.add_row("status, list", "Show the current in-memory network.")
+        help_table.add_row("add, connect, sweep", "Run native Typer/Rich commands against the current shell state.")
+        help_table.add_row("env, ap, ris, ue", "Inspect or mutate environment and node settings.")
+        help_table.add_row("signal, stream", "Run detailed signal inspection and payload streaming workflows.")
+        help_table.add_row("save, load, clear", "Persist or mutate the current shell state.")
+        help_table.add_row("links, plot, run", "Delegate through the established legacy handler when needed.")
+        help_table.add_row("help [command]", "Show shell help or Typer help for a subcommand.")
+        help_table.add_row("quit, exit", "Leave the shell.")
+        console.print(help_table)
+        console.print("[dim]Unknown commands are forwarded to the legacy interactive handler on the same network state.[/dim]")
+
+    def _legacy_panel_title(command_name: str) -> str:
+        return f"{command_name.replace('-', ' ').title()} Output"
+
+    def _render_legacy_output(command_name: str, output: str) -> None:
+        body = (output or "").strip("\n")
+        renderable = Text.from_ansi(body) if body else Text("(no output)", style="dim")
+        console.print(Panel(renderable, title=_legacy_panel_title(command_name), border_style="cyan"))
+
+    def _invoke_legacy_shell_command(command_name: str, args: List[str], topology: Optional[Path] = None):
+        cli = _resolve_context_legacy_shell(topology)
+        cmd_str = " ".join([command_name, *args]).strip()
+        buffer = io.StringIO()
+        try:
+            with redirect_stdout(buffer):
+                should_exit = bool(cli.onecmd(cmd_str))
+        except Exception as exc:
+            console.print(f"[red]{command_name} failed:[/red] {exc}")
+            raise typer.Exit(1)
+        return should_exit, buffer.getvalue()
+
+    def _run_legacy_shell_command(command_name: str, args: List[str], topology: Optional[Path] = None) -> None:
+        _, output = _invoke_legacy_shell_command(command_name, args, topology)
+        _render_legacy_output(command_name, output)
 
     def _render_live_sweep_frame(state: Dict[str, object]):
         layout = Table.grid(expand=False)
@@ -316,6 +710,58 @@ def run(argv: Optional[List[str]] = None) -> int:
         return progress, state, callback
 
     # -------------------------------------------------------------------------
+    # env / ap / ris / ue
+    # -------------------------------------------------------------------------
+
+    @app.command("env", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def env_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before inspecting or modifying the environment.",
+        ),
+    ) -> None:
+        """Inspect or update environment bounds through the established shell workflow."""
+        _run_legacy_shell_command("env", list(ctx.args), topology)
+
+    @app.command("ap", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def ap_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before inspecting or modifying AP settings.",
+        ),
+    ) -> None:
+        """Inspect or update AP settings."""
+        _run_legacy_shell_command("ap", list(ctx.args), topology)
+
+    @app.command("ris", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def ris_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before inspecting or modifying RIS settings.",
+        ),
+    ) -> None:
+        """Inspect or update RIS settings."""
+        _run_legacy_shell_command("ris", list(ctx.args), topology)
+
+    @app.command("ue", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def ue_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before inspecting or modifying UE settings.",
+        ),
+    ) -> None:
+        """Inspect or update UE settings."""
+        _run_legacy_shell_command("ue", list(ctx.args), topology)
+
+    # -------------------------------------------------------------------------
     # status
     # -------------------------------------------------------------------------
 
@@ -328,9 +774,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Show network status with Rich tables."""
-        net = _new_network()
-        _load_topology(net, topology)
-        _render_network(net)
+        net = _resolve_context_net(topology)
+        _render_status_view(net)
 
     # -------------------------------------------------------------------------
     # list
@@ -345,9 +790,8 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """List all nodes in the network."""
-        net = _new_network()
-        _load_topology(net, topology)
-        _render_network(net)
+        net = _resolve_context_net(topology)
+        _render_list_view(net)
 
     # -------------------------------------------------------------------------
     # add
@@ -371,8 +815,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Add a node (ap, ris, or ue) to the network and display the result."""
-        net = _new_network()
-        _load_topology(net, topology)
+        net = _resolve_context_net(topology)
         topology_helper = _new_topology_helper(net)
 
         t = node_type.lower()
@@ -504,39 +947,200 @@ def run(argv: Optional[List[str]] = None) -> int:
     # connect
     # -------------------------------------------------------------------------
 
-    @app.command("connect")
+    @app.command("connect", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
     def connect(
-        ap: str = typer.Argument(..., help="AP node name."),
-        ris: str = typer.Argument(..., help="RIS node name."),
-        ue: str = typer.Argument(..., help="UE node name."),
-        beam: Optional[float] = typer.Option(None, "--beam", help="Explicit beam angle in degrees."),
-        seed: Optional[int] = typer.Option(None, "--seed", help="Random seed for fading."),
+        ctx: typer.Context,
         topology: Optional[Path] = typer.Option(
             None, "--topology", "-t",
             exists=True, file_okay=True, dir_okay=False, readable=True,
             help="Load topology before connecting.",
         ),
     ) -> None:
-        """Compute a cascaded AP→RIS→UE link and display metrics."""
-        from risnet import ScenarioExecutionService
+        """Run native connect with full legacy grammar compatibility."""
+        from cli.connection_handler import ConnectionHandler
+        from cli.helpers import sanitize_for_json
 
-        net = _new_network_with_controller()
-        _load_topology(net, topology)
-        try:
-            run = ScenarioExecutionService().execute_connect(
-                net,
-                topology or "<terminal-live-network>",
-                ap_name=ap,
-                ris_name=ris,
-                ue_name=ue,
-                beam_angle_deg=beam,
-                seed=seed,
-                use_get_snr=False,
-            )
-            _render_connect_result(run.result)
-        except Exception as exc:
-            console.print(f"[red]Connect failed:[/red] {exc}")
+        net = _resolve_context_net(topology, with_controller=True)
+        handler = ConnectionHandler(net)
+        raw_parts = list(ctx.args)
+        normalized_parts: List[str] = []
+        beam_value: Optional[str] = None
+        seed_value: Optional[str] = None
+
+        idx = 0
+        while idx < len(raw_parts):
+            token = raw_parts[idx]
+            if token == "--beam":
+                if idx + 1 >= len(raw_parts):
+                    console.print("[red]Missing value for --beam[/red]")
+                    raise typer.Exit(1)
+                beam_value = raw_parts[idx + 1]
+                idx += 2
+                continue
+            if token == "--seed":
+                if idx + 1 >= len(raw_parts):
+                    console.print("[red]Missing value for --seed[/red]")
+                    raise typer.Exit(1)
+                seed_value = raw_parts[idx + 1]
+                idx += 2
+                continue
+            normalized_parts.append(token)
+            idx += 1
+
+        if beam_value is not None:
+            normalized_parts.append(beam_value)
+        if seed_value is not None:
+            normalized_parts.append(seed_value)
+
+        arg = " ".join(normalized_parts)
+        quiet_output: List[str] = []
+
+        def _capture_print(*parts) -> None:
+            if not parts:
+                quiet_output.append("")
+                return
+            quiet_output.append(" ".join(str(part) for part in parts))
+
+        ap, ris, ue, remaining_parts, error_msg = handler.parse_connect_arguments(arg)
+        if error_msg:
+            console.print(f"[red]{error_msg}[/red]")
             raise typer.Exit(1)
+
+        flags_result = handler.parse_flags(remaining_parts)
+        if flags_result["error_msg"]:
+            console.print(f"[red]{flags_result['error_msg']}[/red]")
+            raise typer.Exit(1)
+
+        enable_feedback = flags_result["enable_feedback"]
+        use_waveform = flags_result["use_waveform"]
+        modulation = flags_result["modulation"]
+        fov = flags_result["fov"]
+        step = flags_result["step"]
+        algo_name = flags_result["algo_name"]
+        ml_predictor = flags_result["ml_predictor"]
+        angle = flags_result["angle"]
+        seed = flags_result["seed"]
+        metric = flags_result.get("metric", "snr")
+        enable_codebook_validation = flags_result["enable_codebook_validation"]
+        codebook_increment = flags_result["codebook_increment"]
+        codebook_neighbors = flags_result["codebook_neighbors"]
+        include_predicted_angle = flags_result["include_predicted_angle"]
+        codebook_start = flags_result["codebook_start"]
+        codebook_end = flags_result["codebook_end"]
+        codebook_step = flags_result["codebook_step"]
+        use_mock = flags_result.get("use_mock", False)
+        mock_trajectory = flags_result.get("mock_trajectory", "circular")
+        r_cw = flags_result.get("r_cw", None)
+        t_cw = flags_result.get("t_cw", None)
+        tapering = flags_result.get("tapering", "uniform")
+
+        if fov is not None:
+            out = handler.execute_sweep(
+                ap,
+                ris,
+                ue,
+                fov,
+                step,
+                algo_name,
+                ml_predictor,
+                enable_feedback,
+                use_waveform,
+                modulation,
+                seed,
+                metric=metric,
+                enable_codebook_validation=enable_codebook_validation,
+                codebook_increment=codebook_increment,
+                codebook_neighbors=codebook_neighbors,
+                include_predicted_angle=include_predicted_angle,
+                codebook_start=codebook_start,
+                codebook_end=codebook_end,
+                codebook_step=codebook_step,
+                use_mock=use_mock,
+                mock_trajectory=mock_trajectory,
+                r_cw=r_cw,
+                t_cw=t_cw,
+                tapering=tapering,
+                print_func=_capture_print,
+            )
+            if out is None:
+                if quiet_output:
+                    console.print(f"[red]{quiet_output[-1]}[/red]")
+                raise typer.Exit(1)
+            try:
+                best_angles_info = handler.print_sweep_results(
+                    out,
+                    fov,
+                    step,
+                    ap,
+                    ris,
+                    ue,
+                    algo_name,
+                    metric=metric,
+                    print_func=lambda *args: None,
+                )
+                handler.create_sweep_record_and_link(
+                    ap,
+                    ris,
+                    ue,
+                    out,
+                    best_angles_info,
+                    fov,
+                    step,
+                    algo_name,
+                    use_waveform,
+                    modulation,
+                )
+                _render_sweep_result(out, algo_name, 5)
+            except ValueError as exc:
+                console.print(f"[red]Sweep failed:[/red] {exc}")
+                raise typer.Exit(1)
+            except Exception as exc:
+                console.print(f"[red]Sweep failed:[/red] {exc}")
+                raise typer.Exit(1)
+            return
+
+        res = handler.execute_single_connect(
+            ap,
+            ris,
+            ue,
+            angle,
+            enable_feedback,
+            use_waveform,
+            modulation,
+            seed,
+            tapering=tapering,
+            metric=metric,
+            print_func=_capture_print,
+        )
+        if res is None:
+            if quiet_output:
+                console.print(f"[red]{quiet_output[-1]}[/red]")
+            raise typer.Exit(1)
+
+        _render_connect_result(
+            net,
+            ap,
+            ris,
+            ue,
+            res,
+            requested_angle_deg=angle,
+            enable_feedback=enable_feedback,
+            use_waveform=use_waveform,
+            modulation=modulation,
+            seed=seed,
+        )
+        connection_record = handler.create_connection_record(
+            ap,
+            ris,
+            ue,
+            res,
+            angle,
+            seed,
+            enable_feedback,
+            use_waveform,
+            modulation,
+        )
+        net.last_connect_result = sanitize_for_json(connection_record)
 
     # -------------------------------------------------------------------------
     # sweep
@@ -563,8 +1167,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         """Run a beam sweep and display the best angle and SNR."""
         from controller.beamsweeping import SweepAlgorithmLoader
 
-        net = _new_network_with_controller()
-        _load_topology(net, topology)
+        net = _resolve_context_net(topology, with_controller=True)
         _resolve_sweep_nodes_or_exit(net, ap, ris, ue)
         try:
             algorithm = SweepAlgorithmLoader.get_algorithm(algo, net)
@@ -627,8 +1230,7 @@ def run(argv: Optional[List[str]] = None) -> int:
     ) -> None:
         """Save current network state to disk."""
         from cli.helpers import NetworkIO
-        net = _new_network()
-        _load_topology(net, topology)
+        net = _resolve_context_net(topology)
         path = filename or ".risnet_network.json"
         NetworkIO().save(net, path)
         console.print(f"[green]Saved[/green] → {path}")
@@ -639,10 +1241,38 @@ def run(argv: Optional[List[str]] = None) -> int:
     ) -> None:
         """Load network state from disk and display it."""
         from cli.helpers import NetworkIO
-        net = _new_network()
+        net = _resolve_context_net(None)
         NetworkIO().load(net, filepath)
         console.print(f"[green]Loaded[/green] ← {filepath}")
         _render_network(net)
+
+    # -------------------------------------------------------------------------
+    # signal / stream
+    # -------------------------------------------------------------------------
+
+    @app.command("signal", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def signal_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before running signal inspection.",
+        ),
+    ) -> None:
+        """Inspect signal metrics and per-hop breakdowns through the established workflow."""
+        _run_legacy_shell_command("signal", list(ctx.args), topology)
+
+    @app.command("stream", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+    def stream_cmd(
+        ctx: typer.Context,
+        topology: Optional[Path] = typer.Option(
+            None, "--topology", "-t",
+            exists=True, file_okay=True, dir_okay=False, readable=True,
+            help="Load topology before running payload streaming.",
+        ),
+    ) -> None:
+        """Run payload streaming through the established waveform workflow."""
+        _run_legacy_shell_command("stream", list(ctx.args), topology)
 
     # -------------------------------------------------------------------------
     # clear
@@ -658,8 +1288,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Clear the network (nodes + links) or active links only."""
-        net = _new_network()
-        _load_topology(net, topology)
+        net = _resolve_context_net(topology)
         if target == "links":
             if hasattr(net, "active_links"):
                 net.active_links.clear()
@@ -684,13 +1313,13 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Show active links or forward `links plot ...` to the legacy handler."""
-        cli = _new_legacy_shell(topology)
-        cmd_str = " ".join(["links", *ctx.args]).strip()
-        try:
-            cli.onecmd(cmd_str)
-        except Exception as exc:
-            console.print(f"[red]Links command failed:[/red] {exc}")
-            raise typer.Exit(1)
+        args = list(ctx.args)
+        if args and args[0] == "plot":
+            _run_legacy_shell_command("links", args, topology)
+            return
+
+        net = _resolve_context_net(topology)
+        _render_links_view(net)
 
     # -------------------------------------------------------------------------
     # plot
@@ -701,13 +1330,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         ctx: typer.Context,
     ) -> None:
         """Plot saved sweep/connect results through the established legacy handler."""
-        cli = _new_legacy_shell()
-        cmd_str = " ".join(["plot", *ctx.args]).strip()
-        try:
-            cli.onecmd(cmd_str)
-        except Exception as exc:
-            console.print(f"[red]Plot command failed:[/red] {exc}")
-            raise typer.Exit(1)
+        _run_legacy_shell_command("plot", list(ctx.args))
 
     # -------------------------------------------------------------------------
     # demo-connect
@@ -799,14 +1422,73 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Open the interactive shell (access to all legacy commands)."""
-        from cli.main_shell import RISNetCLI
-
         net = _new_network_with_controller()
-        cli = RISNetCLI(net)
+        cli = _new_legacy_shell(net=net)
         if topology is not None:
             cli._load_network_from_file(str(topology))
-        console.print("[bold cyan]Opening interactive shell. Type 'help' for all commands.[/bold cyan]")
-        cli.cmdloop()
+
+        interactive_context["net"] = net
+        interactive_context["legacy_cli"] = cli
+        console.print("[bold cyan]Opening Waveflow UI shell.[/bold cyan] Type `help` for commands.")
+        console.print("[dim]Native commands keep shell state in memory; unsupported commands fall back to the legacy handler.[/dim]")
+        try:
+            while True:
+                try:
+                    line = console.input("[bold cyan]waveflow[/bold cyan][white] ui[/white][dim]> [/dim]")
+                except EOFError:
+                    console.print()
+                    break
+                except KeyboardInterrupt:
+                    console.print("\n[yellow]Use `quit` or `exit` to leave the shell.[/yellow]")
+                    continue
+
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if stripped in {"quit", "exit"}:
+                    break
+                if stripped in {"help", "?"}:
+                    _print_shell_help()
+                    continue
+
+                try:
+                    tokens = shlex.split(stripped)
+                except ValueError as exc:
+                    console.print(f"[red]Parse failed:[/red] {exc}")
+                    continue
+
+                if not tokens:
+                    continue
+                if tokens[0] == "shell":
+                    console.print("[yellow]Already inside `waveflow ui shell`.[/yellow]")
+                    continue
+                if tokens[0] == "help":
+                    if len(tokens) == 1:
+                        _print_shell_help()
+                    else:
+                        try:
+                            app(args=[tokens[1], "--help"], prog_name="waveflow ui")
+                        except SystemExit:
+                            pass
+                    continue
+
+                try:
+                    app(args=tokens, prog_name="waveflow ui")
+                except SystemExit as exc:
+                    code = int(exc.code or 0)
+                    if code == 0:
+                        continue
+                    try:
+                        should_exit, output = _invoke_legacy_shell_command(tokens[0], tokens[1:])
+                    except Exception as legacy_exc:
+                        console.print(f"[red]Command failed:[/red] {legacy_exc}")
+                    else:
+                        _render_legacy_output(tokens[0], output)
+                        if should_exit:
+                            break
+        finally:
+            interactive_context["net"] = None
+            interactive_context["legacy_cli"] = None
 
     # -------------------------------------------------------------------------
     # run  — delegate any legacy command verbatim
@@ -832,19 +1514,11 @@ def run(argv: Optional[List[str]] = None) -> int:
 
           waveflow ui run ap AP1 show
         """
-        from cli.main_shell import RISNetCLI
-
-        net = _new_network_with_controller()
-        cli = RISNetCLI(net)
-        if topology is not None:
-            cli._load_network_from_file(str(topology))
         passthrough = list(command) + list(ctx.args)
-        cmd_str = " ".join(passthrough)
-        try:
-            cli.onecmd(cmd_str)
-        except Exception as exc:
-            console.print(f"[red]Command failed:[/red] {exc}")
+        if not passthrough:
+            console.print("[red]Command failed:[/red] Missing legacy command.")
             raise typer.Exit(1)
+        _run_legacy_shell_command(passthrough[0], passthrough[1:], topology)
 
     args = list(argv or [])
     if not args:

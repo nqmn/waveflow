@@ -345,14 +345,32 @@ class RISNetwork:
         }
 
         if hasattr(ris, 'phase_metadata') and ris.phase_metadata is not None:
+            phase_metadata = ris.phase_metadata
+            incident_azimuth_deg = phase_metadata.get('incident_azimuth_deg')
+            if incident_azimuth_deg is None:
+                incident_azimuth_deg = phase_metadata.get('azimuth_in_deg')
+
+            reflected_azimuth_deg = phase_metadata.get('reflected_azimuth_deg')
+            if reflected_azimuth_deg is None:
+                reflected_azimuth_deg = phase_metadata.get('azimuth_out_deg')
+
+            angle_diff_deg = phase_metadata.get('angle_diff_deg')
+            if angle_diff_deg is None:
+                angle_diff_deg = phase_metadata.get('azimuth_deflection_deg')
+
             phase_data.update({
-                "deflection_angle_deg": float(ris.phase_metadata.get('deflection_angle_deg', 0)),
-                "deflection_angle_clamped_deg": float(ris.phase_metadata.get('deflection_angle_clamped_deg', 0)),
-                "fov_clamped": bool(ris.phase_metadata.get('fov_clamped', False)),
-                "incident_azimuth_deg": float(ris.phase_metadata.get('incident_azimuth_deg', 0)),
-                "reflected_azimuth_deg": float(ris.phase_metadata.get('reflected_azimuth_deg', 0)),
-                "angle_diff_deg": float(ris.phase_metadata.get('angle_diff_deg', 0)),
-                "source_height_m": float(ris.phase_metadata.get('source_height_m', 0)),
+                "deflection_angle_deg": float(phase_metadata.get('deflection_angle_deg', 0)),
+                "deflection_angle_clamped_deg": float(
+                    phase_metadata.get(
+                        'deflection_angle_clamped_deg',
+                        phase_metadata.get('deflection_angle_deg', 0),
+                    )
+                ),
+                "fov_clamped": bool(phase_metadata.get('fov_clamped', False)),
+                "incident_azimuth_deg": float(incident_azimuth_deg if incident_azimuth_deg is not None else 0),
+                "reflected_azimuth_deg": float(reflected_azimuth_deg if reflected_azimuth_deg is not None else 0),
+                "angle_diff_deg": float(angle_diff_deg if angle_diff_deg is not None else 0),
+                "source_height_m": float(phase_metadata.get('source_height_m', 0)),
             })
 
         if ris_node is not None:

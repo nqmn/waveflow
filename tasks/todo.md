@@ -1,3 +1,265 @@
+## Task: Replace `waveflow ui links` Wrapper With Native Rich Renderer
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the native `links` renderer changes, the focused smoke assertion updates, and the task/test-suite documentation edits for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.links_cmd`, `risnet.terminal_cli._render_links_view`, focused smoke assertions] [interfaces: `waveflow ui links` output only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — rebuild `waveflow ui links` as a native Rich renderer for link listings while keeping `links plot ...` on the existing plot path.
+- `tests/test_smoke.py` — assert the richer native `links` content.
+- `tasks/test-suite.md` — record the restored `links` output coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit the full legacy `links` listing contract
+- [x] Rebuild `ui links` as a native Rich renderer with legacy-parity detail
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Rebuilt `waveflow ui links` as a native Rich renderer for active-link listings, using per-link detail panels so full link names and metrics remain visible instead of being truncated in a compact table. Kept `links plot ...` on the existing plot path and updated focused smoke assertions plus the test-suite inventory accordingly.
+- Out-of-scope flagged: `links plot ...` still uses the legacy plotting workflow because this task only replaced the link-listing output contract.
+- Assumptions invalidated: The initial compact Rich table layout was not sufficient to preserve full link names; the native renderer now uses vertical detail panels to maintain full parity.
+- Known debt (acknowledged):
+- Limitations: The native `links` renderer now preserves full content but uses a Rich panel-per-link layout rather than the original legacy plain-text block layout.
+
+## Task: Restore Full Legacy `status` Detail in Native Rich Output
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the native `status` renderer changes, the focused smoke assertion updates, and the task/test-suite documentation edits for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.status`, `risnet.terminal_cli._render_status_view`, focused smoke assertions] [interfaces: `waveflow ui status` output only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — rebuild `waveflow ui status` as a native Rich renderer with legacy-parity node, distance, and active-link detail.
+- `tests/test_smoke.py` — assert the richer native `status` content.
+- `tasks/test-suite.md` — record the restored `status` output coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit the full legacy `status` content contract
+- [x] Rebuild `ui status` as a native Rich renderer with legacy-parity detail
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Rebuilt `waveflow ui status` as a native Rich renderer with legacy-parity node details, pairwise distances, and active-link metrics instead of the previous shortened summary. Updated focused smoke assertions to cover both empty-state and populated rich status output, and refreshed the test-suite inventory to reflect the fuller status contract.
+- Out-of-scope flagged: Commands deeper than top-level `waveflow ui status` (for example nested node shells) still follow their existing output contracts.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The section ordering and wording are now Rich-native rather than a byte-for-byte copy of the legacy text, but the underlying information content is preserved.
+
+## Task: Preserve Full Legacy `list` Output in `waveflow ui`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the `list` command routing change, its smoke assertion update, and the task/test-suite documentation edits for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.list_nodes`, focused smoke assertion] [interfaces: `waveflow ui list` output only] [state mutations: none]
+
+### Scope
+- `risnet/terminal_cli.py` — route `waveflow ui list` through the Rich-wrapped legacy output path instead of the shortened native network renderer.
+- `tests/test_smoke.py` — assert the legacy topology content is preserved in the Rich output.
+- `tasks/test-suite.md` — record the preserved `list` output coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit the full legacy `list` content contract
+- [x] Rebuild `ui list` as a native Rich renderer with legacy-parity detail
+- [x] Style the ASCII map and legend through Rich while preserving the legacy layout
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Rebuilt `waveflow ui list` as a native Rich renderer that preserves the full legacy topology ASCII view and node-coordinate detail without wrapping legacy stdout, then styled the ASCII map and legend through Rich while keeping the underlying layout intact. Updated smoke coverage to assert the preserved topology, legend, and coordinate content in the native Rich output.
+- Out-of-scope flagged: `waveflow ui status` still uses the native summarized Rich renderer; this task only restores full native-Rich parity for `list`, which you marked as critical.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The topology map remains an ASCII representation rendered inside Rich because the legacy contract itself is ASCII-based; only the surrounding structure is Rich-native.
+
+## Task: Standardize Top-Level `waveflow ui` Output Through Rich
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the legacy-output capture/render bridge in `risnet/terminal_cli.py`, the focused smoke assertion updates, and the task/test-suite documentation changes for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli` legacy wrapper bridge and shell fallback rendering, focused smoke assertions] [interfaces: top-level `waveflow ui` output styling only] [state mutations: none beyond existing command side effects]
+
+### Scope
+- `risnet/terminal_cli.py` — route legacy-backed top-level `waveflow ui` commands and shell fallback output through a Rich rendering bridge instead of raw `print()` passthrough.
+- `tests/test_smoke.py` — assert Rich-panelized output for representative legacy-backed wrappers.
+- `tasks/test-suite.md` — record the standardized wrapper output coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add a Rich bridge for captured legacy-backed command output
+- [x] Apply the same bridge to native-shell fallback execution
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Added a Rich bridge that captures stdout from legacy-backed top-level `waveflow ui` commands and re-renders it inside consistent Rich panels, and applied the same rendering path to native-shell fallback execution. Updated focused smoke assertions for representative wrapper commands and refreshed the test-suite inventory to reflect the richer standardized output.
+- Out-of-scope flagged: This task standardizes top-level `waveflow ui` output only; deeper nested node subshells launched from legacy handlers remain on their original interactive text path.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Legacy-backed commands still preserve their original textual content inside the Rich panels, so their internal wording/section ordering is not yet normalized to the same table structure used by fully native commands such as `status`, `connect`, and `sweep`.
+
+## Task: Validate `connect` Output Against Coordinate Math
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the connect metadata normalization in `core/network.py`, the new characterization test, and the task/test-suite updates for this task.
+Change budget: [files 4] [functions: `core.network._collect_connect_phase_data`, focused connect characterization test] [interfaces: `RISNetwork.connect()` geometry metadata only] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `core/network.py` — normalize phase metadata keys so `connect()` exposes geometry fields consistently regardless of the active phase engine.
+- `tests/test_connect_characterization.py` — add a focused math cross-check for non-collinear connect geometry output.
+- `tasks/test-suite.md` — record the new geometry-validation coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add a coordinate-math characterization test for non-collinear connect geometry
+- [x] Normalize connect metadata for hybrid and steering phase-engine key variants
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Added a non-collinear coordinate-math characterization test for `RISNetwork.connect()` and normalized `_collect_connect_phase_data()` so hybrid-phase metadata keys (`azimuth_in_deg`, `azimuth_out_deg`, `azimuth_deflection_deg`) are exposed through the canonical connect result fields. This closes the mismatch where native connect output showed zero azimuths despite valid geometry.
+- Out-of-scope flagged: The native terminal renderer itself was not further changed in this task; it now benefits automatically from the corrected structured connect metadata.
+- Assumptions invalidated: The active hybrid phase engine does not emit `incident_azimuth_deg` / `reflected_azimuth_deg` keys directly; it uses `azimuth_in_deg` / `azimuth_out_deg`, which previously leaked through as zero-valued defaults in the connect result.
+- Known debt (acknowledged):
+- Limitations: This test validates 2D azimuth/deflection geometry from node coordinates; it does not add a separate 3D elevation cross-check.
+
+## Task: Add Rich Diagnostic Panels to Native `waveflow ui connect`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the native connect renderer changes, the focused smoke assertions, and the task/test-suite updates for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli._render_connect_result`, focused smoke tests] [interfaces: native `waveflow ui connect` output only] [state mutations: none beyond existing connect side effects]
+
+### Scope
+- `risnet/terminal_cli.py` — enrich native `ui connect` output with Rich diagnostic panels built from node state and connect result fields.
+- `tests/test_smoke.py` — verify the new diagnostic panels appear on direct and shell-native connect paths.
+- `tasks/test-suite.md` — record the richer native connect diagnostics coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Build Rich diagnostic panels from existing connect result data
+- [x] Extend smoke coverage for native connect rendering
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Replaced the terse native `ui connect` summary-only output with Rich diagnostic panels for connection context, geometry/FOV diagnostics, and RIS steering recommendation, while keeping the modern metrics table. Added focused smoke assertions for direct and shell-native connect paths and updated the test-suite inventory to reflect the richer native diagnostics.
+- Out-of-scope flagged: Sweep-mode `connect --sweep` still uses the existing modern sweep summary/table output rather than a matching multi-panel diagnostic layout.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The new panels derive from current node state and connect result fields, so legacy debug details that were never persisted as structured data still cannot be reproduced exactly.
+
+## Task: Lift Full Legacy `connect` Grammar Into Native `waveflow ui connect`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the native `ui connect` routing/rendering changes, the focused smoke coverage, and the task/test-suite updates for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.connect`, focused smoke tests] [interfaces: `waveflow ui connect` grammar and output only] [state mutations: in-memory connect/sweep state within the UI shell]
+
+### Scope
+- `risnet/terminal_cli.py` — make native `ui connect` accept the full practical legacy grammar while rendering modern output for both single-connect and `--sweep` modes.
+- `tests/test_smoke.py` — verify native UI connect accepts lifted legacy grammar directly and inside the native shell.
+- `tasks/test-suite.md` — record the expanded native `connect` coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Reuse `ConnectionHandler` parsing/execution for native `ui connect`
+- [x] Replace legacy narrated output with native modern rendering for single and sweep connect paths
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Lifted native `waveflow ui connect` onto the legacy `ConnectionHandler` grammar so it now accepts no-arg auto-detect, positional beam-angle/seed syntax, and unified `--sweep` forms while rendering modern summary tables instead of legacy narrated output. Added focused smoke coverage for direct and shell-native legacy-grammar usage and updated the test-suite inventory to reflect the broader native `connect` contract.
+- Out-of-scope flagged: Detailed Rich-native re-rendering of every legacy `connect` diagnostic section was not added; this task focused on grammar compatibility plus modern summary output for single-connect and sweep results.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Some rare legacy-only `connect` diagnostics still collapse into concise failure messages in the native UI instead of reproducing the full narrated debug trace.
+
+## Task: Promote Remaining Legacy Shell Commands into `waveflow ui`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Broad / Trivial
+Rollback plan: Revert the additive explicit subcommand wrappers in `risnet/terminal_cli.py`, the focused smoke coverage, and the documentation/task updates for this task.
+Change budget: [files 4] [functions: explicit `waveflow ui` wrappers for `env`, `ap`, `ris`, `ue`, `signal`, `stream`; focused smoke tests] [interfaces: additive `waveflow ui` command surface only] [state mutations: existing in-memory network and environment mutations performed by the legacy command handlers]
+
+### Scope
+- `risnet/terminal_cli.py` — expose the remaining practical legacy shell verbs as explicit `waveflow ui` subcommands that share native-shell state and delegate to the established implementations.
+- `tests/test_smoke.py` — add focused smoke coverage for the new command wrappers.
+- `tasks/test-suite.md` — record the expanded command-surface coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit remaining legacy-only shell verbs
+- [x] Add explicit `waveflow ui` wrappers for the remaining command surface
+- [x] Add focused smoke coverage and run verification
+
+### Review
+- Completed: Added explicit `waveflow ui` wrappers for `env`, `ap`, `ris`, `ue`, `signal`, and `stream`, all sharing native-shell state and delegating to the established legacy implementations. Expanded smoke coverage to verify direct wrapper usage from the `ui` surface alongside the native interactive shell behavior, and updated the test-suite inventory for the broader command surface.
+- Out-of-scope flagged: Node-name direct subshell entry (`AP1`, `R1`, `UE1`) and the deeper nested node-shell command model remain legacy-only; this task focused on the top-level practical `waveflow ui` command surface.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Several explicit UI wrappers still render legacy text output rather than Rich-native layouts, because they intentionally preserve the existing handler behavior as the single implementation source.
+
+## Task: Align Native `waveflow ui connect` With Legacy Semantics
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the native `ui connect` parsing/output changes, the focused shell smoke test, and the task/test-suite updates for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.connect`, focused smoke tests] [interfaces: `waveflow ui connect` argument handling and output only] [state mutations: in-memory connect/sweep state within the UI shell]
+
+### Scope
+- `risnet/terminal_cli.py` — make native `ui connect` accept legacy-style arguments, including zero-argument auto-detection, and render legacy-style output without delegating to the legacy shell command.
+- `tests/test_smoke.py` — verify native UI shell `connect` works without explicit node arguments and does not emit Typer missing-argument errors.
+- `tasks/test-suite.md` — record the native-shell `connect` coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Rework native `ui connect` parsing/execution to match legacy behavior
+- [x] Add focused shell smoke coverage for no-arg `connect`
+- [x] Run focused verification and review scope
+
+### Review
+- Completed: Reworked native `ui connect` to use the legacy connect parser/execution flow inside `terminal_cli.py`, including zero-argument AP/RIS/UE auto-detection, legacy-style detailed connect output, sweep-mode support through the same native command, and compatibility shims for the existing `--beam` and `--seed` option forms.
+- Out-of-scope flagged: Existing uncommitted native-shell and wrapper work already present in `tasks/todo.md`, `tasks/test-suite.md`, and `tests/test_smoke.py` remains outside this fix beyond the exact connect-related lines required here.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations:
+
+## Task: Implement Native `waveflow ui shell`
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the native-shell adapter changes in `risnet/terminal_cli.py`, the focused smoke coverage, and the task/test-suite updates for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.shell`, context-aware terminal command helpers, focused smoke tests] [interfaces: `waveflow ui` and `waveflow ui shell` interactive behavior only] [state mutations: in-memory network state within the interactive shell]
+
+### Scope
+- `risnet/terminal_cli.py` — replace the legacy `cmdloop()` entry path with a native interactive REPL that reuses the Typer/Rich command surface and falls back to the legacy handler for unsupported commands.
+- `tests/test_smoke.py` — verify the native shell opens, keeps state across commands, and preserves legacy passthrough behavior on the same shell session.
+- `tasks/test-suite.md` — record the native-shell smoke coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Inspect the current terminal UI and shell boundary
+- [x] Add a native interactive REPL over the existing Typer/Rich command surface
+- [x] Preserve fallback to legacy commands on the same shell state
+- [x] Run focused verification and review diff scope
+
+### Review
+- Completed: Replaced the `waveflow ui shell` entry path with a native interactive REPL that keeps in-memory network state across modern Typer/Rich commands, while still delegating unsupported commands through the established legacy handler on the same session state. Added focused smoke coverage for bare `waveflow ui` entry and for stateful shell-plus-legacy passthrough behavior, and updated the test-suite inventory accordingly.
+- Out-of-scope flagged: Full migration of every legacy interactive command into first-class native Typer/Rich commands remains future work; this task only changed the shell boundary and shared state handling for the existing command surface.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Unsupported commands inside the native shell still render through the legacy command handler output path rather than native Rich layouts.
+
 ## Task: Support `waveflow ui` command surface
 Mode: Standard
 Risk: Medium

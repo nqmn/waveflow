@@ -92,7 +92,7 @@ def test_console_help_from_outside_repo():
     assert "Available commands:" in result.stdout
 
 
-def test_bare_ui_opens_interactive_shell_and_accepts_commands():
+def test_bare_ui_opens_native_interactive_shell_and_accepts_commands():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui"],
         cwd="/home/user/project/risnet",
@@ -102,8 +102,52 @@ def test_bare_ui_opens_interactive_shell_and_accepts_commands():
         text=True,
     )
 
-    assert "Opening interactive shell" in result.stdout
-    assert "waveflow>" in result.stdout.lower() or "risnet>" in result.stdout.lower()
+    assert "Opening Waveflow UI shell." in result.stdout
+    assert "waveflow ui>" in result.stdout.lower()
+
+
+def test_native_ui_shell_keeps_state_and_supports_legacy_passthrough():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "shell"],
+        cwd="/home/user/project/risnet",
+        input=(
+            "load examples/json/example_1_simple.json\n"
+            "add ue UE2 --x 11 --y 4\n"
+            "status\n"
+            "signal AP1 R1 UE1 --breakdown\n"
+            "quit\n"
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Loaded" in result.stdout
+    assert "Added UE" in result.stdout
+    assert "Nodes         4" in result.stdout
+    assert "AP→RIS" in result.stdout
+    assert "RIS→UE" in result.stdout
+
+
+def test_native_ui_shell_connect_without_args_uses_native_renderer():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "shell"],
+        cwd="/home/user/project/risnet",
+        input=(
+            "load examples/json/example_1_simple.json\n"
+            "connect\n"
+            "quit\n"
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Connect Diagnostics" in result.stdout
+    assert "Link Result" in result.stdout
+    assert "RIS Recommendation" in result.stdout
+    assert "snr_dB" in result.stdout
+    assert "Missing argument 'AP'" not in result.stdout
 
 
 def test_typer_rich_status_from_outside_repo():
@@ -115,8 +159,89 @@ def test_typer_rich_status_from_outside_repo():
         text=True,
     )
 
-    assert "Waveflow Terminal" in result.stdout
-    assert "Nodes" in result.stdout
+    assert "Network Status" in result.stdout
+    assert "No nodes in network" in result.stdout
+    assert "Active Links" in result.stdout
+
+
+def test_typer_rich_env_wrapper_uses_topology():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "env",
+            "--topology",
+            "examples/json/example_1_simple.json",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Env Output" in result.stdout
+    assert "Environment:" in result.stdout
+    assert "Bounds:" in result.stdout
+
+
+def test_typer_rich_node_wrappers_show_details():
+    ap_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "ap",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "AP1",
+            "show",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    ris_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "ris",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "R1",
+            "show",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    ue_result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "ue",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "UE1",
+            "show",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "AP1 (Access Point)" in ap_result.stdout
+    assert "R1 (RIS)" in ris_result.stdout
+    assert "UE1 (UE)" in ue_result.stdout
 
 
 def test_typer_rich_demo_connect_from_outside_repo():
@@ -130,6 +255,60 @@ def test_typer_rich_demo_connect_from_outside_repo():
 
     assert "Link Metrics" in result.stdout
     assert "snr_dB" in result.stdout
+
+
+def test_typer_rich_signal_wrapper_supports_breakdown():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "signal",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "AP1",
+            "R1",
+            "UE1",
+            "--breakdown",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Signal Output" in result.stdout
+    assert "AP→RIS" in result.stdout
+    assert "RIS→UE" in result.stdout
+
+
+def test_typer_rich_stream_wrapper_surfaces_missing_file(tmp_path):
+    topology = _write_saved_network_state(tmp_path / "stream_state.json")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "stream",
+            "--topology",
+            str(topology),
+            "AP1",
+            "R1",
+            "UE1",
+            "--file",
+            "missing_payload.bin",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Stream Output" in result.stdout
+    assert "error:" in result.stdout.lower()
 
 
 def _write_saved_network_state(path: Path) -> Path:
@@ -152,7 +331,7 @@ def test_typer_rich_add_random_from_outside_repo():
     )
 
     assert "Added random topology" in result.stdout
-    assert "Waveflow Terminal" in result.stdout
+    assert "Nodes" in result.stdout
     assert "AP1" in result.stdout
     assert "R1" in result.stdout
     assert "UE1" in result.stdout
@@ -217,7 +396,11 @@ def test_typer_rich_list_from_outside_repo_uses_topology():
         text=True,
     )
 
-    assert "Waveflow Terminal" in result.stdout
+    assert "List Output" in result.stdout
+    assert "Topology View (ASCII)" in result.stdout
+    assert "Topology Legend" in result.stdout
+    assert "Node Coordinates" in result.stdout
+    assert "AccessPoint" in result.stdout
     assert "AP1" in result.stdout
     assert "R1" in result.stdout
     assert "UE1" in result.stdout
@@ -245,8 +428,58 @@ def test_typer_rich_connect_from_outside_repo_uses_topology():
         text=True,
     )
 
+    assert "Connect Diagnostics" in result.stdout
     assert "Link Result" in result.stdout
+    assert "RIS Recommendation" in result.stdout
     assert "snr_dB" in result.stdout
+
+
+def test_typer_rich_connect_accepts_legacy_positional_angle_syntax():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "connect",
+            "AP1",
+            "R1",
+            "UE1",
+            "30",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "42",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Connect Diagnostics" in result.stdout
+    assert "Link Result" in result.stdout
+    assert "Requested angle (deg)" in result.stdout
+    assert "beam_angle_deg" in result.stdout
+    assert "30.000" in result.stdout
+
+
+def test_native_ui_shell_connect_accepts_legacy_sweep_syntax_without_fallback():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "shell"],
+        cwd="/home/user/project/risnet",
+        input=(
+            "load examples/json/example_1_simple.json\n"
+            "connect AP1 R1 UE1 --sweep 60 10 --algo linear\n"
+            "quit\n"
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Sweep Result (linear)" in result.stdout
+    assert "Best SNR (dB)" in result.stdout
+    assert "BEAM SWEEP (via unified connect command)" not in result.stdout
 
 
 def test_typer_rich_save_and_load_round_trip(tmp_path):
@@ -296,7 +529,8 @@ def test_typer_rich_links_from_saved_state(tmp_path):
         text=True,
     )
 
-    assert "ACTIVE LINKS" in result.stdout
+    assert "Active Links" in result.stdout
+    assert "Source" in result.stdout
     assert "AP1→R1→UE1" in result.stdout
 
 

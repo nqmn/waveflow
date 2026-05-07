@@ -1,5 +1,7 @@
 """Characterization tests for RISNetwork.connect public behavior."""
 
+import math
+
 import numpy as np
 import pytest
 
@@ -232,6 +234,40 @@ def test_beam_that_misses_ue_reports_absence_with_directional_loss_snr():
     assert result["ue_present"] is False
     assert result["no_ue_detected"] is True
     assert result["snr_dB"] < aligned["snr_dB"]
+
+
+def test_connect_geometry_metadata_matches_coordinate_math_for_non_collinear_layout():
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("ap1", 23.09, 26.40, 0.0)
+    net.add_ris("ris1", 14.59, 14.47, 0.0, max_angle_deg=60)
+    net.add_ue("ue1", 21.34, 15.22, 0.0)
+
+    result = net.connect("ap1", "ris1", "ue1", use_get_snr=False)
+
+    ap = net.get("ap1")
+    ris = net.get("ris1")
+    ue = net.get("ue1")
+
+    expected_ap_ris = float(np.linalg.norm(ris.pos - ap.pos))
+    expected_ris_ue = float(np.linalg.norm(ue.pos - ris.pos))
+    expected_incident = math.degrees(math.atan2(ap.pos[1] - ris.pos[1], ap.pos[0] - ris.pos[0]))
+    expected_reflected = math.degrees(math.atan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0]))
+    expected_angle_diff = expected_reflected - expected_incident
+    while expected_angle_diff > 180:
+        expected_angle_diff -= 360
+    while expected_angle_diff < -180:
+        expected_angle_diff += 360
+
+    assert expected_ap_ris == pytest.approx(14.6483753365, rel=0, abs=1e-9)
+    assert expected_ris_ue == pytest.approx(6.7915388536, rel=0, abs=1e-9)
+    assert result["incident_azimuth_deg"] == pytest.approx(expected_incident)
+    assert result["reflected_azimuth_deg"] == pytest.approx(expected_reflected)
+    assert result["beam_angle"] == pytest.approx(expected_reflected)
+    assert result["beam_angle_requested_deg"] == pytest.approx(expected_reflected)
+    assert result["target_angle_deg"] == pytest.approx(expected_reflected)
+    assert result["local_deflection_deg"] == pytest.approx(expected_reflected)
+    assert abs(result["deflection_angle_deg"]) == pytest.approx(abs(expected_angle_diff))
+    assert result["angle_diff_deg"] == pytest.approx(expected_angle_diff)
 
 
 def test_compute_connect_phases_returns_metadata_only_when_enabled():

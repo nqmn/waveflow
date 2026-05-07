@@ -17,8 +17,8 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 25 | Import, CLI, entry points | Includes bare `waveflow ui` interactive-shell entry smoke, Typer/Rich `ui` smoke for status/list/add/connect/save/load/links/clear/plot, `ui add random` count/distance/no-UE parsing, live sweep rendering smoke, topology-backed terminal connect coverage, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
-| `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
+| `test_smoke.py` | pytest | 33 | Import, CLI, entry points | Includes bare `waveflow ui` native-shell entry smoke, stateful modern-shell coverage for add/status, native no-arg `connect` parity, lifted legacy `connect` grammar coverage (positional beam angle, unified `--sweep`, shell-native execution), modern Rich diagnostic-panel coverage for native `ui connect`, native Rich parity coverage for `ui list` preserving full topology and coordinate detail with Rich-styled legend/ASCII map, native Rich parity coverage for `ui status` preserving full node/distance/active-link detail, native Rich parity coverage for `ui links` preserving full active-link detail, and Rich panelized wrapper coverage for legacy-backed `env`, `signal`, and `stream`; plus legacy-command passthrough on the same in-memory network; Typer/Rich `ui` smoke for status/list/add/connect/save/load/links/clear/plot/env/ap/ris/ue/signal/stream; `ui add random` count/distance/no-UE parsing; live sweep rendering smoke; topology-backed terminal connect coverage; bundled topology sweep smoke; invalid-node failure handling; interactive-shell RIS-aware fallback coverage; DE result-printer compatibility; and legacy `run` passthrough coverage |
+| `test_connect_characterization.py` | pytest | 25 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers plus coordinate-math validation for non-collinear connect geometry metadata (incident/reflected azimuth, target angle, and deflection consistency) |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
@@ -204,6 +204,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Missing-node error message format
 - FOV rejection for collinear (opposite-direction) geometry
 - Beam miss reporting with directional-loss SNR
+- Non-collinear geometry metadata matches direct coordinate math for incident azimuth, reflected azimuth, target angle, and signed deflection
 - Extracted helper services for node resolution, geometry/FOV prep, phase
   computation, phase payload persistence, result assembly, feedback persistence,
   metadata persistence, messaging override resolution, active-link persistence,
@@ -216,11 +217,25 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 **Covered**:
 - `from waveflow import RISnet` and `from risnet import RISnet` succeed
 - `python -m risnet --help` and `waveflow --help` exit cleanly
-- bare `waveflow ui` opens the interactive shell and accepts commands over stdin
+- bare `waveflow ui` opens the native interactive shell and accepts commands over stdin
+- `waveflow ui shell` keeps modern-command state in memory and can still delegate unsupported commands through the legacy handler on that same state
+- native `waveflow ui shell` `connect` accepts zero explicit node arguments, auto-detects AP/RIS/UE, and renders the modern link-result path without Typer missing-argument failures
 - `waveflow ui status`, `list`, and `demo-connect` run from outside repo root
+- `waveflow ui status` natively reproduces the legacy node, distance, and active-link detail with Rich tables instead of a shortened summary
+- `waveflow ui list` natively reproduces the legacy topology ASCII view and node-coordinate detail with Rich output, without shortening the content
+- native `waveflow ui list` styles the legacy-parity ASCII topology map and legend through Rich while preserving the original map shape
+- `waveflow ui links` natively reproduces the active-link listing with Rich tables; only `links plot ...` remains on the legacy-backed plot path
+- `waveflow ui env` reports environment details from a loaded topology
+- legacy-backed `waveflow ui` wrappers such as `env`, `signal`, `stream`, and `links` render their captured output inside Rich panels instead of raw legacy text
+- `waveflow ui ap|ris|ue ... show` surfaces node details through explicit UI wrappers
 - `waveflow ui add random` creates a one-AP/one-RIS/one-UE topology from outside repo root
 - `waveflow ui add random` accepts AP/RIS/UE counts, `--distance min-max`, and `--no-ue`
 - `waveflow ui connect` runs against a topology file through the shared scenario service path
+- `waveflow ui connect` accepts lifted legacy positional beam-angle and seed syntax while rendering the modern link-result table
+- native `waveflow ui connect` renders Rich diagnostic panels for geometry, context, and RIS steering recommendation
+- `waveflow ui shell` accepts legacy `connect --sweep ...` grammar through the native command path without dropping back to legacy narrated output
+- `waveflow ui signal` exposes per-hop breakdowns through an explicit UI wrapper
+- `waveflow ui stream` delegates through the explicit UI wrapper and surfaces file errors cleanly
 - `waveflow ui save` and `load` round-trip a topology JSON
 - `waveflow ui links` renders stored active links from a saved state file
 - `waveflow ui clear links` executes against a saved state file

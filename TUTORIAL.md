@@ -502,7 +502,99 @@ Link Result
 └───────────────┴─────────┘
 ```
 
-### 2.16 Sweep — Find the Best Beam Angle
+### 2.16 Connect — Full Command Reference
+
+The `connect` command has several modes beyond the basic three-node form. All variants work in both the interactive shell and `waveflow ui`.
+
+**Basic form — auto beam angle:**
+
+```bash
+waveflow> connect ap1 ris1 ue1
+```
+
+The RIS steering angle is computed automatically from the geometry.
+
+**Explicit beam angle (`--beam`):**
+
+```bash
+waveflow> connect ap1 ris1 ue1 --beam 30.0
+```
+
+Forces the RIS to steer at exactly 30°. Useful when you already know the optimal angle and want to skip computation.
+
+**Sweep during connect (`--sweep`):**
+
+```bash
+# Default: ±60° FOV, 10° step, linear algorithm
+waveflow> connect ap1 ris1 ue1 --sweep
+
+# Custom FOV and step
+waveflow> connect ap1 ris1 ue1 --sweep 45 5
+
+# Choose sweep algorithm
+waveflow> connect ap1 ris1 ue1 --sweep 60 10 --algo coarse-fine
+waveflow> connect ap1 ris1 ue1 --sweep 60 10 --algo de
+waveflow> connect ap1 ris1 ue1 --sweep 60 10 --algo ml-guided --ml-predictor rf
+```
+
+`--sweep` alone defaults to `fov=60, step=10`. The algorithm defaults to `linear` unless `--algo` is specified.
+
+**Available `--algo` values with `--sweep`:**
+
+| Value | Description |
+|---|---|
+| `linear` | Uniform step sweep (default) |
+| `coarse-fine` | Two-phase refinement |
+| `de` | Differential Evolution global search |
+| `ml-guided` | ML-predicted seed angles (requires trained models) |
+| `hierarchical` | Multi-resolution sweep |
+| `adaptive-directional` | Adaptive directional refinement |
+
+**`--ml-predictor` values (only with `--algo ml-guided`):**
+
+`rf`, `xgb`, `svr`, `knn`, `lgbm`, `lr` — defaults to `gmf`.
+
+**Signal and modulation options:**
+
+```bash
+# Disable waveform-level simulation (faster, physics-only)
+waveflow> connect ap1 ris1 ue1 --no-waveform
+
+# Change modulation scheme
+waveflow> connect ap1 ris1 ue1 --modulation QPSK
+
+# Apply tapering window to RIS phase weights
+waveflow> connect ap1 ris1 ue1 --tapering hamming
+```
+
+`--tapering` accepts: `uniform` (default), `hamming`, `hann`, `blackman`.
+
+**Feedback control:**
+
+```bash
+# Disable the UE→AP CSI feedback loop
+waveflow> connect ap1 ris1 ue1 --no-feedback
+```
+
+Feedback is enabled by default. Use `--no-feedback` for open-loop experiments.
+
+**Reproducibility:**
+
+```bash
+waveflow> connect ap1 ris1 ue1 --seed 42
+```
+
+Locks the random seed for fading and noise — ensures identical results across runs.
+
+**Terminal UI equivalents:**
+
+```bash
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --beam 30.0
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --sweep 60 10 --algo coarse-fine
+```
+
+### 2.17 Sweep — Find the Best Beam Angle
 
 ```bash
 waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
@@ -537,7 +629,7 @@ Top 5 Sweep Measurements
 └──────┴────────┴─────────────┴──────────┘
 ```
 
-### 2.17 Stream — Simulate a Live Data Stream
+### 2.18 Stream — Simulate a Live Data Stream
 
 `stream` simulates a continuous data transmission over the active RIS link, printing per-chunk throughput as it runs. It shows how the RIS-assisted link performs as a streaming medium — think of it like running a real-time bandwidth test.
 
@@ -563,7 +655,7 @@ Summary:
 
 The stream command uses waveform-level simulation (OFDM + 16QAM) rather than the simplified link budget. See Part 13 for a full streaming scenario with capacity analysis.
 
-### 2.18 When to Use Which
+### 2.19 When to Use Which
 
 The interactive shell and `waveflow ui` are equivalent in capability. Choose based on your workflow:
 
