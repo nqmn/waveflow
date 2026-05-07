@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.7"
 license = "Apache-2.0"
 authors = [
-    {name = "Waveflow Contributors"},
+    {name = "Mohd Adil Mokti"},
 ]
 keywords = ["wireless", "waveform", "simulation", "network", "ris", "reconfigurable-intelligent-surface", "beam-sweeping", "ofdm", "snr", "pathfinding", "machine-learning", "5g", "mmwave"]
 classifiers = [
