@@ -17,13 +17,13 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
-| `test_smoke.py` | pytest | 14 | Import, CLI, entry points | Includes Typer/Rich live sweep rendering smoke, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
+| `test_smoke.py` | pytest | 16 | Import, CLI, entry points | Includes Typer/Rich `ui add random` smoke, live sweep rendering smoke, topology-backed terminal connect coverage, bundled topology sweep smoke, invalid-node failure handling, interactive-shell RIS-aware fallback coverage, DE result-printer compatibility, and legacy `run` passthrough coverage |
 | `test_connect_characterization.py` | pytest | 24 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
 | `test_link_budget_channel.py` | pytest | 9 | `LinkBudgetChannel` adapter | |
-| `test_scenarios.py` | pytest | 11 | Headless scenario runner | |
+| `test_scenarios.py` | pytest | 20 | Headless scenario runner and shared service adoption | Includes shared execution-service equivalence, request validation failures, golden example topology loading, and API routing through the shared scenario service |
 | `test_side_lobes.py` | dual-mode | 1 | RIS sidelobe suppression | pytest-compatible `def test_*` with `assert` |
 | `test_hybrid_mode.py` | dual-mode | 4 | Hybrid phase engine | pytest-compatible `def test_*` with `assert` |
 | `test_de_localization_sweep.py` | dual-mode | 3 | DE beam sweep algorithm | pytest-compatible `def test_*` with `assert` |
@@ -174,15 +174,21 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 **Covered**:
 - JSON topology loads without Flask or CLI
+- Golden example topology loading for simple, obstacle, and grid examples
 - Auto-resolves first AP/RIS/UE by type
 - Explicit name resolution
 - Reports missing node type clearly
 - `ScenarioRequest` from dict
 - `ScenarioRequest` from JSON file
 - `ScenarioRequest` from YAML file
+- Rejects mixed `actions` with top-level `connect`/`sweep`
+- Rejects malformed `kwargs` payloads
+- Rejects empty `topology_path`
 - Mixed connect + sweep action list on shared network
 - Missing `connect`/`actions` raises `ValueError`
 - Sweep via `run_sweep()` and via request schema
+- `ScenarioExecutionService` matches `ScenarioRunner` connect/sweep behavior
+- Flask API `connect` and `sweep` routes execute via the shared scenario service layer
 
 ---
 
@@ -211,6 +217,8 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - `from waveflow import RISnet` and `from risnet import RISnet` succeed
 - `python -m risnet --help` and `waveflow --help` exit cleanly
 - `waveflow ui status` and `waveflow ui demo-connect` run from outside repo root
+- `waveflow ui add random` creates a one-AP/one-RIS/one-UE topology from outside repo root
+- `waveflow ui connect` runs against a topology file through the shared scenario service path
 - `waveflow ui sweep` renders the Rich live/table UX from outside repo root
 - `examples/json/example_1_simple.json` remains sweep-safe for `waveflow ui sweep`
 - `waveflow ui sweep` fails cleanly on missing AP/RIS/UE names before opening the live Rich UI

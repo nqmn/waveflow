@@ -83,6 +83,7 @@ Instead, Waveflow should become:
 - programmable wireless environment framework
 - phased-array experimentation platform
 - RIS + MIMO + ISAC research toolkit
+- human-aware RF sensing and beam-focusing platform
 - notebook-native research environment
 - scalable RF digital twin runtime
 
@@ -106,6 +107,14 @@ The architecture should prioritize:
 3. experimentation speed
 4. scalable abstractions
 5. future-proof simulation primitives
+
+It should also explicitly support:
+
+- privacy-preserving human presence detection
+- human localization and temporal tracking
+- spatial energy focusing toward moving targets
+- reusable sensing pipelines across phased arrays, Wi-Fi front ends, passive RIS,
+  and active RIS
 
 ## Current State
 
@@ -132,6 +141,23 @@ passive phased array
 ```
 
 instead of a special hardcoded entity.
+
+The next major generalization should be:
+
+```text
+source / array / reflector / target / receiver
+```
+
+where:
+
+- a source may be Wi-Fi, SDR, phased array, or another active transmitter
+- a reflector may be passive RIS or active RIS
+- a target may be a UE, a moving human, or a generalized sensing actor
+- a receiver may be a communications endpoint, sensing array, or shared
+  measurement surface
+
+This keeps the current `UE` abstraction valid for backward compatibility while
+opening a clean path toward human-aware RF sensing and beam focusing.
 
 ## Migration Principle
 
@@ -208,9 +234,12 @@ This enables:
 
 - RIS
 - phased arrays
+- active RIS
+- Wi-Fi sensing front ends
 - radar
 - ISAC
 - localization
+- human tracking
 - mobile arrays
 - SDR integration
 - cooperative sensing
@@ -252,6 +281,9 @@ Planned support:
 - hybrid beamforming
 - adaptive beamforming
 - RL-based beamforming
+- passive RIS panels
+- active RIS panels
+- Wi-Fi and OFDM array experimentation
 - steering vectors
 - array factor computation
 - codebooks
@@ -265,6 +297,37 @@ Implementation note:
 This is one of the most immediately implementable parts. Existing logic in
 `core/waveform.py`, `core/nodes.py`, `core/physics.py`, and
 `controller/ris_phase` can be extracted into reusable array modules.
+
+### 3a. Generalized RF Actors and Targets
+
+Waveflow should grow beyond a fixed communications endpoint model.
+
+Proposed additive abstractions:
+
+```text
+actors/
+├── sources/
+├── reflectors/
+├── targets/
+├── receivers/
+└── mobility/
+```
+
+Examples:
+
+- `WiFiSource`
+- `PhasedArraySource`
+- `PassiveRIS`
+- `ActiveRIS`
+- `UEReceiver`
+- `HumanTarget`
+- `MobileTarget`
+
+Implementation note:
+
+Do not replace `UE` immediately. Introduce `HumanTarget` or `SensingTarget` as
+additive actors first, then let scenarios and future runtime services decide
+whether a run is communications-centric, sensing-centric, or hybrid.
 
 ### 4. Spatial Channel Engine
 
@@ -291,6 +354,8 @@ Planned features:
 - mobility-aware fading
 - MIMO channels
 - RIS-assisted channels
+- target-aware scattering
+- moving-human measurement sequences
 
 Implementation note:
 
@@ -329,6 +394,14 @@ Implementation note:
 Keep `Environment` and `Wall` as compatibility objects. Add a `Scene` model
 that can import/export current wall data. Avoid forcing 3D dependencies such as
 Open3D, Trimesh, or PyVista into the base install.
+
+The scene model should eventually support:
+
+- tracked human actors
+- target trajectories
+- reflection and blockage zones
+- sensing regions of interest
+- device-near-human communication experiments
 
 ### 6. Signal Flow Architecture
 
@@ -388,6 +461,8 @@ Planned features:
 - dataset export
 - replay buffers
 - multi-agent coordination
+- tracking-policy training
+- beam-focusing toward moving targets
 
 Gym-compatible API:
 
@@ -712,6 +787,40 @@ The product should feel like an RF experimentation operating system rather than
 just a simulator shell. The value is not only accurate physics. The value is a
 repeatable workflow for sweep, inspect, localize, diagnose, compare, and export
 without leaving programmable environments.
+
+### 10c. Human-Aware Sensing and Beam Focusing
+
+Human-aware RF sensing should become a first-class future workflow, not just a
+special-case beam sweep.
+
+Core future capabilities:
+
+- detect human presence without camera-centric assumptions
+- estimate human position from RF measurements
+- track moving humans over time
+- focus reflected or transmitted energy toward the estimated human region
+- support both communication enhancement and sensing-only experiments
+
+Important framing:
+
+- this is not an "RF camera" roadmap
+- this is not a "wireless CCTV" architecture
+- the defensible niche is privacy-preserving spatial intelligence
+
+Practical interpretation:
+
+- for communications experiments, the system may focus energy toward a device
+  carried by or near a human
+- for sensing experiments, the system may treat the human as a moving RF target
+  whose position and motion are inferred from measurements
+
+Implementation note:
+
+The first useful version should support a single moving human in a synthetic
+scene, tracked over time, with beam steering or beam focusing driven by the
+estimated target state. Multi-human tracking, occupancy fields, and skeletal
+inference should remain later phases after the generalized actor and channel
+layers are stable.
 
 ### 11. Plugin Ecosystem
 
@@ -1183,11 +1292,46 @@ Exit gate:
 
 Current status:
 
-- In Progress: the headless scenario layer exists through `ScenarioRunner`,
-  request objects, `connect` and `sweep` actions, ordered action lists, and
-  JSON/YAML scenario request documents.
-- In Progress: richer scenario schema validation, broader fixture migration,
-  and cross-client adoption remain to be completed.
+- Complete: the headless scenario layer exists through `ScenarioRunner`,
+  `ScenarioExecutionService`, request objects, `connect` and `sweep` actions,
+  ordered action lists, and JSON/YAML scenario request documents.
+- Complete: Flask/API `connect` and `sweep` route through the shared headless
+  scenario execution service instead of calling `RISNetwork` methods directly.
+- Complete: a non-interactive CLI connect path routes through the same shared
+  scenario execution service.
+- Complete: scenario validation now rejects mixed top-level/action request
+  shapes, malformed `kwargs`, and empty `topology_path` values with explicit
+  errors.
+- Complete: golden example topology coverage now includes simple, obstacle, and
+  grid fixtures through the shared loading path.
+- Remaining future work: richer scenario schemas and broader client adoption are
+  no longer Phase 5 blockers and can proceed incrementally in later phases.
+
+Phase 5 closeout checklist (completed):
+
+- Route web/API `connect` and `sweep` execution through the shared headless
+  service layer instead of calling `_net.connect()` and `_net.sweep()` directly.
+- Route at least one non-interactive CLI execution path through the same
+  headless scenario service API.
+- Add stable golden fixtures for:
+  - simple topology
+  - obstacle topology
+  - grid topology
+- Expand scenario request validation beyond minimal dataclass parsing.
+- Document the canonical boundaries between:
+  - topology files
+  - scenario request files
+  - scenario result objects
+- Add regression tests proving the shared service layer produces equivalent
+  results across direct API use and client wrappers.
+
+Phase 5 completion gate (satisfied):
+
+- Flask/API, headless runner, and at least one CLI execution path share the
+  same scenario execution service.
+- Golden scenario fixtures exist and are covered by tests.
+- Scenario documents fail clearly on malformed action or topology inputs.
+- Existing JSON examples remain loadable through the shared path.
 
 ### Phase 6 - Minimal Runtime Kernel
 
@@ -1214,7 +1358,17 @@ Exit gate:
 - Running a static scenario through the runtime matches the non-runtime result.
 - Scheduled updates are deterministic under a fixed seed.
 
-### Phase 7 - Spatial Channels and MIMO
+Recommended first slice for Phase 6:
+
+- Add a minimal simulation clock with integer or fixed-step time progression.
+- Add a deterministic trajectory iterator for position updates.
+- Add a small metric sampling loop that repeatedly calls shared services and
+  records results by timestep.
+- Keep this runtime outside `RISNetwork.connect()` and outside UI/client code.
+- Validate that `t=0` with no movement matches the existing static scenario
+  output exactly.
+
+### Phase 7 - Spatial Channels, MIMO, and Generalized RF Nodes
 
 Goal: add new channel capabilities beside the link-budget adapter.
 
@@ -1223,6 +1377,8 @@ Implementation:
 - Add AoA/AoD representations, array-to-array evaluation, MIMO channel
   matrices, and RIS-assisted spatial channel models as new `ChannelModel`
   implementations.
+- Add generalized scenario support for phased arrays, Wi-Fi-like OFDM sources,
+  passive RIS, and active RIS without forcing every run through AP -> RIS -> UE.
 - Add regression tests for angle normalization, steering vectors, path loss,
   SNR, and beam patterns.
 - Route scenarios to spatial channels only through explicit configuration.
@@ -1238,6 +1394,67 @@ Exit gate:
 - Existing simulations still use `LinkBudgetChannel` by default.
 - Spatial-channel scenarios pass dedicated tests without changing compatibility
   results.
+
+### Phase 7a - Human-Aware Sensing and Beam Focusing
+
+Goal: extend the simulator from UE-centric communications into moving-human RF
+sensing and target-aware beam steering.
+
+Implementation:
+
+- Add `HumanTarget` or `SensingTarget` as an additive actor, not as a direct
+  replacement for `UE`.
+- Add mobility models and deterministic target trajectories to the runtime.
+- Generate target-aware measurement sequences using spatial channels, CSI, RSSI,
+  Doppler, or hybrid observables depending on scenario configuration.
+- Add localization and tracking services that estimate target position over
+  time, then expose that state to beamforming or beam-focusing controllers.
+- Support two experiment modes:
+  - sensing mode: localize and track the human as a target
+  - enhancement mode: steer energy toward a device carried by or near the human
+
+Do not break:
+
+- Existing `UE`-based communication scenarios.
+- Existing beam sweep and localization tests.
+- Base install when optional visualization, ML, or hardware extras are absent.
+
+Exit gate:
+
+- A synthetic single-human moving scenario runs deterministically.
+- Tracking output can drive beam steering or beam focusing in a repeatable way.
+- Legacy AP -> RIS -> UE scenarios remain compatible.
+
+Recommended first slice for Phase 7a:
+
+1. Add `HumanTarget` as an additive actor with position, optional height, and
+   simple reflective/scattering metadata.
+2. Add a synthetic moving-target scenario that updates the target over time
+   using the Phase 6 runtime loop.
+3. Generate a measurement timeline per timestep using existing channel, CSI,
+   RSSI, and optional Doppler-capable primitives.
+4. Add a minimal tracking service:
+   - nearest-state smoothing, or
+   - Kalman filter based state estimation
+5. Feed the tracked target state into beam steering or beam-focusing logic.
+6. Keep `UE` scenarios unchanged; do not replace `UE` with `HumanTarget`.
+
+Definition of done for the first Phase 7a slice:
+
+- One moving synthetic human can be tracked over time.
+- The estimated target state can steer or focus the beam repeatably.
+- The execution path is headless-first and scenario-driven.
+- No existing AP -> RIS -> UE workflow regresses.
+
+Practical sequencing:
+
+```text
+Phase 5 closeout
+    ->
+Phase 6 minimal clock + trajectory loop
+    ->
+Phase 7a single moving human + tracking + beam focus
+```
 
 ### Phase 8 - AI Runtime and Dataset Tools
 
@@ -1473,5 +1690,6 @@ Notebook-native experimentation
 AI-native wireless systems runtime
 ```
 
-with phased arrays, RIS, waveform simulation, and intelligent optimization built
-on top of reusable simulation primitives.
+with phased arrays, Wi-Fi front ends, passive RIS, active RIS, waveform
+simulation, human-aware sensing, and intelligent optimization built on top of
+reusable simulation primitives.

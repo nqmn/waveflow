@@ -55,6 +55,11 @@ def run(argv: Optional[List[str]] = None) -> int:
         from cli.helpers import NetworkIO
         NetworkIO().load(net, str(topology))
 
+    def _new_topology_helper(net):
+        from cli.helpers import TopologyHelper
+
+        return TopologyHelper(net)
+
     def _node_type(node) -> str:
         return type(node).__name__
 
@@ -358,10 +363,28 @@ def run(argv: Optional[List[str]] = None) -> int:
         """Add a node (ap, ris, or ue) to the network and display the result."""
         net = _new_network()
         _load_topology(net, topology)
+        topology_helper = _new_topology_helper(net)
 
         t = node_type.lower()
         auto_name = name
-        if t == "ap":
+        if t == "random":
+            ris_name = topology_helper.generate_auto_name("ris")
+            ris_x, ris_y = topology_helper.generate_position("ris")
+            net.add_ris(ris_name, ris_x, ris_y, z, N=n, bits=bits)
+
+            ap_name = topology_helper.generate_auto_name("ap")
+            ap_x, ap_y = topology_helper.generate_position("ap")
+            net.add_ap(ap_name, ap_x, ap_y, z, power_dBm=power)
+
+            ue_name = topology_helper.generate_auto_name("ue")
+            ue_x, ue_y = topology_helper.generate_position("ue", distance_range=(5.0, 7.0))
+            net.add_ue(ue_name, ue_x, ue_y, z)
+
+            console.print(
+                "[green]Added random topology[/green] "
+                f"[cyan]{ap_name}[/cyan], [cyan]{ris_name}[/cyan], [cyan]{ue_name}[/cyan]"
+            )
+        elif t == "ap":
             if auto_name is None:
                 auto_name = f"AP{len([n for n in net.nodes if n.upper().startswith('AP')]) + 1}"
             net.add_ap(auto_name, x, y, z, power_dBm=power)
@@ -377,7 +400,7 @@ def run(argv: Optional[List[str]] = None) -> int:
             net.add_ue(auto_name, x, y, z)
             console.print(f"[green]Added UE[/green] [cyan]{auto_name}[/cyan] at ({x}, {y}, {z})")
         else:
-            console.print(f"[red]Unknown node type '{node_type}'. Use: ap, ris, ue[/red]")
+            console.print(f"[red]Unknown node type '{node_type}'. Use: ap, ris, ue, random[/red]")
             raise typer.Exit(1)
 
         _render_network(net)
@@ -400,11 +423,22 @@ def run(argv: Optional[List[str]] = None) -> int:
         ),
     ) -> None:
         """Compute a cascaded AP→RIS→UE link and display metrics."""
+        from risnet import ScenarioExecutionService
+
         net = _new_network_with_controller()
         _load_topology(net, topology)
         try:
-            result = net.connect(ap, ris, ue, beam_angle_deg=beam, seed=seed, use_get_snr=False)
-            _render_connect_result(result)
+            run = ScenarioExecutionService().execute_connect(
+                net,
+                topology or "<terminal-live-network>",
+                ap_name=ap,
+                ris_name=ris,
+                ue_name=ue,
+                beam_angle_deg=beam,
+                seed=seed,
+                use_get_snr=False,
+            )
+            _render_connect_result(run.result)
         except Exception as exc:
             console.print(f"[red]Connect failed:[/red] {exc}")
             raise typer.Exit(1)

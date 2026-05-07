@@ -4,8 +4,13 @@ from pathlib import Path
 
 import pytest
 
+from app import create_app
+from app.api import bp as api_bp_module
+from controller import RISController
+from core import RISNetwork
 from risnet import (
     ConnectScenario,
+    ScenarioExecutionService,
     ScenarioRequest,
     ScenarioRunResult,
     ScenarioRunner,
@@ -15,6 +20,8 @@ from risnet import (
 
 
 EXAMPLE_SIMPLE = Path("examples/json/example_1_simple.json")
+EXAMPLE_OBSTACLES = Path("examples/json/example_4_obstacles.json")
+EXAMPLE_GRID = Path("examples/json/example_5_grid_topology.json")
 
 
 def test_scenario_runner_loads_json_topology_without_flask_or_cli():
@@ -310,3 +317,135 @@ actions:
 
     assert isinstance(run, ScenarioSequenceResult)
     assert [step.action for step in run.steps] == ["connect", "sweep"]
+
+
+def test_scenario_execution_service_matches_runner_for_connect():
+    runner = ScenarioRunner()
+    net = runner.load_topology(EXAMPLE_SIMPLE)
+
+    service_run = ScenarioExecutionService().execute_connect(
+        net,
+        EXAMPLE_SIMPLE,
+        seed=42,
+        use_get_snr=False,
+    )
+    runner_run = runner.run_connect(EXAMPLE_SIMPLE, seed=42, use_get_snr=False)
+
+    assert service_run.action == "connect"
+    assert service_run.result["snr_dB"] == pytest.approx(runner_run.result["snr_dB"])
+
+
+def test_scenario_execution_service_matches_runner_for_sweep():
+    runner = ScenarioRunner()
+    net = runner.load_topology(EXAMPLE_SIMPLE)
+
+    service_run = ScenarioExecutionService().execute_sweep(
+        net,
+        EXAMPLE_SIMPLE,
+        fov=60,
+        step=10,
+        seed=42,
+    )
+    runner_run = runner.run_sweep(EXAMPLE_SIMPLE, fov=60, step=10, seed=42)
+
+    assert service_run.action == "sweep"
+    assert service_run.result["best_snr_fine"] == pytest.approx(runner_run.result["best_snr_fine"])
+
+
+def test_scenario_request_rejects_mixed_actions_and_top_level_connect():
+    with pytest.raises(ValueError) as exc_info:
+        ScenarioRequest.from_dict(
+            {
+                "topology_path": "examples/json/example_1_simple.json",
+                "connect": {"kwargs": {"seed": 42}},
+                "actions": [{"type": "connect", "kwargs": {"seed": 42}}],
+            }
+        )
+
+    assert "cannot mix 'actions'" in str(exc_info.value)
+
+
+def test_scenario_request_rejects_non_mapping_kwargs():
+    with pytest.raises(ValueError) as exc_info:
+        ScenarioRequest.from_dict(
+            {
+                "topology_path": "examples/json/example_1_simple.json",
+                "connect": {"kwargs": ["not", "a", "mapping"]},
+            }
+        )
+
+    assert "kwargs must be a mapping" in str(exc_info.value)
+
+
+def test_scenario_request_requires_non_empty_topology_path():
+    with pytest.raises(ValueError) as exc_info:
+        ScenarioRequest.from_dict({"topology_path": "", "connect": {"kwargs": {}}})
+
+    assert "non-empty 'topology_path'" in str(exc_info.value)
+
+
+def test_scenario_runner_loads_obstacle_topology_fixture():
+    runner = ScenarioRunner()
+
+    net = runner.load_topology(EXAMPLE_OBSTACLES)
+
+    assert sorted(net.nodes) == ["AP1", "R1", "UE1"]
+    assert len(net.environment.walls) > 0
+
+
+def test_scenario_runner_loads_grid_topology_fixture():
+    runner = ScenarioRunner()
+
+    net = runner.load_topology(EXAMPLE_GRID)
+
+    assert sorted(net.nodes) == ["AP1", "R1", "R2", "R3", "R4", "UE1"]
+
+
+def test_api_connect_route_executes_via_shared_scenario_service(monkeypatch):
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("ap1", 0.0, 2.0, 0.0)
+    net.add_ris("ris1", 5.0, 2.0, 0.0, N=16, bits=1, max_angle_deg=90.0)
+    net.add_ue("ue1", 10.0, 5.0, 0.0)
+    controller = RISController(net, net.environment)
+    net.set_controller(controller)
+    app = create_app(net, controller)
+
+    calls = {"count": 0}
+    original = api_bp_module._scenario_service.execute_connect
+
+    def wrapped_execute_connect(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api_bp_module._scenario_service, "execute_connect", wrapped_execute_connect)
+
+    response = app.test_client().get("/api/connect?ap=ap1&ris=ris1&ue=ue1&angle=0")
+
+    assert response.status_code == 200
+    assert calls["count"] == 1
+    assert "snr_dB" in response.get_json()
+
+
+def test_api_sweep_route_executes_via_shared_scenario_service(monkeypatch):
+    net = RISNetwork(enable_messaging=False)
+    net.add_ap("ap1", 0.0, 2.0, 0.0)
+    net.add_ris("ris1", 5.0, 2.0, 0.0, N=16, bits=1, max_angle_deg=90.0)
+    net.add_ue("ue1", 10.0, 5.0, 0.0)
+    controller = RISController(net, net.environment)
+    net.set_controller(controller)
+    app = create_app(net, controller)
+
+    calls = {"count": 0}
+    original = api_bp_module._scenario_service.execute_sweep
+
+    def wrapped_execute_sweep(*args, **kwargs):
+        calls["count"] += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(api_bp_module._scenario_service, "execute_sweep", wrapped_execute_sweep)
+
+    response = app.test_client().get("/api/sweep?ap=ap1&ris=ris1&ue=ue1")
+
+    assert response.status_code == 200
+    assert calls["count"] == 1
+    assert "best_snr_fine" in response.get_json()

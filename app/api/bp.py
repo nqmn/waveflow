@@ -3,6 +3,7 @@
 from flask import Blueprint, request, jsonify
 import numpy as np
 from app.validators import InputValidator, ValidationError
+from risnet import ScenarioExecutionService
 
 bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -10,6 +11,7 @@ bp = Blueprint('api', __name__, url_prefix='/api')
 _net = None
 _controller = None
 _state_manager = None
+_scenario_service = ScenarioExecutionService()
 
 
 def set_network(net, controller, state_manager=None):
@@ -95,8 +97,15 @@ def api_connect():
         if angle is not None:
             angle = InputValidator.validate_angle(angle, 'beam_angle_deg')
 
-        res = _net.connect(ap, ris, ue, beam_angle_deg=angle)
-        return jsonify(res)
+        run = _scenario_service.execute_connect(
+            _net,
+            "<live-network>",
+            ap_name=ap,
+            ris_name=ris,
+            ue_name=ue,
+            beam_angle_deg=angle,
+        )
+        return jsonify(run.result)
     except ValidationError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -111,8 +120,15 @@ def api_sweep():
     ue = request.args.get('ue')
 
     try:
-        out = _net.sweep(ap, ris, ue)
-        return jsonify(out)
+        InputValidator.validate_nodes_exist(_net, ap, ris, ue)
+        run = _scenario_service.execute_sweep(
+            _net,
+            "<live-network>",
+            ap_name=ap,
+            ris_name=ris,
+            ue_name=ue,
+        )
+        return jsonify(run.result)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 

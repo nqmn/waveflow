@@ -1,3 +1,59 @@
+## Task: Support `waveflow ui add random`
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the `risnet/terminal_cli.py` command branch, the focused smoke test, and the `tasks/test-suite.md` update for this task.
+Change budget: [files 4] [functions: `risnet.terminal_cli.add`, one focused smoke test] [interfaces: extend existing `ui add` CLI surface to accept `random`] [state mutations: in-memory network additions only during command execution]
+
+### Scope
+- `risnet/terminal_cli.py` — extend the Typer/Rich `ui add` command to support `random` node creation.
+- `tests/test_smoke.py` — add focused smoke coverage for `ui add random`.
+- `tasks/test-suite.md` — record the added CLI smoke coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [ ] Record task metadata and scope
+- [ ] Extend `ui add` with `random` support
+- [ ] Add focused smoke coverage and update test map
+- [ ] Run focused verification and review diff scope
+
+### Review
+- Completed:
+- Out-of-scope flagged:
+- Assumptions invalidated:
+- Known debt (acknowledged):
+- Limitations:
+
+## Task: Close Phase 5 Shared Scenario Adoption
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the shared scenario service extraction, API/CLI adoption changes, scenario validation changes, and the focused test/doc updates for this task.
+Change budget: [files 7] [functions: risnet.scenarios shared execution services and validation, app.api connect/sweep routing, risnet.terminal_cli connect routing, focused scenario/smoke tests, FUTURE/test-suite/todo docs] [interfaces: additive scenario service exports only; no public API removals] [state mutations: none beyond existing connect/sweep side effects]
+
+### Scope
+- `risnet/scenarios.py` — add shared scenario execution services and stronger request validation while preserving the current runner facade.
+- `risnet/__init__.py` — export any additive shared scenario service types used by clients.
+- `app/api/bp.py` — route `connect` and `sweep` through the shared scenario service layer.
+- `risnet/terminal_cli.py` — route at least one non-interactive CLI execution path through the same shared service layer.
+- `tests/test_scenarios.py` and `tests/test_smoke.py` — cover shared service routing, validation failures, and golden example scenario loading.
+- `tasks/test-suite.md` and `FUTURE.md` — record the new coverage and close Phase 5 status if completed.
+
+### Steps
+- [x] Extract shared scenario execution service
+- [x] Route API and one CLI path through the shared service
+- [x] Strengthen scenario validation and golden example coverage
+- [x] Run focused verification and reassess whether Phase 5 can be closed
+
+### Review
+- Completed: Added `ScenarioExecutionService`, routed Flask/API `connect` and `sweep` plus the terminal `ui connect` path through the shared service layer, strengthened scenario request validation, restored environment obstacle loading for example topologies, expanded scenario/smoke coverage, and marked Phase 5 complete in `FUTURE.md`.
+- Out-of-scope flagged: Full CLI-wide adoption of the shared service layer and richer runtime-oriented scenario schemas remain later-phase work, not Phase 5 blockers.
+- Assumptions invalidated: The obstacle example topology uses a legacy `obstacles` block rather than `walls`, and `NetworkIO.load()` previously ignored environment restoration; this task closed that compatibility gap.
+- Known debt (acknowledged):
+- Limitations: Non-interactive CLI adoption is intentionally limited to the terminal `connect` path in this phase; sweep live-progress execution still uses the direct algorithm path.
+
 ## Task: Expand tutorial coverage for sweep, ML, localization, and vision
 Mode: Standard
 Risk: Low

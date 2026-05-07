@@ -36,6 +36,7 @@ from config import Config
 from .scenarios import (
     ConnectScenario,
     ScenarioRequest,
+    ScenarioExecutionService,
     ScenarioRunner,
     ScenarioRunResult,
     ScenarioSequenceResult,

@@ -256,6 +256,8 @@ class NetworkIO:
             network_data['nodes'].append(sanitize_for_json(node_info))
 
         network_data['active_links'] = sanitize_for_json(getattr(net, 'active_links', {}))
+        if hasattr(net, 'environment'):
+            network_data['environment'] = sanitize_for_json(net.environment.to_dict())
         network_data['results'] = {
             'connect': sanitize_for_json(getattr(net, 'last_connect_result', None)),
             'sweep': sanitize_for_json(getattr(net, 'last_sweep_result', None))
@@ -278,6 +280,8 @@ class NetworkIO:
             # Clear active links before loading - will be repopulated if nodes exist
             if hasattr(net, 'active_links'):
                 net.active_links.clear()
+            if hasattr(net, 'environment'):
+                net.environment.clear_walls()
 
             results_block = network_data.get('results') or {}
             if hasattr(net, 'last_connect_result'):
@@ -358,6 +362,23 @@ class NetworkIO:
                         max_angle_deg=max_angle,
                         normal_angle_deg=normal_angle
                     )
+
+            environment_block = network_data.get('environment') or {}
+            for wall_data in environment_block.get('walls', []):
+                net.add_wall(
+                    wall_data.get('start', [0.0, 0.0]),
+                    wall_data.get('end', [0.0, 0.0]),
+                    wall_data.get('attenuation_dB', 20.0),
+                    name=wall_data.get('name'),
+                )
+
+            for idx, obstacle in enumerate(network_data.get('obstacles', []), start=1):
+                net.add_wall(
+                    obstacle.get('start', [0.0, 0.0]),
+                    obstacle.get('end', [0.0, 0.0]),
+                    obstacle.get('attenuation_dB', 20.0),
+                    name=obstacle.get('name') or obstacle.get('description') or f"obstacle-{idx}",
+                )
 
             # Restore active_links only if nodes were successfully loaded
             # This prevents stale links from being restored on empty topologies

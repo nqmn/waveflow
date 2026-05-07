@@ -117,6 +117,48 @@ def test_typer_rich_demo_connect_from_outside_repo():
     assert "snr_dB" in result.stdout
 
 
+def test_typer_rich_add_random_from_outside_repo():
+    result = subprocess.run(
+        [sys.executable, "-m", "risnet", "ui", "add", "random"],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Added random topology" in result.stdout
+    assert "Waveflow Terminal" in result.stdout
+    assert "AP1" in result.stdout
+    assert "R1" in result.stdout
+    assert "UE1" in result.stdout
+
+
+def test_typer_rich_connect_from_outside_repo_uses_topology():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "connect",
+            "AP1",
+            "R1",
+            "UE1",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "--seed",
+            "42",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Link Result" in result.stdout
+    assert "snr_dB" in result.stdout
+
+
 def test_typer_rich_sweep_table_from_outside_repo():
     topology = Path("/tmp/waveflow_sweep_smoke_topology.json")
     topology.write_text(
