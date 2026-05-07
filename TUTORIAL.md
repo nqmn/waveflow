@@ -9,81 +9,23 @@ This tutorial is structured in two tiers:
 
 # Installation
 
-## Requirements
+For full installation instructions, optional extras, virtual environment setup, verification steps, and troubleshooting, see **[INSTALL.md](INSTALL.md)**.
 
-- Python 3.7 or later
-- pip
-- Git (for source install)
-
-## Option A — Install from PyPI
-
-The fastest way to get started:
+Quick start:
 
 ```bash
+# From PyPI
 pip install waveflow-sim
-```
 
-This installs the core package with physics models, beam sweeping, pathfinding, CLI, and Python API. No extras needed to follow Parts 1–13 of this tutorial.
-
-## Option B — Install from Source (Recommended for Development)
-
-```bash
+# From source (recommended for development)
 git clone https://github.com/nqmn/waveflow
 cd waveflow
-pip install -e .
+pip install -e ".[terminal]"   # core + waveflow ui commands
 ```
 
-Editable mode (`-e`) means changes to source files take effect immediately without reinstalling.
-
-## Virtual Environment (Recommended)
-
-Isolates Waveflow from your system Python:
+Verify with:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate      # Linux / macOS
-.venv\Scripts\activate         # Windows
-
-pip install -e .
-```
-
-## Optional Extras
-
-Install additional capabilities as needed:
-
-| Extra | Command | Adds |
-|---|---|---|
-| Terminal UI | `pip install -e ".[terminal]"` | `waveflow ui` commands (Typer + Rich) |
-| Plots | `pip install -e ".[plot]"` | `plot` command, charts (Matplotlib) |
-| ML predictors | `pip install -e ".[ml]"` | ML beam angle predictors (scikit-learn + PyTorch) |
-| Vision | `pip install -e ".[vision]"` | ArUco / HOG sweep modes (OpenCV) |
-| Web interface | `pip install -e ".[web]"` | `waveflow --web` (Flask + Waitress) |
-| Optimization | `pip install -e ".[optimization]"` | Phase optimization (CVXPY + SCS) |
-| Development | `pip install -e ".[dev]"` | pytest, black, flake8, mypy |
-| Everything | `pip install -e ".[all]"` | All of the above |
-
-Most users only need core + terminal for this tutorial:
-
-```bash
-pip install -e ".[terminal]"
-```
-
-## Verify the Installation
-
-Run this after installing to confirm everything works:
-
-```bash
-# 1. Check the CLI entry point
-waveflow --help
-```
-
-```
-usage: waveflow [-h] [--web] [--cli] [--terminal] ...
-Waveflow v2.0 Advanced Wireless and RIS Simulator
-```
-
-```bash
-# 2. Quick simulation check
 python3 - <<'PY'
 from core import RISNetwork
 net = RISNetwork(enable_messaging=False)
@@ -98,62 +40,6 @@ PY
 ```
 OK — snr_dB: 29.9
 ```
-
-If you see `OK — snr_dB: 29.9`, your installation is working correctly.
-
-```bash
-# 3. Run the physics validation suite
-waveflow ui testphysics
-```
-
-## Common Problems
-
-**`ModuleNotFoundError: No module named 'core'`**
-
-Run scripts from the repository root, or set `PYTHONPATH`:
-
-```bash
-cd /path/to/waveflow
-PYTHONPATH=. python3 your_script.py
-```
-
-Or install in editable mode: `pip install -e .`
-
-**`externally-managed-environment` error from pip**
-
-Your system Python is protected. Use a virtual environment:
-
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-```
-
-**`waveflow` command not found after install**
-
-```bash
-pip install -e .
-which waveflow    # Linux/macOS
-where waveflow    # Windows
-```
-
-**`ValueError: AP outside RIS FOV`**
-
-The RIS has a default ±60° field of view. Widen it with `max_angle_deg`:
-
-```python
-net.add_ris('ris1', 5, 0, max_angle_deg=90)  # ±90° FOV
-```
-
-**ML predictor not found**
-
-ML predictors require pre-trained model files. Generate and train them first:
-
-```bash
-PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py
-PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
-```
-
-For the full troubleshooting reference, see [INSTALL.md](INSTALL.md).
 
 ---
 

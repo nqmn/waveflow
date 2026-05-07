@@ -4,117 +4,102 @@
 
 - Python 3.7 or later
 - pip
+- Git (for source install)
 
-## 1. Clone the Repository
+## Option A — Install from PyPI
+
+The fastest way to get started:
+
+```bash
+pip install waveflow-sim
+```
+
+Includes: physics models, beam sweeping, pathfinding, CLI, and Python API.  
+Excludes: terminal UI, web interface, ML predictors, plots, computer vision.
+
+## Option B — Install from Source (Recommended for Development)
 
 ```bash
 git clone https://github.com/nqmn/waveflow
 cd waveflow
-```
-
-## 2. Choose an Install Profile
-
-### Minimal — core simulation only (NumPy, SciPy, PyYAML)
-
-```bash
 pip install -e .
 ```
 
-Includes: physics models, beam sweeping, pathfinding, CLI, Python API.  
-Excludes: web interface, ML predictors, computer vision, visualization.
+Editable mode (`-e`) means changes to source files take effect immediately without reinstalling.
 
-### With web interface
+## Virtual Environment (Recommended)
 
-```bash
-pip install -e ".[web]"
-```
-
-Adds Flask and Waitress. Enables `waveflow --web`.
-
-### With ML beam predictors
-
-```bash
-pip install -e ".[ml]"
-```
-
-Adds PyTorch and scikit-learn. Enables `--algo ml-guided --ml-predictor rf/xgb/svr/knn/lgbm`.
-
-### With convex optimization
-
-```bash
-pip install -e ".[optimization]"
-```
-
-Adds CVXPY and SCS. Used by phase optimization routines.
-
-### With computer vision (ArUco / HOG sweep modes)
-
-```bash
-pip install -e ".[vision]"
-```
-
-Adds OpenCV.
-
-### With terminal UI extras
-
-```bash
-pip install -e ".[terminal]"
-```
-
-Adds Typer and Rich.
-
-### Development (all tools + tests)
-
-```bash
-pip install -e ".[dev]"
-```
-
-Adds pytest, black, flake8, mypy, matplotlib.
-
-### Everything
-
-```bash
-pip install -e ".[all]"
-```
-
-## 3. Verify Installation
-
-```bash
-# Check the CLI entry point
-waveflow --help
-
-# Run a compile check
-python3 -m compileall core controller cli risnet waveflow app config utils
-
-# Run the physics regression test
-PYTHONPATH=. python3 tests/test_physics_fixes.py
-
-# Baseline simulation check
-python3 - <<'PY'
-from core import RISNetwork
-from waveflow import RISnet
-net = RISNetwork(enable_messaging=False)
-net.add_ap("ap1", 0, 2)
-net.add_ris("ris1", 5, 2, max_angle_deg=90)
-net.add_ue("ue1", 10, 5)
-result = net.connect("ap1", "ris1", "ue1", use_get_snr=False)
-assert "snr_dB" in result
-print("OK — snr_dB:", round(result["snr_dB"], 2))
-PY
-```
-
-## 4. Virtual Environment (recommended)
+Isolates Waveflow from your system Python:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate      # Linux / macOS
 .venv\Scripts\activate         # Windows
 
-pip install -e ".[dev]"
+pip install -e .
+```
+
+## Optional Extras
+
+Install additional capabilities as needed:
+
+| Extra | Command | Adds |
+|---|---|---|
+| Terminal UI | `pip install -e ".[terminal]"` | `waveflow ui` commands (Typer + Rich) |
+| Plots | `pip install -e ".[plot]"` | `plot` command, charts (Matplotlib) |
+| ML predictors | `pip install -e ".[ml]"` | ML beam angle predictors (scikit-learn + PyTorch) |
+| Vision | `pip install -e ".[vision]"` | ArUco / HOG sweep modes (OpenCV) |
+| Web interface | `pip install -e ".[web]"` | `waveflow --web` (Flask + Waitress) |
+| Optimization | `pip install -e ".[optimization]"` | Phase optimization (CVXPY + SCS) |
+| Development | `pip install -e ".[dev]"` | pytest, black, flake8, mypy, matplotlib |
+| Everything | `pip install -e ".[all]"` | All of the above |
+
+Most users only need core + terminal:
+
+```bash
+pip install -e ".[terminal]"
+```
+
+## Verify the Installation
+
+Run this after installing to confirm everything works:
+
+```bash
+# 1. Check the CLI entry point
 waveflow --help
 ```
 
-## 5. Running Tests
+```
+usage: waveflow [-h] [--web] [--cli] [--terminal] ...
+Waveflow v2.0 Advanced Wireless and RIS Simulator
+```
+
+```bash
+# 2. Quick simulation check
+python3 - <<'PY'
+from core import RISNetwork
+net = RISNetwork(enable_messaging=False)
+net.add_ap('ap1', 0, 2)
+net.add_ris('ris1', 5, 2, max_angle_deg=90)
+net.add_ue('ue1', 10, 5)
+result = net.connect('ap1', 'ris1', 'ue1', use_get_snr=False)
+print('OK — snr_dB:', round(result['snr_dB'], 2))
+PY
+```
+
+```
+OK — snr_dB: 29.9
+```
+
+```bash
+# 3. Run the physics validation suite
+waveflow ui testphysics
+
+# 4. Run the compile check
+python3 -m compileall core controller cli risnet waveflow config utils
+```
+
+## Running Tests
 
 ```bash
 # After pip install -e ".[dev]"
@@ -132,7 +117,7 @@ a stale expected value and will report one failure. All other tests pass.
 
 **`ModuleNotFoundError: No module named 'core'`**
 
-Run from the repository root, or set `PYTHONPATH`:
+Run scripts from the repository root, or set `PYTHONPATH`:
 
 ```bash
 cd /path/to/waveflow
@@ -143,12 +128,22 @@ Or install in editable mode: `pip install -e .`
 
 **`externally-managed-environment` error from pip**
 
-Use a virtual environment:
+Your system Python is protected. Use a virtual environment:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e .
 ```
+
+**`waveflow` command not found after install**
+
+```bash
+pip install -e .
+which waveflow    # Linux/macOS
+where waveflow    # Windows
+```
+
+The legacy `risnet` command is also installed for backward compatibility.
 
 **`ValueError: AP outside RIS FOV`**
 
@@ -159,33 +154,18 @@ boresight range, or widen the FOV:
 net.add_ris('ris1', 5, 0, max_angle_deg=90)  # ±90° FOV
 ```
 
-**`waveflow` command not found after install**
-
-Confirm editable install completed without errors:
-
-```bash
-pip install -e .
-which waveflow       # Linux/macOS
-where waveflow       # Windows
-```
-
-The legacy `risnet` command is also installed for backward compatibility.
-
-**MATLAB integration errors**
-
-MATLAB integration is optional and lazy-loaded. If MATLAB is not installed,
-`MatlabBridge` will fail gracefully and all non-MATLAB functionality remains
-available.
-
 **ML predictor not found**
 
 ML predictors require pre-trained model files in
-`controller/beamsweeping/ml/models/`. If the directory is empty, generate a
-dataset and train models first (run from the repository root):
+`controller/beamsweeping/ml/models/`. Generate a dataset and train models first:
 
 ```bash
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/dataset_builder.py
 PYTHONPATH=. python3 controller/beamsweeping/ml/tools/train_rf.py
 ```
 
-See `TUTORIAL.md` Part 8 for full training workflow details.
+**MATLAB integration errors**
+
+MATLAB integration is optional and lazy-loaded. If MATLAB is not installed,
+`MatlabBridge` will fail gracefully and all non-MATLAB functionality remains
+available.
