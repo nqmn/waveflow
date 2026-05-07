@@ -83,7 +83,7 @@ Key shell commands:
 
 ### Modern Terminal UI
 
-Non-interactive commands with Rich-formatted output — suitable for scripts, CI, and SSH sessions:
+`waveflow ui` now covers both one-shot Rich commands and a native interactive modern shell. Use one-shot commands for scripts, CI, and reproducible runs; use `waveflow ui shell` when you want persistent in-memory state with the same modern command surface.
 
 ```bash
 # Network status from a topology file
@@ -95,6 +95,10 @@ waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 # Beam sweep with live progress bar
 waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
 
+# Rich-native topology and link inspection
+waveflow ui list --topology examples/json/example_1_simple.json
+waveflow ui links --topology examples/json/example_1_simple.json
+
 # Run physics validation suite
 waveflow ui testphysics
 
@@ -104,7 +108,7 @@ waveflow ui testall
 # Run any legacy CLI command non-interactively
 waveflow ui run --topology examples/json/example_1_simple.json signal AP1 R1 UE1 --breakdown
 
-# Open the full interactive shell
+# Open the native interactive modern shell
 waveflow ui shell
 
 # All available commands

@@ -1,3 +1,28 @@
+## Task: Update `waveflow ui` Documentation for Native Modern Shell
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the README, tutorial, and task-log documentation edits for this task.
+Change budget: [files 3] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `README.md` — update the `waveflow ui` overview and usage examples to reflect one-shot Rich commands plus the native interactive shell.
+- `TUTORIAL.md` — correct the `waveflow ui` narrative, `status` and `connect` descriptions, and usage guidance so they match current behavior.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit the current README and tutorial coverage for `waveflow ui`
+- [x] Update the docs to match the native shell and Rich-native command output
+- [x] Verify the diff is limited to the requested documentation scope
+
+### Review
+- Completed: Updated `README.md` and `TUTORIAL.md` so `waveflow ui` is documented as both a one-shot Rich command surface and a native interactive modern shell, and corrected the `status`, `connect`, and usage guidance to match the current implementation.
+- Out-of-scope flagged: Command-by-command screenshot-style output transcripts were not expanded further; this task only corrected the high-level behavior and usage descriptions that had drifted.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The tutorial now describes the richer `status` and `connect` sections textually instead of embedding large verbatim terminal captures, to avoid documentation drift from minor presentational changes.
+
 ## Task: Replace `waveflow ui links` Wrapper With Native Rich Renderer
 Mode: Standard
 Risk: Medium

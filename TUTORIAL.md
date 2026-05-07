@@ -434,7 +434,12 @@ Exit the shell with `quit` or Ctrl-D.
 
 ### 2.13 Terminal UI (`waveflow ui`)
 
-`waveflow ui` runs each command directly from your shell without entering an interactive session. It reads a topology from a JSON file instead of requiring you to add nodes manually. Output is formatted with Rich tables — suitable for copying into reports or piping into other tools.
+`waveflow ui` has two operating styles:
+
+- one-shot commands that load a topology, run, and exit
+- a native interactive modern shell via `waveflow ui shell`
+
+Both styles use Rich output. The one-shot form is suitable for scripts, CI, and reproducible runs. The shell form is better when you want persistent state across multiple commands without dropping back to the legacy shell.
 
 See what commands are available:
 
@@ -461,27 +466,32 @@ Commands:
 
 Every command accepts `--help` for usage details.
 
+Common patterns:
+
+```bash
+# One-shot from a topology file
+waveflow ui status --topology examples/json/example_1_simple.json
+
+# Native interactive shell with persistent state
+waveflow ui shell
+waveflow ui> load examples/json/example_1_simple.json
+waveflow ui> status
+waveflow ui> connect AP1 R1 UE1
+```
+
 ### 2.14 Status — Inspect a Topology (`waveflow ui`)
 
 ```bash
 waveflow ui status --topology examples/json/example_1_simple.json
 ```
 
-```
-╭─ Waveflow Terminal ─╮
-│ Nodes         3     │
-│ Active links  0     │
-│ Walls         0     │
-╰─────────────────────╯
-                               Nodes
-┏━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Name ┃ Type        ┃ Position           ┃ Details               ┃
-┡━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━┩
-│ AP1  │ AccessPoint │ (0.00, 2.00, 0.00) │ power=20.0 dBm        │
-│ R1   │ RIS         │ (5.00, 2.00, 0.00) │ N=16 bits=1, fov=±60° │
-│ UE1  │ UE          │ (8.00, 8.00, 0.00) │ fov=±180°             │
-└──────┴─────────────┴────────────────────┴───────────────────────┘
-```
+`status` now shows the same core information as the legacy shell, but rendered natively with Rich:
+
+- a full node table
+- pairwise distances
+- active-link metrics when links exist
+
+This makes `waveflow ui status` suitable for both quick inspection and report-friendly terminal output.
 
 ### 2.15 Connect — Compute SNR Without Entering the Shell
 
@@ -489,18 +499,14 @@ waveflow ui status --topology examples/json/example_1_simple.json
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 ```
 
-```
-Link Result
-┏━━━━━━━━━━━━━━━┳━━━━━━━━━┓
-┃ Metric        ┃   Value ┃
-┡━━━━━━━━━━━━━━━╇━━━━━━━━━┩
-│ snr_dB        │  21.741 │
-│ pwr_dBm       │ -73.249 │
-│ rssi_dBm      │ -73.249 │
-│ gain_dBi      │  32.683 │
-│ quant_loss_dB │  -1.671 │
-└───────────────┴─────────┘
-```
+`connect` now renders several Rich sections instead of a single short table:
+
+- `Connect Context` for AP/RIS/UE names and simulation mode
+- `Connect Diagnostics` for coordinates, distances, azimuths, and RIS deflection
+- `Link Result` for SNR, power, gain, and beam metrics
+- `RIS Recommendation` for the steering command summary
+
+This is the same command surface used inside `waveflow ui shell`, so the one-shot and interactive experiences stay aligned.
 
 ### 2.16 Connect — Full Command Reference
 
@@ -591,8 +597,11 @@ Locks the random seed for fading and noise — ensures identical results across 
 ```bash
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --beam 30.0
+waveflow ui connect AP1 R1 UE1 30 --topology examples/json/example_1_simple.json
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --sweep 60 10 --algo coarse-fine
 ```
+
+The terminal UI accepts the same legacy `connect` grammar for the main modes, including positional beam-angle forms and `--sweep` variants, but renders the result through the modern Rich layout.
 
 ### 2.17 Sweep — Find the Best Beam Angle
 
@@ -657,14 +666,14 @@ The stream command uses waveform-level simulation (OFDM + 16QAM) rather than the
 
 ### 2.19 When to Use Which
 
-The interactive shell and `waveflow ui` are equivalent in capability. Choose based on your workflow:
+Choose based on your workflow:
 
 ```
 Exploring a new topology?          → waveflow           (interactive shell)
 Running the same command in CI?    → waveflow ui connect (one-shot)
-Demoing to someone over SSH?       → waveflow ui         (clean Rich tables)
-Need legacy commands (plot, etc)?  → waveflow ui shell   (opens the shell)
-                                     waveflow ui run <command>
+Demoing to someone over SSH?       → waveflow ui shell   (modern interactive shell)
+Need direct Rich output from JSON? → waveflow ui status/list/connect
+Need one-off legacy compatibility? → waveflow ui run <command>
 ```
 
 ---
