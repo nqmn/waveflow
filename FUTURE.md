@@ -540,6 +540,14 @@ Notebook dependencies should remain optional.
 
 Waveflow should remain headless-first.
 
+CLI direction should be explicit:
+
+- `waveflow` remains the legacy CLI surface for backward compatibility
+- `waveflow ui` becomes the native modern CLI surface
+- `waveflow web` becomes the native modern web surface
+- legacy and modern CLI paths may coexist for a migration period, but the long
+  term goal is not to make `waveflow ui` a thin wrapper around the legacy shell
+
 Example future CLI:
 
 ```bash
@@ -561,6 +569,24 @@ Implementation note:
 The legacy interactive CLI is `cmd.Cmd`-based. A Typer/Rich terminal surface
 already exists as `waveflow ui ...`; the next step is to expand that surface and
 gradually route shared operations through service APIs.
+
+Native modern CLI target:
+
+```text
+waveflow                  -> legacy shell / legacy commands
+waveflow ui               -> native modern interactive CLI
+waveflow web              -> native modern web interface
+waveflow ui connect ...   -> modern one-shot command
+waveflow ui sweep ...     -> modern one-shot command
+waveflow ui status        -> modern one-shot command
+```
+
+Implementation note:
+
+Do not keep coupling `waveflow ui` to the legacy `cmd.Cmd` shell as the final
+architecture. Transitional fallbacks are acceptable during migration, but the
+target state is a modern session model with shared handlers and persistent
+interactive state owned by the new CLI stack itself.
 
 ### 10a. Rich-Powered RIS Sweep UX
 
@@ -689,6 +715,80 @@ Waveflow should not try to clone MATLAB or CST-style GUI workflows. The more
 defensible niche is a programmable RF experimentation framework that is
 automation-first, CLI-native, notebook-native, reproducible, and ready for
 AI-assisted optimization.
+
+### 10aa. Native Modern Interactive CLI
+
+`waveflow ui` should evolve into a true native interactive CLI rather than a
+collection of stateless one-shot commands plus a fallback into the legacy shell.
+
+Core requirements:
+
+- persistent in-session network state
+- shared execution services with one-shot CLI commands
+- Rich-rendered outputs for status, topology, links, connect, and sweep results
+- command history and predictable prompt behavior
+- future autocomplete and structured help support
+
+Target interactive workflow:
+
+```text
+waveflow ui
+waveflow> add random
+waveflow> status
+waveflow> connect AP1 R1 UE1
+waveflow> sweep AP1 R1 UE1 --algo coarse-fine
+waveflow> links
+waveflow> save demo.json
+```
+
+Required architecture:
+
+```text
+session context
+    +
+shared command handlers
+    +
+shared execution services
+    ->
+1) modern interactive CLI
+2) modern one-shot CLI commands
+```
+
+Implementation note:
+
+Avoid making `cmd.Cmd` the owner of modern CLI behavior. The modern shell should
+own its own session state and call the same handlers used by one-shot `waveflow ui`
+commands. The legacy shell can remain accessible through `waveflow` while the
+modern shell matures under `waveflow ui`.
+
+### 10ab. Native Modern Web Surface
+
+Waveflow should also grow a native modern web surface, but only as a peer of
+the modern CLI and notebook workflows, not as a separate owner of simulation
+state.
+
+Core requirements:
+
+- web clients call the same shared execution services used by `waveflow ui`
+- live status, topology, links, localization, sensing, and diagnostics are
+  rendered from shared typed results and event streams
+- the web layer owns presentation and interaction only, not RF logic
+- the web surface remains optional and does not block headless usage
+
+Target surface split:
+
+```text
+waveflow       -> legacy CLI
+waveflow ui    -> native modern CLI
+waveflow web   -> native modern web interface
+```
+
+Implementation note:
+
+The current Flask app is a transitional web layer. The target state is a modern
+web client that consumes the same scenario, runtime, and diagnostics services
+as the CLI. Web-specific state management should stay in the web layer, while
+simulation and experiment state remain owned by shared services.
 
 ### 10b. Localization, Sensing, and Diagnostics UX
 
@@ -933,6 +1033,12 @@ Implementation note:
 
 The existing Flask app should remain an interface layer, not the owner of
 simulation state or simulation logic.
+
+Naming direction:
+
+- `waveflow web` should eventually become the canonical native web surface
+- legacy `--web` or older Flask launch paths may remain transitional aliases
+  during migration, but should not define the long-term architecture
 
 ### 15. Differentiable RF Simulation
 
@@ -1333,6 +1439,12 @@ Phase 5 completion gate (satisfied):
 - Scenario documents fail clearly on malformed action or topology inputs.
 - Existing JSON examples remain loadable through the shared path.
 
+CLI migration consequence:
+
+- Phase 5 now provides the shared service foundation needed for `waveflow ui`
+  to become a native modern CLI without depending on the legacy shell for core
+  execution behavior.
+
 ### Phase 6 - Minimal Runtime Kernel
 
 Goal: add deterministic scheduling without embedding runtime concerns inside
@@ -1367,6 +1479,14 @@ Recommended first slice for Phase 6:
 - Keep this runtime outside `RISNetwork.connect()` and outside UI/client code.
 - Validate that `t=0` with no movement matches the existing static scenario
   output exactly.
+
+Parallel CLI work that can begin after Phase 5:
+
+- add a modern `SessionContext` for `waveflow ui`
+- route native interactive `add`, `status`, `list`, `links`, `connect`, and
+  `save/load` through shared handlers
+- keep `waveflow` on the legacy shell surface until modern interactive parity is
+  sufficient
 
 ### Phase 7 - Spatial Channels, MIMO, and Generalized RF Nodes
 
