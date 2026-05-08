@@ -37,6 +37,7 @@ class LinkBudgetChannel:
         """Evaluate the AP-RIS-UE link through the existing network facade."""
         connect_kwargs = dict(kwargs)
         connect_kwargs.setdefault("store_in_active_links", self.store_in_active_links)
+        connect_kwargs.setdefault("channel_model", "link_budget")
 
         result = network.connect(ap_name, ris_name, ue_name, **connect_kwargs)
         return ChannelEvaluation(result=result)

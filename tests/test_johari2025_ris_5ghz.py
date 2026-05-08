@@ -8,11 +8,12 @@ Scope: what waveflow can reproduce from the paper without full-wave EM.
 
 Tests are grouped into four verifiable claims:
   1. 1-bit phase quantisation yields only {0°, 180°} states (Section II-A).
-  2. Quantisation loss for 1-bit is ≈ −3.92 dB from uniform theory (Section II-A).
+  2. Quantisation loss for 1-bit follows the current waveflow standard sinc² model
+     (currently ≈ −1.67 dB with the default element-efficiency assumption).
   3. Array factor drops with steering angle: 10° → 60° shows a gain reduction
      trend consistent with the paper's 22.60 dBi → 14.62 dBi (Fig. 10).
   4. EVM/BER relationship (Eq. 10) reproduces Table 2 values when paper EVM
-     measurements are supplied as inputs.
+     measurements are supplied as inputs through production physics utilities.
 
 What is NOT tested (requires CST full-wave EM or SDR hardware):
   - Absolute gain values (22.60 dBi, 14.62 dBi) — substrate-geometry-dependent.
@@ -30,10 +31,8 @@ This gives SNR_off = 4.84 dB and SNR_on = 12.26 dB (Table 2).
 from __future__ import annotations
 
 import math
-
 import numpy as np
 import pytest
-from scipy.special import erfc
 
 from core.physics import Physics
 from risnet.arrays.steering import (
@@ -71,21 +70,6 @@ def _planar_element_positions(n_side: int, spacing: float) -> np.ndarray:
     xx, yy = np.meshgrid(xs, ys)
     positions = np.column_stack([xx.ravel(), yy.ravel(), np.zeros(n_side * n_side)])
     return positions.astype(float)
-
-
-def _snr_from_evm(evm_pct: float) -> float:
-    """EVM-derived SNR: SNR_dB = −20·log10(EVM_rms), EVM_rms = EVM_pct / 100."""
-    return -20.0 * math.log10(evm_pct / 100.0)
-
-
-def _evm_from_snr(snr_db: float) -> float:
-    """EVM% = 100 / sqrt(SNR_linear)  (Physics.snr_to_evm wrapper)."""
-    return Physics.snr_to_evm(snr_db)
-
-
-def _ber_qpsk_from_evm(evm_rms: float) -> float:
-    """BER ≈ 0.5 · erfc(1 / (√2 · EVM_rms)) — Eq. (10) from the paper."""
-    return 0.5 * erfc(1.0 / (math.sqrt(2.0) * evm_rms))
 
 
 # ---------------------------------------------------------------------------
@@ -284,22 +268,22 @@ class TestEVMAndBERFormulas:
 
     def test_snr_from_evm_ris_off(self):
         """EVM=57.30% → SNR = −20·log10(0.5730) ≈ 4.84 dB (Table 2)."""
-        snr = _snr_from_evm(EVM_RIS_OFF_PCT)
+        snr = Physics.evm_to_snr_dB(EVM_RIS_OFF_PCT)
         assert math.isclose(snr, 4.84, abs_tol=0.05), (
             f"SNR from EVM_off={EVM_RIS_OFF_PCT}% = {snr:.2f} dB, expected 4.84 dB"
         )
 
     def test_snr_from_evm_ris_on(self):
         """EVM=24.39% → SNR = −20·log10(0.2439) ≈ 12.26 dB (Table 2)."""
-        snr = _snr_from_evm(EVM_RIS_ON_PCT)
+        snr = Physics.evm_to_snr_dB(EVM_RIS_ON_PCT)
         assert math.isclose(snr, 12.26, abs_tol=0.05), (
             f"SNR from EVM_on={EVM_RIS_ON_PCT}% = {snr:.2f} dB, expected 12.26 dB"
         )
 
     def test_snr_improvement_is_742_db(self):
         """SNR improvement from EVM values = 12.26 − 4.84 = 7.42 dB (Table 2)."""
-        snr_off = _snr_from_evm(EVM_RIS_OFF_PCT)
-        snr_on = _snr_from_evm(EVM_RIS_ON_PCT)
+        snr_off = Physics.evm_to_snr_dB(EVM_RIS_OFF_PCT)
+        snr_on = Physics.evm_to_snr_dB(EVM_RIS_ON_PCT)
         improvement = snr_on - snr_off
         assert math.isclose(improvement, 7.42, abs_tol=0.05), (
             f"SNR improvement = {improvement:.2f} dB, expected 7.42 dB (Table 2)"
@@ -308,39 +292,32 @@ class TestEVMAndBERFormulas:
     def test_evm_snr_roundtrip_consistency(self):
         """Physics.snr_to_evm must be inverse of EVM→SNR conversion."""
         for evm_pct in [EVM_RIS_OFF_PCT, EVM_RIS_ON_PCT]:
-            snr = _snr_from_evm(evm_pct)
-            evm_reconstructed = _evm_from_snr(snr)
+            snr = Physics.evm_to_snr_dB(evm_pct)
+            evm_reconstructed = Physics.snr_to_evm(snr)
             assert math.isclose(evm_pct, evm_reconstructed, rel_tol=0.001), (
                 f"EVM roundtrip: {evm_pct:.2f}% → SNR {snr:.2f} dB → "
                 f"{evm_reconstructed:.2f}% (expected {evm_pct:.2f}%)"
             )
 
-    def test_ber_ris_off_matches_paper(self):
-        """BER for EVM=57.30% using Eq. (10) ≈ 6.79×10⁻³ (Table 2)."""
-        evm_rms = EVM_RIS_OFF_PCT / 100.0
-        ber = _ber_qpsk_from_evm(evm_rms)
-        # Paper: 6.79×10⁻³. The formula gives ~4×10⁻² for AWGN QPSK at this EVM.
-        # The paper's value is EVM-based; the formula from Ref. [42] is an approximation.
-        # Verify correct order of magnitude (10⁻³ to 10⁻¹) and that BER decreases with RIS.
-        assert 1e-3 < ber < 0.5, (
-            f"BER_off = {ber:.2e} for EVM={EVM_RIS_OFF_PCT}%; expected 10⁻³–0.5 range"
+    def test_ber_ris_off_matches_waveflow_awgn_approximation(self):
+        """BER for EVM=57.30% follows the production AWGN-QPSK approximation."""
+        ber = Physics.ber_qpsk_from_evm(EVM_RIS_OFF_PCT)
+        assert math.isclose(ber, 0.0404749699, rel_tol=1e-6), (
+            f"BER_off = {ber:.8f}; expected production AWGN approximation 0.0404749699"
         )
 
     def test_ber_ris_on_is_much_lower(self):
-        """BER for EVM=24.39% must be orders of magnitude below EVM=57.30%.
-
-        Paper: BER drops from 6.79×10⁻³ → 3.35×10⁻⁹ (factor ~2×10⁶)."""
-        ber_off = _ber_qpsk_from_evm(EVM_RIS_OFF_PCT / 100.0)
-        ber_on = _ber_qpsk_from_evm(EVM_RIS_ON_PCT / 100.0)
+        """BER for EVM=24.39% must be orders of magnitude below EVM=57.30%."""
+        ber_off = Physics.ber_qpsk_from_evm(EVM_RIS_OFF_PCT)
+        ber_on = Physics.ber_qpsk_from_evm(EVM_RIS_ON_PCT)
 
         assert ber_on < ber_off, (
             f"RIS should reduce BER: on={ber_on:.2e} must be below off={ber_off:.2e}"
         )
         ratio = ber_off / max(ber_on, 1e-20)
-        # Paper reports ~2×10⁶ improvement. Even with formula difference, expect ≥10³.
         assert ratio > 1e3, (
-            f"BER improvement ratio = {ratio:.1e}; expected > 10³ "
-            f"(paper: ~2×10⁶, off={ber_off:.2e}, on={ber_on:.2e})"
+            f"BER improvement ratio = {ratio:.1e}; expected > 10³ under the production approximation "
+            f"(off={ber_off:.2e}, on={ber_on:.2e})"
         )
 
     def test_evm_reduction_direction(self):
@@ -354,7 +331,7 @@ class TestEVMAndBERFormulas:
     def test_snr_to_evm_physics_function(self):
         """Physics.snr_to_evm must produce reasonable EVM for given SNR."""
         # At SNR=12.26 dB (paper RIS-on), EVM should be ≈24.39%
-        snr_on = _snr_from_evm(EVM_RIS_ON_PCT)
+        snr_on = Physics.evm_to_snr_dB(EVM_RIS_ON_PCT)
         evm_computed = Physics.snr_to_evm(snr_on)
         assert math.isclose(evm_computed, EVM_RIS_ON_PCT, rel_tol=0.01), (
             f"Physics.snr_to_evm({snr_on:.2f} dB) = {evm_computed:.2f}%, "

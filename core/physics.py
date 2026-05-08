@@ -581,6 +581,26 @@ class Physics:
         evm = (1 / np.sqrt(snr_linear)) * 100
         return evm
 
+    @staticmethod
+    def evm_to_snr_dB(evm_percent):
+        """Convert EVM percentage to SNR in dB.
+
+        Uses the same RMS convention as ``snr_to_evm``:
+        ``SNR_dB = -20*log10(EVM_rms)``, where ``EVM_rms = evm_percent / 100``.
+        """
+        evm_rms = max(float(evm_percent) / 100.0, 1e-15)
+        return float(-20.0 * math.log10(evm_rms))
+
+    @staticmethod
+    def ber_qpsk_from_evm(evm_percent):
+        """Approximate QPSK BER from EVM percentage.
+
+        Uses the standard AWGN approximation:
+        ``BER ≈ 0.5 * erfc(1 / (sqrt(2) * EVM_rms))``.
+        """
+        evm_rms = max(float(evm_percent) / 100.0, 1e-15)
+        return float(0.5 * math.erfc(1.0 / (math.sqrt(2.0) * evm_rms)))
+
     # =====================================================================
     # Waveform-Level Physics Functions
     # =====================================================================

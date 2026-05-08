@@ -552,7 +552,7 @@ def _generate_tx_side_scatterers(
         cluster_positions = np.zeros((cluster_count, 3), dtype=float)
         for idx, (phi_mean, theta_mean) in enumerate(cluster_means):
             distance = cluster_distances[idx]
-            while True:
+            for _ in range(256):
                 pos = np.array(
                     [
                         source_xyz[0] + distance * np.cos(np.radians(theta_mean)) * np.cos(np.radians(phi_mean)),
@@ -563,11 +563,22 @@ def _generate_tx_side_scatterers(
                 )
                 if environment == "indoor":
                     inside = bool(np.all(pos >= 0.0) and pos[0] <= room[0] and pos[1] <= room[1] and pos[2] <= room[2])
+                    if not inside and distance <= 1e-6:
+                        pos = np.clip(source_xyz, np.zeros(3, dtype=float), room)
+                        distance = 0.0
+                        inside = True
                 else:
                     inside = bool(pos[2] >= 0.0)
+                    if not inside and distance <= 1e-6:
+                        pos = np.array(source_xyz, dtype=float)
+                        pos[2] = max(pos[2], 0.0)
+                        distance = 0.0
+                        inside = True
                 if inside:
                     break
                 distance *= 0.8
+            else:
+                raise RuntimeError("Failed to project SimRIS Tx-side cluster inside the supported bounds")
             cluster_distances[idx] = distance
             cluster_positions[idx] = pos
 
@@ -648,7 +659,7 @@ def _generate_ris_side_scatterers(
         cluster_positions = np.zeros((cluster_count, 3), dtype=float)
         for idx, (phi_mean, theta_mean) in enumerate(cluster_means):
             distance = cluster_distances[idx]
-            while True:
+            for _ in range(256):
                 if scenario == 1:
                     pos = np.array(
                         [
@@ -669,7 +680,14 @@ def _generate_ris_side_scatterers(
                     )
                 if pos[2] >= 0.0:
                     break
+                if distance <= 1e-6:
+                    pos = np.array(ris_xyz, dtype=float)
+                    pos[2] = max(pos[2], 0.0)
+                    distance = 0.0
+                    break
                 distance *= 0.8
+            else:
+                raise RuntimeError("Failed to project SimRIS RIS-side cluster above ground")
             cluster_distances[idx] = distance
             cluster_positions[idx] = pos
 

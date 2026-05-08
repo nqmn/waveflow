@@ -1720,10 +1720,71 @@ Current status:
   `risnet/channels/base.py`) already exists. A `SimRISStochasticChannel`
   prototype exists in `risnet/channels/simris.py` and covers seeded H/G/D
   tensor generation. The GSCM engine should either extend or supersede this.
+- Python-side `SimRIS` precursor status is now materially ahead of this note:
+  `risnet/channels/simris.py` provides a tested deterministic/stochastic
+  engine with H/G/D tensors, validation/preflight support, published preset
+  helpers, adapter coverage, paper-formula tests, and frozen physics
+  regression tests. The main unresolved work is no longer Python API surface,
+  but deeper stochastic parity against the MATLAB reference.
 - External MATLAB/Octave golden-parity verification for the SimRIS precursor is
   KIV until a compatible runtime or frozen reference outputs are available.
   Internal Python-side porting, regression fixtures, and branch coverage should
   continue in the meantime.
+
+Recommended integration sequence for the existing SimRIS precursor:
+
+1. Treat `SimRIS` as the first official channel engine for supported RIS-aware
+   scenarios, while keeping `LinkBudgetChannel` as the compatibility fallback
+   and default `fast` backend where SimRIS support is incomplete.
+2. Add explicit engine selection to `RISNetwork.connect()` and the shared
+   scenario service:
+   - `channel_model="link_budget"`
+   - `channel_model="simris"`
+3. Keep scalar compatibility outputs (`snr_dB`, `pwr_dBm`, `rssi_dBm`,
+   `gain_dBi`) identical in shape to the current path, but include full SimRIS
+   payloads (`H`, `G`, `D`, metadata, validation) when `simris` is selected.
+4. Route all official integrations through `SimRISChannel` /
+   `SimRISStochasticChannel`; do not call low-level tensor helpers from CLI,
+   UI, or scenario code directly.
+5. Expose structured SimRIS configuration in scenario files and CLI flags:
+   - environment
+   - scenario
+   - frequency_GHz
+   - array_type
+   - tx/rx antenna counts
+   - num_realizations
+   - include_nlos / include_shadow_fading
+   - validate_preflight
+6. Add explicit capability checks and fallback rules:
+   - when `simris` fully supports the requested configuration, use it
+   - when `simris` does not support the requested configuration, fall back to
+     `LinkBudgetChannel`
+   - always surface the chosen engine and any fallback reason in the result
+     metadata / CLI output
+7. Add connect/scenario/CLI integration tests before considering any default
+   engine changes.
+
+Official engine policy for the intermediate phase:
+
+- `SimRIS` becomes the official engine for supported channel-aware workflows.
+- `LinkBudgetChannel` remains the fallback engine for:
+  - unsupported SimRIS configurations
+  - legacy/simple workflows
+  - explicit `channel_model="link_budget"` requests
+- Do not silently mix `LinkBudgetChannel` physics with `SimRIS` physics inside
+  one execution path. One selected engine owns the result.
+- Fallback from `simris` to `link_budget` is allowed only at the engine
+  boundary and must be explicit in result metadata and user-facing diagnostics.
+
+Definition of done for SimRIS integration (separate from MATLAB parity):
+
+- `RISNetwork.connect(..., channel_model="simris")` works end-to-end.
+- Shared scenario execution accepts `channel_model: simris`.
+- CLI/UI can select `simris` explicitly.
+- Unsupported SimRIS requests fall back cleanly to `LinkBudgetChannel` with an
+  explicit reason, rather than failing or silently mixing engines.
+- Existing `link_budget` tests and behavior remain unchanged.
+- SimRIS integration tests pass without requiring MATLAB.
 
 ### Phase 7a - Human-Aware Sensing and Beam Focusing
 

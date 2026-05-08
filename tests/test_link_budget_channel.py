@@ -62,6 +62,8 @@ def test_link_budget_channel_reproduces_current_connect_metrics():
     assert evaluation.rssi_dBm == pytest.approx(direct["rssi_dBm"])
     assert evaluation.gain_dBi == pytest.approx(direct["gain_dBi"])
     assert evaluation.quant_loss_dB == pytest.approx(direct["quant_loss_dB"])
+    assert evaluation.result["channel_model_requested"] == "link_budget"
+    assert evaluation.result["channel_model_used"] == "link_budget"
 
 
 def test_phase3_shared_link_budget_helpers_preserve_utils_compatibility():
@@ -209,3 +211,20 @@ def test_link_budget_channel_reproduces_current_connect_for_environment_blocked_
     assert evaluation.snr_dB == pytest.approx(direct["snr_dB"])
     assert evaluation.pwr_dBm == pytest.approx(direct["pwr_dBm"])
     assert evaluation.gain_dBi == pytest.approx(direct["gain_dBi"])
+
+
+def test_link_budget_channel_explicitly_pins_legacy_engine_even_after_default_changes():
+    net = build_channel_network()
+
+    evaluation = LinkBudgetChannel().evaluate(
+        net,
+        "ap1",
+        "ris1",
+        "ue1",
+        seed=42,
+        use_get_snr=False,
+    )
+
+    assert evaluation.result["channel_model_requested"] == "link_budget"
+    assert evaluation.result["channel_model_used"] == "link_budget"
+    assert evaluation.result["channel_model_fallback_reason"] is None

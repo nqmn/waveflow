@@ -56,6 +56,67 @@ def test_connect_returns_current_public_result_shape():
     assert result["no_ue_detected"] is False
 
 
+def test_connect_can_route_through_official_simris_channel_model():
+    net = build_line_network()
+
+    result = net.connect(
+        "ap1",
+        "ris1",
+        "ue1",
+        channel_model="simris",
+        environment="indoor",
+        scenario=1,
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert result["channel_model_requested"] == "simris"
+    assert result["channel_model_used"] == "simris"
+    assert result["channel_model_fallback_reason"] is None
+    assert result["model"] == "simris_stochastic"
+    assert result["H"].shape == (net.get("ris1").N * net.get("ris1").N, 1, 1)
+    assert result["G"].shape == (1, net.get("ris1").N * net.get("ris1").N, 1)
+    assert result["D"].shape == (1, 1, 1)
+    assert net.last_connect_result["metrics"]["channel_model_used"] == "simris"
+
+
+def test_connect_falls_back_to_link_budget_when_simris_request_is_unsupported():
+    net = build_line_network()
+
+    result = net.connect(
+        "ap1",
+        "ris1",
+        "ue1",
+        channel_model="simris",
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert result["channel_model_requested"] == "simris"
+    assert result["channel_model_used"] == "link_budget"
+    assert "requires an explicit environment" in result["channel_model_fallback_reason"]
+    assert "requires an explicit scenario" in result["channel_model_fallback_reason"]
+    assert "H" not in result
+    assert net.last_connect_result["metrics"]["channel_model_used"] == "link_budget"
+
+
+def test_default_connect_now_requests_simris_and_falls_back_explicitly_when_unsupported():
+    net = build_line_network()
+
+    result = net.connect(
+        "ap1",
+        "ris1",
+        "ue1",
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert result["channel_model_requested"] == "simris"
+    assert result["channel_model_used"] == "link_budget"
+    assert "requires an explicit environment" in result["channel_model_fallback_reason"]
+    assert "requires an explicit scenario" in result["channel_model_fallback_reason"]
+
+
 def test_seeded_connect_is_deterministic():
     net_a = build_line_network()
     net_b = build_line_network()

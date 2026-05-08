@@ -18,13 +18,13 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 | File | Runner | Tests | Category | Notes |
 |---|---|---|---|---|
 | `test_smoke.py` | pytest | 33 | Import, CLI, entry points | Includes bare `waveflow ui` native-shell entry smoke, stateful modern-shell coverage for add/status, native no-arg `connect` parity, lifted legacy `connect` grammar coverage (positional beam angle, unified `--sweep`, shell-native execution), modern Rich diagnostic-panel coverage for native `ui connect`, native Rich parity coverage for `ui list` preserving full topology and coordinate detail with Rich-styled legend/ASCII map, native Rich parity coverage for `ui status` preserving full node/distance/active-link detail, native Rich parity coverage for `ui links` preserving full active-link detail, and Rich panelized wrapper coverage for legacy-backed `env`, `signal`, and `stream`; plus legacy-command passthrough on the same in-memory network; Typer/Rich `ui` smoke for status/list/add/connect/save/load/links/clear/plot/env/ap/ris/ue/signal/stream; `ui add random` count/distance/no-UE parsing; live sweep rendering smoke; topology-backed terminal connect coverage; bundled topology sweep smoke; invalid-node failure handling; interactive-shell RIS-aware fallback coverage; DE result-printer compatibility; and legacy `run` passthrough coverage |
-| `test_connect_characterization.py` | pytest | 25 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers plus coordinate-math validation for non-collinear connect geometry metadata (incident/reflected azimuth, target angle, and deflection consistency) |
+| `test_connect_characterization.py` | pytest | 28 | `RISNetwork.connect()` contract and helper services | Includes focused tests for extracted internal `connect()` helpers plus coordinate-math validation for non-collinear connect geometry metadata (incident/reflected azimuth, target angle, and deflection consistency), explicit official-SimRIS selection/fallback behavior at the `connect()` boundary, the default SimRIS-first fallback contract, and boundary-origin line-geometry coverage that guards the SimRIS path against pathological scatterer-generation hangs |
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
-| `test_link_budget_channel.py` | pytest | 9 | `LinkBudgetChannel` adapter | |
+| `test_link_budget_channel.py` | pytest | 10 | `LinkBudgetChannel` adapter | Includes explicit coverage that the compatibility adapter pins `channel_model="link_budget"` even after the default `connect()` engine changes |
 | `test_simris_channel.py` | pytest | 52 | SimRIS engine | Verifies the additive deterministic SimRIS LOS engine against published-formula reference slices, compares its received-power math against the current Waveflow link-budget path across multiple published-style geometries, and covers seeded stochastic H/G/D plus MATLAB-style `h/g/h_SISO` tensor generation, deterministic published-geometry presets for all four GUI-recommended layouts, additive published-case helper wrappers including outdoor Scenario 2 end-to-end coverage, a published-network builder with deterministic channel execution and AP/RIS frequency consistency checks, deterministic and seeded stochastic helper-consistency parity across all four presets, additive published-case adapter helpers for full `ChannelEvaluation` parity, determinism, forced LOS-only reduction behavior, seeded direct-link NLOS generation, scenario 2, UPA terminal arrays, indoor RIS→Rx LOS seed sensitivity, outdoor stochastic determinism, frozen seeded regression signatures for indoor/outdoor cases, additive MATLAB-style validation checks, optional preflight raise/report behavior on adapters, published-case entrypoints, wrapper helpers, and base primitive SimRIS APIs, plus stochastic adapter `noise_power_dBm` contract parity, self-describing stochastic result metadata (`environment`, `scenario`, `array_type`, `frequency_GHz`, `num_realizations`), per-realization stochastic channel-gain summaries, symmetric hop-level LOS path-gain/distance metadata on both deterministic and stochastic helpers, NLOS cluster/sub-ray/active-scatterer count summaries for stochastic introspection, per-realization LOS-component summaries (`los_path_gain_*`, `los_path_loss_*`, `theta_*`, `ris_pattern_*`) with explicit `NaN` behavior when LOS is absent, and first-realization scalar alias parity on the public stochastic adapter result |
-| `test_scenarios.py` | pytest | 20 | Headless scenario runner and shared service adoption | Includes shared execution-service equivalence, request validation failures, golden example topology loading, and API routing through the shared scenario service |
+| `test_scenarios.py` | pytest | 21 | Headless scenario runner and shared service adoption | Includes shared execution-service equivalence, request validation failures, golden example topology loading, API routing through the shared scenario service, and official SimRIS `connect()` passthrough via scenario kwargs |
 | `test_johari2025_ris_5ghz.py` | pytest | 20 | Johari et al. (IEEE Access 2025) — 5.8 GHz 1-bit RIS | 1-bit quantization states and bounds, quantization loss (1-bit vs 2-bit), array factor steering trend, EVM↔SNR↔BER formula verification against Table 2 SDR measurements (EVM OFF=57.30%, ON=24.39%) |
 | `test_simris_paper_formulas.py` | pytest | 34 | SimRIS paper formula gaps | RIS element pattern G_e(θ), path gain monotonicity, N² gain scaling (RIS-only path), LOS probability boundary conditions, `evaluate_simris_los_reference` direct call, waveflow.channels re-export smoke |
 | `test_basar2020_channel_model.py` | pytest | 47 | Basar & Yildirim (2020) — indoor/outdoor mmWave channel model | Table I path-loss parameters, Eq. 4 element-pattern energy conservation, Eq. 7 indoor LOS boundaries, Eq. 11 outdoor LOS probability (UMi), Eq. 13 achievable rate formula, outdoor Fig. 4 geometry evaluation, `summarize_simris_tensors` structure, 73 GHz band validity |
@@ -121,8 +121,8 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - SimRIS path gain dB at canonical (env, d, freq) combinations, no shadow (`test_simris_physics_regression.py`)
 - Outdoor UMi LOS probability formula (Eq. 11) numerical values at 5 distances (`test_basar2020_channel_model.py`, `test_simris_physics_regression.py`)
 - Indoor LOS probability boundary values at d=1.2 m and d=6.5 m (Eq. 7) (`test_basar2020_channel_model.py`)
-- EVM↔SNR formula (SNR = −20·log10(EVM_rms)) verified against Johari 2025 Table 2 (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
-- BER from EVM for QPSK (Eq. 10 Johari 2025) (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
+- EVM↔SNR formula (SNR = −20·log10(EVM_rms)) verified against Johari 2025 Table 2 through production `Physics.evm_to_snr_dB()` / `Physics.snr_to_evm()` utilities (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
+- BER from EVM for QPSK (Eq. 10 Johari 2025 approximation) verified through production `Physics.ber_qpsk_from_evm()` (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
 - Reflection loss from measured |Γ|=0.84 (`test_johari2025_physics_regression.py`)
 - Aperture gain drop cos(θ) law from 10°→60° (`test_johari2025_physics_regression.py`)
 
@@ -209,6 +209,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 **Covered**:
 - Reproduces `connect()` SNR, power, RSSI, gain, quant_loss
+- Pins `channel_model="link_budget"` explicitly so the compatibility adapter remains on the legacy engine even though `connect()` now prefers SimRIS by default
 - Phase payload shape preserved
 - Deterministic for seeded links
 - No active-link mutation by default
@@ -231,6 +232,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Auto-resolves first AP/RIS/UE by type
 - Explicit name resolution
 - Reports missing node type clearly
+- Scenario `connect` kwargs can now select the official SimRIS engine and receive SimRIS tensors/metadata back through the shared service layer
 - `ScenarioRequest` from dict
 - `ScenarioRequest` from JSON file
 - `ScenarioRequest` from YAML file
@@ -249,6 +251,9 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 
 **Covered**:
 - Public result shape (all expected keys present)
+- Default `connect()` now requests the official SimRIS engine first and falls back explicitly to link-budget when the request is unsupported
+- Explicit `channel_model="simris"` requests now route through the official SimRIS engine when the request is supported and expose `channel_model_requested` / `channel_model_used` metadata
+- Unsupported explicit SimRIS requests now fall back to the existing link-budget path with an explicit `channel_model_fallback_reason`
 - Deterministic under fixed seed
 - `active_links` and `last_connect_result` updated by default
 - `store_in_active_links=False` skips link mutation

@@ -64,6 +64,42 @@ def test_scenario_runner_executes_connect_with_auto_resolved_names(tmp_path):
     assert run.network.last_connect_result["ap"] == "AP1"
 
 
+def test_scenario_runner_passes_official_simris_connect_kwargs(tmp_path):
+    topology_path = tmp_path / "headless_connect_simris.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Headless Connect SimRIS",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 25.0, 2.0], "freq": 28000000000.0},
+    {"name": "R1", "type": "RIS", "pos": [40.0, 50.0, 2.0], "N": 8, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [38.0, 48.0, 1.0]}
+  ]
+}
+""".strip()
+    )
+
+    runner = ScenarioRunner()
+
+    run = runner.run_connect(
+        topology_path,
+        channel_model="simris",
+        environment="indoor",
+        scenario=1,
+        tx_antennas=1,
+        rx_antennas=1,
+        num_realizations=1,
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert run.result["channel_model_requested"] == "simris"
+    assert run.result["channel_model_used"] == "simris"
+    assert run.result["model"] == "simris_stochastic"
+    assert run.result["H"].shape == (64, 1, 1)
+    assert run.network.last_connect_result["metrics"]["channel_model_used"] == "simris"
+
+
 def test_scenario_runner_reports_missing_required_node_types():
     runner = ScenarioRunner()
     net = runner.load_topology(EXAMPLE_SIMPLE)

@@ -1,3 +1,85 @@
+## Task: Tighten Johari 2025 Test Integrity Around Production Physics Utilities
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive `core/physics.py` utility methods, the Johari test rewrites, and any `tasks/test-suite.md` wording updates for this task.
+Change budget: [files 4] [functions: additive EVM/BER physics utilities, focused Johari test rewrites] [interfaces: additive `Physics` methods only] [state mutations: none]
+
+### Scope
+- `core/physics.py` — add production utility methods for EVM→SNR and BER-from-EVM so Johari tests can stop relying on local formula helpers.
+- `tests/test_johari2025_ris_5ghz.py` — rewrite the Johari comparison tests to use production utilities and fix misleading paper-claim wording.
+- `tests/test_johari2025_physics_regression.py` — pin the new production utility outputs directly.
+- `tasks/test-suite.md` — update coverage wording if the validation path changes materially.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive production utilities for EVM→SNR and BER-from-EVM
+- [x] Rewrite Johari tests to use production utilities and tighten misleading assertions/documentation
+- [x] Verify focused Johari suites and review the diff for scope discipline
+
+### Review
+- Completed: Added additive production helpers `Physics.evm_to_snr_dB()` and `Physics.ber_qpsk_from_evm()`, then rewrote the Johari 2025 comparison/regression suites to use those helpers directly instead of local test-only formula functions. Also corrected the misleading `-3.92 dB` quantization-loss narrative so it now matches the current production sinc² model being tested.
+- Out-of-scope flagged: I did not attempt to reconcile the Johari paper's reported BER values with a different link/system model; the tests now clearly validate the production AWGN-style approximation instead of implying paper-perfect BER parity.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This tightening improves test integrity and transparency, but it does not make Waveflow a full EM/SDR reproduction of Johari et al.; absolute gain, full-wave patterns, and hardware-specific effects remain outside scope.
+
+## Task: Make Default `connect()` Prefer Official SimRIS with Explicit Fallback
+Mode: Standard
+Risk: High
+Confidence: Stable
+Operational risk: Broad / Partial
+Rollback plan: Revert the `core/network.py` default-engine change, the `LinkBudgetChannel` compatibility pin, the focused default/fallback tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 5] [functions: `RISNetwork.connect`, `LinkBudgetChannel.evaluate`, focused connect/adapter tests] [interfaces: default connect engine-selection behavior and result metadata] [state mutations: active-link and last-connect snapshots remain compatible]
+
+### Scope
+- `core/network.py` — make default `connect()` attempt SimRIS first, with explicit fallback to the link-budget engine when unsupported.
+- `risnet/channels/link_budget.py` — pin the compatibility adapter to the legacy engine explicitly.
+- `tests/test_connect_characterization.py` — add focused coverage for default SimRIS-request fallback behavior.
+- `tests/test_link_budget_channel.py` — add focused coverage that the compatibility adapter still requests the link-budget engine explicitly.
+- `tasks/test-suite.md` — record the default-engine and compatibility-adapter coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Change default `connect()` engine selection to prefer SimRIS with explicit fallback
+- [x] Pin `LinkBudgetChannel` to `channel_model="link_budget"` and add focused tests
+- [x] Verify focused suites and review the diff for scope discipline
+
+### Review
+- Completed: Changed `RISNetwork.connect()` so a missing `channel_model` now requests the official SimRIS engine first and falls back explicitly to `link_budget` when the request is unsupported. Kept the legacy `LinkBudgetChannel` adapter stable by pinning `channel_model="link_budget"` explicitly, then fixed a real regression uncovered by the new tests: boundary-origin indoor line geometries could trap SimRIS stochastic cluster projection in a non-terminating shrink loop. The SimRIS scatterer generators now cap the shrink loop and clamp back to the source/RIS boundary when the distance collapses, which restores fast completion for the official SimRIS path on that geometry. Verified with focused `connect`/scenario suites and a broader regression pass across smoke, SimRIS, link-budget, and Johari coverage.
+- Out-of-scope flagged: I did not broaden SimRIS support for unsupported `connect()` features such as explicit `beam_angle_deg`, tapering-aware SimRIS physics, or feedback-loop integration; those still fall back explicitly to `link_budget`.
+- Assumptions invalidated: The assumption that the default-engine switch was only a metadata/performance change was false; it surfaced a real termination bug in SimRIS stochastic cluster projection for a boundary-origin indoor geometry.
+- Known debt (acknowledged):
+- Limitations: The default `connect()` path is now SimRIS-first, but it still relies on explicit fallback for unsupported SimRIS request shapes and does not imply full numerical parity with the original MATLAB simulator.
+
+## Task: Integrate Official SimRIS Selection into `RISNetwork.connect()`
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the `core/network.py` engine-selection changes, the focused `connect()` and scenario tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `RISNetwork.connect`, additive connect-channel helpers, focused connect/scenario tests] [interfaces: additive `channel_model` connect parameter and result metadata] [state mutations: active-link and last-connect snapshots remain compatible]
+
+### Scope
+- `core/network.py` — add official SimRIS-vs-link-budget selection at the `connect()` boundary with explicit fallback metadata.
+- `tests/test_connect_characterization.py` — add focused coverage for supported SimRIS connect and explicit fallback behavior.
+- `tests/test_scenarios.py` — add focused passthrough coverage for `channel_model="simris"` through the scenario runner.
+- `tasks/test-suite.md` — record the new connect/scenario engine-selection coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive `channel_model` handling plus explicit SimRIS capability/fallback logic in `RISNetwork.connect()`
+- [x] Add focused connect/scenario tests and update the test map
+- [x] Verify focused suites and review the diff for scope discipline
+
+### Review
+- Completed: Integrated explicit `channel_model` selection into `RISNetwork.connect()` so supported `channel_model="simris"` requests now route through the official SimRIS adapter path and return SimRIS tensors/metadata, while unsupported explicit SimRIS requests fall back to the existing link-budget path with an explicit `channel_model_fallback_reason`. Added focused coverage in `tests/test_connect_characterization.py` for both supported and fallback paths, plus a scenario-runner passthrough test in `tests/test_scenarios.py`. Updated `tasks/test-suite.md` to record the new connect/scenario coverage.
+- Out-of-scope flagged: `FUTURE.md` was already modified before this task and remains uncommitted, but this batch did not change it further. CLI/UI selection for `channel_model="simris"` was also not implemented here; this task stopped at the `RISNetwork.connect()` and scenario-service boundary.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The official SimRIS path is intentionally conservative for now. It currently falls back to the link-budget engine unless the caller provides an explicit SimRIS `environment` and `scenario`, and it does not yet support explicit beam-angle overrides, fixed RIS-normal overrides, tapering-aware SimRIS physics, or closed-loop feedback on the SimRIS branch.
+
 ## Task: Update `waveflow ui` Documentation for Native Modern Shell
 Mode: Standard
 Risk: Low
@@ -2243,3 +2325,26 @@ Change budget: [files 1] [functions: none] [interfaces: none] [state mutations: 
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: This batch only verified the auxiliary suites and their documentation status; it did not change engine behavior or close any additional MATLAB-parity gaps.
+
+## Task: Update FUTURE.md with Official SimRIS Engine Fallback Policy
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the `FUTURE.md` wording for this task.
+Change budget: [files 2] [functions: none] [interfaces: planning/documentation only] [state mutations: none]
+
+### Scope
+- `FUTURE.md` — clarify that SimRIS should become the official engine for supported scenarios, while unsupported requests fall back to `LinkBudgetChannel` explicitly at the engine boundary.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Update the Phase 7b integration sequence with explicit fallback rules
+- [x] Update the engine policy and definition-of-done bullets
+
+### Review
+- Completed: Updated `FUTURE.md` so the SimRIS integration plan now states that SimRIS should become the official engine for supported channel-aware workflows, while unsupported configurations fall back cleanly to `LinkBudgetChannel` with an explicit reason surfaced in metadata/diagnostics. The plan now forbids silent engine mixing and requires capability checks at the engine boundary.
+- Out-of-scope flagged: I did not implement the fallback behavior itself in code; this task only clarified the integration policy in the roadmap.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is roadmap clarification only; code integration, capability checks, and fallback diagnostics still need implementation.

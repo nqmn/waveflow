@@ -411,6 +411,254 @@ class RISNetwork:
         result["no_ue_detected"] = not beam_hits_ue
         return result
 
+    @staticmethod
+    def _normalize_connect_channel_model(channel_model):
+        """Normalize explicit connect-time channel model requests."""
+        if channel_model is None:
+            return None
+        normalized = str(channel_model).strip().lower().replace("-", "_")
+        if normalized in {"link_budget", "linkbudget", "default", "current"}:
+            return "link_budget"
+        if normalized in {"simris", "sim_ris"}:
+            return "simris"
+        raise ValueError(
+            "Unsupported channel_model. Expected one of: "
+            "'link_budget', 'simris'."
+        )
+
+    @staticmethod
+    def _with_connect_channel_metadata(result, *, requested_model, used_model, fallback_reason=None):
+        """Annotate a connect result with explicit engine-selection metadata."""
+        if requested_model is None:
+            return result
+        annotated = dict(result)
+        annotated["channel_model_requested"] = requested_model
+        annotated["channel_model_used"] = used_model
+        annotated["channel_model_fallback_reason"] = fallback_reason
+        return annotated
+
+    @staticmethod
+    def _assess_simris_connect_support(
+        *,
+        beam_angle_deg,
+        enable_feedback,
+        tapering,
+        fixed_ris_normal,
+        environment,
+        scenario,
+    ):
+        """Return whether the official SimRIS connect path supports this request."""
+        reasons = []
+        if beam_angle_deg is not None:
+            reasons.append("SimRIS connect currently supports automatic geometry only; explicit beam_angle_deg falls back to link_budget.")
+        if enable_feedback:
+            reasons.append("SimRIS connect does not yet support closed-loop feedback.")
+        if tapering != "uniform":
+            reasons.append("SimRIS connect does not yet support tapering-aware channel evaluation.")
+        if fixed_ris_normal is not None:
+            reasons.append("SimRIS connect does not yet support fixed_ris_normal overrides.")
+        return len(reasons) == 0, " ".join(reasons) if reasons else None
+
+    def _evaluate_connect_via_simris(
+        self,
+        *,
+        ap_name,
+        ris_name,
+        ue_name,
+        ap,
+        ris,
+        ue,
+        ap_node,
+        ris_node,
+        ue_node,
+        beam_angle_deg,
+        compute_phases,
+        bandwidth_MHz,
+        seed,
+        use_get_snr,
+        use_isolated_copy,
+        store_in_active_links,
+        channel_model_requested,
+        environment,
+        scenario,
+        array_type,
+        tx_antennas,
+        rx_antennas,
+        num_realizations,
+        include_direct_path,
+        include_nlos,
+        include_shadow_fading,
+        force_tx_ris_los,
+        force_ris_rx_los,
+        force_direct_los,
+        validate_preflight,
+        error_on_invalid,
+    ):
+        """Evaluate the official SimRIS connect path and persist compatibility metadata."""
+        from risnet.channels import SimRISChannel, SimRISLoSConfig, SimRISConfig, SimRISStochasticChannel
+
+        geometry = self._resolve_connect_geometry(
+            ap,
+            ris,
+            ue,
+            beam_angle_deg=beam_angle_deg,
+            fixed_ris_normal=None,
+        )
+        phase_metadata = self._compute_connect_phases(
+            ap,
+            ris,
+            ue,
+            geometry["beam_angle_deg"],
+            compute_phases=compute_phases,
+        )
+        phase_data = self._collect_connect_phase_data(
+            ris,
+            ris_node,
+            geometry["beam_angle_deg"],
+            compute_phases=compute_phases,
+        )
+        local_deflection = compute_offset_from_normal(geometry["beam_angle_deg"], geometry["ris_normal"])
+
+        frequency_GHz = float(getattr(ap_node, "freq", 5.8e9) / 1.0e9)
+        if num_realizations == 0:
+            deterministic_channel = SimRISChannel(
+                SimRISLoSConfig(
+                    environment=environment,
+                    scenario=int(scenario),
+                    array_type=array_type,
+                    tx_antennas=int(tx_antennas),
+                    rx_antennas=int(rx_antennas),
+                    include_direct_path=bool(include_direct_path),
+                    frequency_GHz=frequency_GHz,
+                    validate_preflight=bool(validate_preflight),
+                    error_on_invalid=bool(error_on_invalid),
+                )
+            )
+            evaluation = deterministic_channel.evaluate(
+                self,
+                ap_name,
+                ris_name,
+                ue_name,
+            )
+        else:
+            stochastic_channel = SimRISStochasticChannel(
+                SimRISConfig(
+                    environment=environment,
+                    scenario=int(scenario),
+                    array_type=array_type,
+                    tx_antennas=int(tx_antennas),
+                    rx_antennas=int(rx_antennas),
+                    include_direct_path=bool(include_direct_path),
+                    frequency_GHz=frequency_GHz,
+                    num_realizations=int(num_realizations),
+                    seed=seed,
+                    include_nlos=bool(include_nlos),
+                    include_shadow_fading=bool(include_shadow_fading),
+                    force_tx_ris_los=force_tx_ris_los,
+                    force_ris_rx_los=force_ris_rx_los,
+                    force_direct_los=force_direct_los,
+                    validate_preflight=bool(validate_preflight),
+                    error_on_invalid=bool(error_on_invalid),
+                )
+            )
+            evaluation = stochastic_channel.evaluate(
+                self,
+                ap_name,
+                ris_name,
+                ue_name,
+            )
+
+        evaluation_result = dict(evaluation.result)
+        base_result = self._build_connect_result(
+            snr_dB=evaluation_result["snr_dB"],
+            pwr_dBm=evaluation_result["pwr_dBm"],
+            gain_linear=evaluation_result["gain_linear"],
+            gain_dBi=evaluation_result["gain_dBi"],
+            quant_loss_dB=evaluation_result["quant_loss_dB"],
+            beam_angle_deg=geometry["beam_angle_deg"],
+            beam_angle_requested_deg=geometry["beam_angle_requested_deg"],
+            ris_normal=geometry["ris_normal"],
+            local_deflection=local_deflection,
+            target_angle=geometry["target_angle"],
+            beam_hits_ue=geometry["beam_hits_ue"],
+            phase_data=phase_data,
+            rssi_dBm=evaluation_result["rssi_dBm"],
+        )
+        result = {
+            **base_result,
+            **evaluation_result,
+        }
+        result = self._with_connect_channel_metadata(
+            result,
+            requested_model=channel_model_requested,
+            used_model="simris",
+            fallback_reason=None,
+        )
+
+        ap_key = ap.name if ap else ap_name
+        ris_key = ris.name if ris else ris_name
+        ue_key = ue.name if ue else ue_name
+        effective_bandwidth_MHz = float(bandwidth_MHz if bandwidth_MHz is not None else getattr(ap_node, "bandwidth_MHz", 20.0))
+        ap_antenna_gain_dBi = float(getattr(ap_node, "antenna_gain_dBi", 3.0))
+        ue_antenna_gain_dBi = float(getattr(ue_node, "antenna_gain_dBi", 3.0))
+        total_gain_dBi = float(result["pwr_dBm"] - getattr(ap_node, "power_dBm", 20.0))
+        noise_figure_dB = float(getattr(ue_node, "noise_figure_dB", 6.0))
+        self._persist_connect_metadata(
+            ue_node,
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            ap=ap_node,
+            total_loss_dB=0.0,
+            total_gain_dBi=total_gain_dBi,
+            bandwidth_MHz=effective_bandwidth_MHz,
+            noise_figure_dB=noise_figure_dB,
+            beam_angle_deg=geometry["beam_angle_deg"],
+            beam_angle_requested_deg=geometry["beam_angle_requested_deg"],
+            target_angle=geometry["target_angle"],
+            quant_loss_dB=float(result.get("quant_loss_dB", 0.0)),
+            gain_dBi=float(result["gain_dBi"]),
+            ap_antenna_gain_dBi=ap_antenna_gain_dBi,
+            ue_antenna_gain_dBi=ue_antenna_gain_dBi,
+            pwr_dBm=float(result["pwr_dBm"]),
+            beam_hits_ue=bool(result.get("ue_present", True)),
+            snr_computed_dB=float(result["snr_dB"]),
+        )
+
+        snr_reported_dB = self._resolve_connect_reported_snr(
+            use_get_snr=use_get_snr,
+            ue_key=ue_key,
+            ris_key=ris_key,
+            ap_key=ap_key,
+            snr_computed_dB=float(result["snr_dB"]),
+        )
+        if ue_node is not None:
+            ue_node.snr_measurement_dB = float(snr_reported_dB)
+
+        self._store_connect_active_link(
+            store_in_active_links=store_in_active_links,
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            result=result,
+            local_deflection=local_deflection,
+            beam_angle_deg=geometry["beam_angle_deg"],
+            ris_normal=geometry["ris_normal"],
+        )
+        self._store_last_connect_result(
+            ap_key=ap_key,
+            ris_key=ris_key,
+            ue_key=ue_key,
+            beam_angle_deg=geometry["beam_angle_deg"],
+            compute_phases=compute_phases,
+            bandwidth_MHz=effective_bandwidth_MHz,
+            seed=seed,
+            enable_feedback=False,
+            max_feedback_iterations=0,
+            result=result,
+        )
+        return result
+
     def _persist_connect_feedback_measurement(self, result, ue_name):
         """Persist feedback-loop SNR measurement back to the canonical UE node when available."""
         if not result.get("feedback_info") or "final_snr_dB" not in result["feedback_info"]:
@@ -623,7 +871,12 @@ class RISNetwork:
     def connect(self, ap_name, ris_name, ue_name, beam_angle_deg=None, compute_phases=True,
                 bandwidth_MHz=None, seed=None, enable_feedback=False, max_feedback_iterations=10,
                 use_isolated_copy=True, store_in_active_links=True, use_get_snr=True,
-                tapering='uniform', fixed_ris_normal=None):
+                tapering='uniform', fixed_ris_normal=None, channel_model=None,
+                environment="indoor", scenario=1, array_type="ula", tx_antennas=1,
+                rx_antennas=1, num_realizations=1, include_direct_path=True,
+                include_nlos=True, include_shadow_fading=True, force_tx_ris_los=None,
+                force_ris_rx_los=None, force_direct_los=None, validate_preflight=False,
+                error_on_invalid=True):
         """Compute cascaded AP->RIS->UE link with optional automatic CSI feedback and adaptation
 
         Args:
@@ -647,6 +900,21 @@ class RISNetwork:
                      Default: 'uniform' (no tapering).
             fixed_ris_normal: If provided, use this RIS normal angle instead of auto-calculating.
                              For beam sweep testing to keep RIS normal consistent. Default: None
+            channel_model: Optional explicit channel engine selection (`link_budget` or `simris`).
+            environment: SimRIS environment (`indoor`/`outdoor`) when `channel_model='simris'`.
+            scenario: SimRIS scenario (1 or 2) when `channel_model='simris'`.
+            array_type: SimRIS terminal array type (`ula`/`upa`) when `channel_model='simris'`.
+            tx_antennas: SimRIS transmit antenna count when `channel_model='simris'`.
+            rx_antennas: SimRIS receive antenna count when `channel_model='simris'`.
+            num_realizations: SimRIS stochastic realizations; set to 0 for deterministic LOS adapter.
+            include_direct_path: Whether SimRIS should include the direct Tx->Rx path.
+            include_nlos: Whether SimRIS stochastic evaluation should include NLOS terms.
+            include_shadow_fading: Whether SimRIS stochastic evaluation should include shadow fading.
+            force_tx_ris_los: Optional SimRIS LOS override for the Tx->RIS hop.
+            force_ris_rx_los: Optional SimRIS LOS override for the RIS->Rx hop.
+            force_direct_los: Optional SimRIS LOS override for the direct hop.
+            validate_preflight: Run SimRIS preflight validation before channel evaluation.
+            error_on_invalid: Raise on invalid SimRIS preflight instead of falling back/reporting.
 
         Returns:
             Dict with snr_dB, pwr_dBm, gain_dBi, quant_loss_dB, and feedback_info if enabled
@@ -654,6 +922,10 @@ class RISNetwork:
         # Set seed for reproducibility if provided
         if seed is not None:
             np.random.seed(seed)
+
+        channel_model_requested = self._normalize_connect_channel_model(
+            "simris" if channel_model is None else channel_model
+        )
 
         ap_node, ris_node, ue_node = self._resolve_connect_nodes(ap_name, ris_name, ue_name)
 
@@ -678,6 +950,52 @@ class RISNetwork:
         ap_key = ap.name if ap else ap_name
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
+
+        if channel_model_requested == "simris":
+            simris_supported, simris_fallback_reason = self._assess_simris_connect_support(
+                beam_angle_deg=beam_angle_deg,
+                enable_feedback=enable_feedback,
+                tapering=tapering,
+                fixed_ris_normal=fixed_ris_normal,
+                environment=environment,
+                scenario=scenario,
+            )
+            if simris_supported:
+                return self._evaluate_connect_via_simris(
+                    ap_name=ap_name,
+                    ris_name=ris_name,
+                    ue_name=ue_name,
+                    ap=ap,
+                    ris=ris,
+                    ue=ue,
+                    ap_node=ap_node,
+                    ris_node=ris_node,
+                    ue_node=ue_node,
+                    beam_angle_deg=beam_angle_deg,
+                    compute_phases=compute_phases,
+                    bandwidth_MHz=bandwidth_MHz,
+                    seed=seed,
+                    use_get_snr=use_get_snr,
+                    use_isolated_copy=use_isolated_copy,
+                    store_in_active_links=store_in_active_links,
+                    channel_model_requested=channel_model_requested,
+                    environment=environment,
+                    scenario=scenario,
+                    array_type=array_type,
+                    tx_antennas=tx_antennas,
+                    rx_antennas=rx_antennas,
+                    num_realizations=num_realizations,
+                    include_direct_path=include_direct_path,
+                    include_nlos=include_nlos,
+                    include_shadow_fading=include_shadow_fading,
+                    force_tx_ris_los=force_tx_ris_los,
+                    force_ris_rx_los=force_ris_rx_los,
+                    force_direct_los=force_direct_los,
+                    validate_preflight=validate_preflight,
+                    error_on_invalid=error_on_invalid,
+                )
+        else:
+            simris_fallback_reason = None
 
         geometry = self._resolve_connect_geometry(
             ap,
@@ -776,6 +1094,12 @@ class RISNetwork:
             beam_hits_ue=beam_hits_ue,
             phase_data=phase_data,
             rssi_dBm=rssi_dBm,
+        )
+        result = self._with_connect_channel_metadata(
+            result,
+            requested_model=channel_model_requested,
+            used_model="link_budget",
+            fallback_reason=simris_fallback_reason,
         )
 
         # Automatic CSI feedback and closed-loop adaptation

@@ -21,7 +21,6 @@ import math
 
 import numpy as np
 import pytest
-from scipy.special import erfc
 
 from core.physics import Physics
 
@@ -46,16 +45,16 @@ class TestEVMSNRRegression:
     """SNR_dB = −20·log10(EVM_rms). Frozen to 10 significant figures."""
 
     def test_snr_ris_off(self):
-        snr = -20.0 * math.log10(EVM_OFF_RMS)
+        snr = Physics.evm_to_snr_dB(EVM_OFF_PCT)
         assert snr == pytest.approx(4.8369075607, abs=1e-9)
 
     def test_snr_ris_on(self):
-        snr = -20.0 * math.log10(EVM_ON_RMS)
+        snr = Physics.evm_to_snr_dB(EVM_ON_PCT)
         assert snr == pytest.approx(12.2557639937, abs=1e-9)
 
     def test_snr_improvement(self):
-        snr_off = -20.0 * math.log10(EVM_OFF_RMS)
-        snr_on  = -20.0 * math.log10(EVM_ON_RMS)
+        snr_off = Physics.evm_to_snr_dB(EVM_OFF_PCT)
+        snr_on  = Physics.evm_to_snr_dB(EVM_ON_PCT)
         assert snr_on - snr_off == pytest.approx(7.4188564331, abs=1e-9)
 
     def test_evm_reduction_pct(self):
@@ -80,16 +79,16 @@ class TestBERRegression:
     """BER = 0.5·erfc(1/(√2·EVM_rms)). Frozen values."""
 
     def test_ber_ris_off(self):
-        ber = 0.5 * erfc(1.0 / (math.sqrt(2) * EVM_OFF_RMS))
+        ber = Physics.ber_qpsk_from_evm(EVM_OFF_PCT)
         assert ber == pytest.approx(0.0404749699, abs=1e-9)
 
     def test_ber_ris_on(self):
-        ber = 0.5 * erfc(1.0 / (math.sqrt(2) * EVM_ON_RMS))
+        ber = Physics.ber_qpsk_from_evm(EVM_ON_PCT)
         assert ber == pytest.approx(0.0000206538, abs=1e-10)
 
     def test_ber_ratio_off_over_on(self):
-        ber_off = 0.5 * erfc(1.0 / (math.sqrt(2) * EVM_OFF_RMS))
-        ber_on  = 0.5 * erfc(1.0 / (math.sqrt(2) * EVM_ON_RMS))
+        ber_off = Physics.ber_qpsk_from_evm(EVM_OFF_PCT)
+        ber_on  = Physics.ber_qpsk_from_evm(EVM_ON_PCT)
         assert ber_off / ber_on == pytest.approx(1959.6818, abs=0.01)
 
 
@@ -155,14 +154,14 @@ class TestReflectionLossRegression:
     """Reflection loss = 20·log10(|Γ|). Frozen for |Γ|=0.84."""
 
     def test_reflection_loss_frozen(self):
-        loss = 20.0 * math.log10(GAMMA_MAG)
+        loss = 20.0 * np.log10(GAMMA_MAG)
         assert loss == pytest.approx(-1.5144142788, abs=1e-9)
 
     def test_reflection_loss_is_negative(self):
-        assert 20.0 * math.log10(GAMMA_MAG) < 0.0
+        assert 20.0 * np.log10(GAMMA_MAG) < 0.0
 
     def test_perfect_reflector_gives_zero_loss(self):
-        assert 20.0 * math.log10(1.0) == pytest.approx(0.0, abs=1e-12)
+        assert 20.0 * np.log10(1.0) == pytest.approx(0.0, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------
@@ -174,18 +173,18 @@ class TestApertureGainDropRegression:
 
     def test_gain_drop_10_to_60_degrees_frozen(self):
         drop = (
-            10.0 * math.log10(math.cos(math.radians(60)))
-            - 10.0 * math.log10(math.cos(math.radians(10)))
+            10.0 * np.log10(np.cos(np.radians(60)))
+            - 10.0 * np.log10(np.cos(np.radians(10)))
         )
         assert drop == pytest.approx(-2.9438145463, abs=1e-9)
 
     def test_broadside_is_reference_zero(self):
         """At θ=0°, cos(0)=1 → 10·log10(1)=0 dB penalty."""
-        drop = 10.0 * math.log10(math.cos(math.radians(0)))
+        drop = 10.0 * np.log10(np.cos(np.radians(0)))
         assert drop == pytest.approx(0.0, abs=1e-12)
 
     def test_gain_decreases_monotonically_to_90deg(self):
         angles = [0, 15, 30, 45, 60, 75, 89]
-        gains = [10.0 * math.log10(math.cos(math.radians(a))) for a in angles]
+        gains = [10.0 * np.log10(np.cos(np.radians(a))) for a in angles]
         for i in range(len(gains) - 1):
             assert gains[i] > gains[i + 1]
