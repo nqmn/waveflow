@@ -1,3 +1,55 @@
+## Task: Document the Official SimRIS and LightRIS Engine Split
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the README/TUTORIAL wording and this task-log entry.
+Change budget: [files 3] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `README.md` — document the official engine split, default SimRIS-first behavior, fallback semantics, and explicit CLI/API examples.
+- `TUTORIAL.md` — teach the engine model, connect CLI flags, and the workflow ownership split between SimRIS and LightRIS.
+- `tasks/todo.md` — record this documentation task.
+
+### Steps
+- [x] Add an engine-overview section to README
+- [x] Update CLI/API examples to show explicit `simris` / `lightris` selection
+- [x] Update the tutorial to explain engine ownership and fallback behavior
+
+### Review
+- Completed: Updated `README.md` and `TUTORIAL.md` so the official two-engine model is now explicit: `SimRIS` as the reference stochastic engine and `LightRIS` as the native analytical engine. Documented default SimRIS-first `connect()` behavior, explicit fallback to `lightris`, CLI flags (`--channel-model`, `--environment`, `--scenario`), Python API examples for explicit engine selection, and the intentional ownership split where sweep/tapering/feedback remain LightRIS-native workflows.
+- Out-of-scope flagged: I did not change the implementation or run extra tests for this docs-only task; the code/test verification was already completed in the preceding integration task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This updates user-facing documentation only; it does not add new benchmark or publication-facing validation material.
+
+## Task: Complete Engine-Aware CLI Integration for SimRIS and LightRIS
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the CLI connect/demo option parsing, engine-aware output rendering, focused smoke/contract tests, and the test-suite/task-log wording for this task.
+Change budget: [files 5] [functions: `terminal_cli.connect`, `terminal_cli.demo_connect`, `ConnectionHandler.parse_flags`, `ConnectionHandler.execute_single_connect`, focused smoke/connect tests] [interfaces: CLI engine-selection surface for native connect/demo flows] [state mutations: none beyond existing connect snapshots]
+
+### Scope
+- `risnet/terminal_cli.py` — add official engine-selection options to native `ui connect` / `demo-connect` and surface requested/used engine metadata in the Rich output.
+- `cli/connection_handler.py` — parse and forward `channel_model`, `environment`, and `scenario` through the connect execution path.
+- `tests/test_smoke.py` and `tests/test_connect_characterization.py` — cover CLI-level engine selection and explicit SimRIS->LightRIS fallback visibility.
+- `tasks/test-suite.md` — keep test counts and CLI/connect coverage current.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add engine-aware CLI flag parsing for `ui connect` and `demo-connect`
+- [x] Surface requested/used/fallback engine metadata in CLI-facing connect output
+- [x] Add focused smoke/contract coverage and rerun regression
+
+### Review
+- Completed: Added official CLI engine-selection surface for the native UI connect/demo flows. `ConnectionHandler.parse_flags()` and `execute_single_connect()` now accept and forward `--channel-model`, `--environment`, and `--scenario`, while `risnet.terminal_cli.connect()` and `demo-connect` surface `channel_model_requested`, `channel_model_used`, and explicit fallback reasons in user-facing output. Added CLI smoke coverage for `demo-connect --channel-model simris` and for native `ui connect` visibly falling back from unsupported SimRIS requests to `lightris`. Verified with `pytest -q tests/test_smoke.py tests/test_connect_characterization.py tests/test_scenarios.py` (`87 passed`) and `pytest -q tests/test_smoke.py tests/test_lightris_channel.py tests/test_lightris_theory.py tests/test_connect_characterization.py tests/test_scenarios.py tests/test_simris_channel.py tests/test_simris_paper_formulas.py tests/test_simris_physics_regression.py` (`226 passed`).
+- Out-of-scope flagged: I did not try to make sweep/feedback/tapering workflows run on SimRIS end-to-end; those remain intentionally LightRIS-owned workflows and still rely on the documented engine boundary.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This completes official engine selection on the core connect path, scenario runner, and native CLI connect/demo surfaces. Remaining specialization is by design: beam-sweep, tapering-heavy, and feedback-heavy workflows stay LightRIS-native rather than being forced into partial SimRIS support.
+
 ## Task: Validate and Register Toubal 2025 Beam-Tracking Regression Suite
 Mode: Standard
 Risk: Low

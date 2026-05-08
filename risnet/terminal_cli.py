@@ -415,6 +415,12 @@ def run(argv: Optional[List[str]] = None) -> int:
         context.add_row("Feedback", "adaptive" if enable_feedback else "single-shot")
         context.add_row("Waveform", modulation if use_waveform else "disabled")
         context.add_row("Seed", "auto" if seed is None else str(seed))
+        if result.get("channel_model_requested") is not None:
+            context.add_row("Engine requested", str(result["channel_model_requested"]))
+        if result.get("channel_model_used") is not None:
+            context.add_row("Engine used", str(result["channel_model_used"]))
+        if result.get("channel_model_fallback_reason"):
+            context.add_row("Engine fallback", str(result["channel_model_fallback_reason"]))
         console.print(Panel(context, title="Connect Context", expand=False))
 
         geometry = Table(title="Connect Diagnostics")
@@ -1033,6 +1039,9 @@ def run(argv: Optional[List[str]] = None) -> int:
         r_cw = flags_result.get("r_cw", None)
         t_cw = flags_result.get("t_cw", None)
         tapering = flags_result.get("tapering", "uniform")
+        channel_model = flags_result.get("channel_model")
+        environment = flags_result.get("environment", "indoor")
+        scenario = flags_result.get("scenario", 1)
 
         if fov is not None:
             out = handler.execute_sweep(
@@ -1110,6 +1119,9 @@ def run(argv: Optional[List[str]] = None) -> int:
             seed,
             tapering=tapering,
             metric=metric,
+            channel_model=channel_model,
+            environment=environment,
+            scenario=scenario,
             print_func=_capture_print,
         )
         if res is None:
@@ -1339,6 +1351,9 @@ def run(argv: Optional[List[str]] = None) -> int:
     @app.command("demo-connect")
     def demo_connect(
         seed: int = typer.Option(42, "--seed", help="Seed for deterministic channel evaluation."),
+        channel_model: str = typer.Option("lightris", "--channel-model", help="Official channel engine: lightris or simris."),
+        environment: str = typer.Option("indoor", "--environment", help="SimRIS environment when channel-model=simris."),
+        scenario: int = typer.Option(1, "--scenario", help="SimRIS scenario when channel-model=simris."),
         ap_x: float = typer.Option(0.0, "--ap-x", help="AP x position."),
         ap_y: float = typer.Option(0.0, "--ap-y", help="AP y position."),
         ris_x: float = typer.Option(5.0, "--ris-x", help="RIS x position."),
@@ -1347,15 +1362,21 @@ def run(argv: Optional[List[str]] = None) -> int:
         ue_y: float = typer.Option(0.0, "--ue-y", help="UE y position."),
     ) -> None:
         """Run a deterministic AP-RIS-UE demo link and print metrics."""
-        from risnet.channels import LightRISChannel
-
         net = _new_network()
         net.add_ap("ap1", ap_x, ap_y)
         net.add_ris("ris1", ris_x, ris_y, max_angle_deg=180)
         net.add_ue("ue1", ue_x, ue_y)
 
-        evaluation = LightRISChannel().evaluate(
-            net, "ap1", "ris1", "ue1", seed=seed, use_get_snr=False,
+        result = net.connect(
+            "ap1",
+            "ris1",
+            "ue1",
+            seed=seed,
+            use_get_snr=False,
+            store_in_active_links=False,
+            channel_model=channel_model,
+            environment=environment,
+            scenario=scenario,
         )
 
         _render_network(net)
@@ -1363,8 +1384,12 @@ def run(argv: Optional[List[str]] = None) -> int:
         metrics = Table(title="Link Metrics")
         metrics.add_column("Metric", style="cyan")
         metrics.add_column("Value", justify="right")
+        metrics.add_row("channel_model_requested", str(result.get("channel_model_requested")))
+        metrics.add_row("channel_model_used", str(result.get("channel_model_used")))
+        if result.get("channel_model_fallback_reason"):
+            metrics.add_row("channel_model_fallback_reason", str(result.get("channel_model_fallback_reason")))
         for key in ("snr_dB", "pwr_dBm", "rssi_dBm", "gain_dBi", "quant_loss_dB", "beam_angle"):
-            metrics.add_row(key, f"{float(evaluation.result[key]):.3f}")
+            metrics.add_row(key, f"{float(result[key]):.3f}")
         console.print(metrics)
 
     # -------------------------------------------------------------------------

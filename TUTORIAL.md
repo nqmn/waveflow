@@ -41,6 +41,21 @@ PY
 OK — snr_dB: 29.9
 ```
 
+## Engine Model
+
+Waveflow currently exposes two official channel engines:
+
+| Engine | Purpose | Typical workflows |
+|---|---|---|
+| `simris` | Published/reference stochastic channel model | reference channel evaluation, supported `H/G/D` connect scenarios |
+| `lightris` | Native analytical RIS engine | sweep, tapering, feedback, fast system studies, ML data generation |
+
+Important rules:
+- `connect()` is **SimRIS-first** by default.
+- If a request is outside SimRIS support, Waveflow falls back explicitly to `lightris`.
+- The fallback is surfaced in both Python results and `waveflow ui` output.
+- Sweep / tapering / feedback remain `LightRIS`-native by design.
+
 ---
 
 # Beginner Tier
@@ -508,6 +523,21 @@ waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
 
 This is the same command surface used inside `waveflow ui shell`, so the one-shot and interactive experiences stay aligned.
 
+You can also select the engine explicitly:
+
+```bash
+# Reference stochastic engine
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --channel-model simris --environment indoor --scenario 1
+
+# Native analytical engine
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --channel-model lightris
+```
+
+When fallback happens, the output now shows:
+- `Engine requested`
+- `Engine used`
+- `Engine fallback`
+
 ### 2.16 Connect — Full Command Reference
 
 The `connect` command has several modes beyond the basic three-node form. All variants work in both the interactive shell and `waveflow ui`.
@@ -574,6 +604,24 @@ waveflow> connect ap1 ris1 ue1 --tapering hamming
 ```
 
 `--tapering` accepts: `uniform` (default), `hamming`, `hann`, `blackman`.
+
+**Engine selection:**
+
+```bash
+# Default behavior: request SimRIS first
+waveflow> connect ap1 ris1 ue1
+
+# Force SimRIS explicitly
+waveflow> connect ap1 ris1 ue1 --channel-model simris --environment indoor --scenario 1
+
+# Force LightRIS explicitly
+waveflow> connect ap1 ris1 ue1 --channel-model lightris
+```
+
+Notes:
+- `--environment` and `--scenario` matter only for `simris`
+- if a SimRIS request is unsupported, the command falls back to `lightris` with an explicit reason
+- explicit beam steering, tapering-heavy connect flows, and feedback-heavy control flows are intentionally `LightRIS`-native today
 
 **Feedback control:**
 
@@ -674,6 +722,14 @@ Running the same command in CI?    → waveflow ui connect (one-shot)
 Demoing to someone over SSH?       → waveflow ui shell   (modern interactive shell)
 Need direct Rich output from JSON? → waveflow ui status/list/connect
 Need one-off legacy compatibility? → waveflow ui run <command>
+```
+
+Engine choice rule of thumb:
+
+```text
+Need literature-style reference channel behavior?  → simris
+Need fast control / sweep / feedback workflows?    → lightris
+Need no special choice?                            → omit channel_model and let connect() choose
 ```
 
 ---

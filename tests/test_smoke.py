@@ -257,6 +257,78 @@ def test_typer_rich_demo_connect_from_outside_repo():
     assert "snr_dB" in result.stdout
 
 
+def test_typer_rich_demo_connect_accepts_official_simris_engine():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "demo-connect",
+            "--seed",
+            "42",
+            "--channel-model",
+            "simris",
+            "--environment",
+            "indoor",
+            "--scenario",
+            "1",
+            "--ap-y",
+            "25",
+            "--ris-x",
+            "40",
+            "--ris-y",
+            "50",
+            "--ue-x",
+            "38",
+            "--ue-y",
+            "48",
+        ],
+        cwd="/tmp",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "channel_model_requested" in result.stdout
+    assert "simris" in result.stdout
+
+
+def test_native_ui_connect_surfaces_engine_fallback_metadata():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "risnet",
+            "ui",
+            "connect",
+            "--topology",
+            "examples/json/example_1_simple.json",
+            "AP1",
+            "R1",
+            "UE1",
+            "--channel-model",
+            "simris",
+            "--beam",
+            "45",
+            "--seed",
+            "42",
+            "--no-feedback",
+            "--no-waveform",
+        ],
+        cwd="/home/user/project/risnet",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "Engine requested" in result.stdout
+    assert "Engine used" in result.stdout
+    assert "Engine fallback" in result.stdout
+    assert "simris" in result.stdout
+    assert "lightris" in result.stdout
+
+
 def test_typer_rich_signal_wrapper_supports_breakdown():
     result = subprocess.run(
         [

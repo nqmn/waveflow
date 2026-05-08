@@ -155,7 +155,10 @@ class ConnectionHandler:
             'mock_trajectory': 'circular',  # Mock camera trajectory type
             'r_cw': 'rotation.npy',  # Camera-to-world rotation matrix (default path)
             't_cw': 'translation.npy',  # Camera-to-world translation vector (default path)
-            'tapering': 'uniform'  # Tapering window (uniform, hamming, hann, blackman)
+            'tapering': 'uniform',  # Tapering window (uniform, hamming, hann, blackman)
+            'channel_model': None,
+            'environment': 'indoor',
+            'scenario': 1,
         }
 
         parts = list(parts)  # Make a copy
@@ -320,6 +323,28 @@ class ConnectionHandler:
                 result['tapering'] = parts[idx + 1]
             parts = parts[:idx] + parts[idx+2:]
 
+        if '--channel-model' in parts:
+            idx = parts.index('--channel-model')
+            if idx + 1 < len(parts):
+                result['channel_model'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
+        if '--environment' in parts:
+            idx = parts.index('--environment')
+            if idx + 1 < len(parts):
+                result['environment'] = parts[idx + 1]
+            parts = parts[:idx] + parts[idx+2:]
+
+        if '--scenario' in parts:
+            idx = parts.index('--scenario')
+            if idx + 1 < len(parts):
+                try:
+                    result['scenario'] = int(parts[idx + 1])
+                except ValueError:
+                    result['error_msg'] = "Error: --scenario must be an integer (1 or 2)"
+                    return result
+            parts = parts[:idx] + parts[idx+2:]
+
         # Helper to check if token is a number
         def _is_number(token):
             try:
@@ -331,7 +356,7 @@ class ConnectionHandler:
         # Check for unknown flags
         unknown_flags = [p for p in parts if (p.startswith('-') and not _is_number(p))]
         if unknown_flags:
-            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --use-mock, --mock-trajectory, --r-cw, --t-cw, --tapering, --no-waveform, --no-feedback"
+            result['error_msg'] = f"Error: Unknown flag(s): {', '.join(unknown_flags)}\nValid flags: --sweep, --algo, --metric, --modulation, --ml-predictor, --enable-codebook-validation, --codebook-increment, --codebook-neighbors, --codebook-start, --codebook-end, --codebook-step, --no-predicted-angle, --use-mock, --mock-trajectory, --r-cw, --t-cw, --tapering, --channel-model, --environment, --scenario, --no-waveform, --no-feedback"
             return result
 
         # Validate flag combinations
@@ -355,7 +380,7 @@ class ConnectionHandler:
 
         return result
 
-    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering='uniform', metric='snr', print_func=print):
+    def execute_single_connect(self, ap, ris, ue, angle, enable_feedback, use_waveform, modulation, seed, tapering='uniform', metric='snr', channel_model=None, environment='indoor', scenario=1, print_func=print):
         """Execute single-angle connect measurement
 
         Args:
@@ -411,9 +436,19 @@ class ConnectionHandler:
 
             print_func(f"\n[STEP 3] Calculate RIS Phase Configuration & Path Loss & Array Gain")
 
-            res = self.net.connect(ap, ris, ue, beam_angle_deg=angle, seed=seed,
-                                  enable_feedback=enable_feedback, max_feedback_iterations=3,
-                                  tapering=tapering)
+            res = self.net.connect(
+                ap,
+                ris,
+                ue,
+                beam_angle_deg=angle,
+                seed=seed,
+                enable_feedback=enable_feedback,
+                max_feedback_iterations=3,
+                tapering=tapering,
+                channel_model=channel_model,
+                environment=environment,
+                scenario=scenario,
+            )
 
             # Show phase configuration results
             print_func(f"  Phase Configuration:")
@@ -447,6 +482,12 @@ class ConnectionHandler:
                 print_func(f"    RIS array gain + antenna gains: {res['gain_dBi']:.2f} dBi")
             if 'quant_loss_dB' in res and res['quant_loss_dB'] != 0:
                 print_func(f"    Quantization loss: {abs(float(res['quant_loss_dB'])):.3f} dB")
+            if res.get('channel_model_requested') is not None:
+                print_func(f"    Engine requested: {res['channel_model_requested']}")
+            if res.get('channel_model_used') is not None:
+                print_func(f"    Engine used: {res['channel_model_used']}")
+            if res.get('channel_model_fallback_reason'):
+                print_func(f"    Engine fallback: {res['channel_model_fallback_reason']}")
 
             print_func(f"\n[STEP 4] Query SNR from UE (via Control Channel)")
             print_func(f"  Action: Controller queries UE for measured SNR...")

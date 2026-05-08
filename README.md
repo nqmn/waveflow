@@ -44,6 +44,21 @@ Step-by-step tutorials: **[TUTORIAL.md](TUTORIAL.md)**
 | **Validation** | 14-section physics validation suite, 66 pytest checks against analytical reference values |
 | **MATLAB** | Optional bridge for far-field beam pattern plots and phase visualisation |
 
+## Channel Engines
+
+Waveflow now exposes two official RIS channel engines:
+
+| Engine | Role | Best for |
+|---|---|---|
+| `simris` | Published/reference stochastic channel engine | literature-aligned channel studies, `H/G/D` channel tensors, supported channel-aware connect scenarios |
+| `lightris` | Native analytical engine | fast system-level evaluation, beam control, tapering-aware workflows, feedback loops, large sweeps, ML dataset generation |
+
+Design intent:
+- `SimRIS` and `LightRIS` are complementary, not replacements for each other.
+- `connect()` is now **SimRIS-first** by default.
+- If a request is outside current SimRIS support, Waveflow falls back explicitly to `lightris` and reports the reason in the result metadata and CLI output.
+- Sweep, tapering-heavy, and feedback-heavy workflows remain `LightRIS`-native by design.
+
 ## Usage
 
 ### Interactive CLI
@@ -91,6 +106,12 @@ waveflow ui status --topology examples/json/example_1_simple.json
 
 # Connect and get link metrics
 waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json
+
+# Force the reference engine explicitly
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --channel-model simris --environment indoor --scenario 1
+
+# Force the native analytical engine explicitly
+waveflow ui connect AP1 R1 UE1 --topology examples/json/example_1_simple.json --channel-model lightris
 
 # Beam sweep with live progress bar
 waveflow ui sweep AP1 R1 UE1 --topology examples/json/example_1_simple.json --fov 60 --step 10
@@ -152,7 +173,37 @@ print(f"SNR:        {result['snr_dB']:.1f} dB")
 print(f"Beam angle: {result['beam_angle']:.1f}°")
 print(f"Array gain: {result['gain_dBi']:.1f} dBi")
 print(f"Quant loss: {result['quant_loss_dB']:.2f} dB")
+print(f"Engine used: {result['channel_model_used']}")
 ```
+
+Explicit engine selection:
+
+```python
+simris_result = net.connect(
+    'ap1',
+    'ris1',
+    'ue1',
+    channel_model='simris',
+    environment='indoor',
+    scenario=1,
+    use_get_snr=False,
+)
+
+lightris_result = net.connect(
+    'ap1',
+    'ris1',
+    'ue1',
+    channel_model='lightris',
+    use_get_snr=False,
+)
+```
+
+Notes:
+- If `channel_model` is omitted, `connect()` requests `simris` first.
+- Unsupported SimRIS requests fall back to `lightris` with:
+  - `channel_model_requested`
+  - `channel_model_used`
+  - `channel_model_fallback_reason`
 
 ### Headless Scenario Runner
 
