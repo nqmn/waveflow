@@ -1,3 +1,30 @@
+## Task: Prepare Release 2.0.3 and PyPI Tag Trigger
+Mode: Standard
+Risk: High
+Confidence: Stable
+Operational risk: Broad / Partial
+Rollback plan: Revert the version bumps in `pyproject.toml` / `setup.py`, restore the prior tag filter in `.github/workflows/publish.yml`, and delete the `2.0.3` tag before it is pushed if validation fails.
+Change budget: [files 4] [functions: none] [interfaces: package metadata version and publish-tag CI trigger] [state mutations: git tag only after validation]
+
+### Scope
+- `pyproject.toml` — bump the canonical package version from `2.0.2` to `2.0.3`.
+- `setup.py` — keep the legacy setuptools mirror version aligned to `2.0.3`.
+- `.github/workflows/publish.yml` — allow the PyPI publish workflow to trigger from bare semantic tags such as `2.0.3`, not only `v*`.
+- `tasks/todo.md` — record this release-preparation task.
+
+### Steps
+- [x] Bump package metadata to `2.0.3`
+- [x] Expand the publish workflow tag filter to accept bare semantic tags
+- [x] Validate local build metadata
+- [ ] Create the `2.0.3` git tag
+
+### Review
+- Completed: Raised the package metadata in `pyproject.toml` and `setup.py` to `2.0.3`, expanded `.github/workflows/publish.yml` so PyPI publication can be triggered by a bare semantic tag like `2.0.3` in addition to the previous `v*` pattern, corrected the PEP 621 license field to use the checked-in `LICENSE` file, and verified the release metadata locally with `python3 -m build --no-isolation`, which successfully produced both the sdist and wheel for `2.0.3`.
+- Out-of-scope flagged: I did not push a tag or publish to PyPI from this environment; that remains gated by the repository remote and PyPI credentials configured in GitHub Actions.
+- Assumptions invalidated: None so far.
+- Known debt (acknowledged):
+- Limitations: The package metadata is now locally buildable, but publishing still depends on pushing the commit/tag to the repository remote so GitHub Actions can upload to PyPI.
+
 ## Task: Validate Burtakov 2023 QRIS Regression Suite Registration
 Mode: Standard
 Risk: Low

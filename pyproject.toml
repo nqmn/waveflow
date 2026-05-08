@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "waveflow-sim"
-version = "2.0.2"
+version = "2.0.3"
 description = "Waveflow: RIS-assisted wireless network simulator with beam sweeping, OFDM waveform simulation, and ML-guided beam optimization"
 readme = "README.md"
 requires-python = ">=3.7"
-license = "Apache-2.0"
+license = { file = "LICENSE" }
 authors = [
     {name = "Mohd Adil Mokti"},
 ]

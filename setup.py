@@ -52,7 +52,7 @@ EXTRAS_REQUIRE["all"] = sorted(
 
 setup(
     name="waveflow",
-    version="2.0.2",
+    version="2.0.3",
     description="Waveflow: wireless propagation, waveform, and RIS-assisted network simulator",
     install_requires=BASE_REQUIRES,
     extras_require=EXTRAS_REQUIRE,
