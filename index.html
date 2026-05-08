@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waveflow v2.0 - RIS Network Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            400: '#2dd4bf',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                        },
+                        dark: {
+                            900: '#0f1115',
+                            800: '#161b22',
+                            700: '#21262d',
+                        }
+                    }
+                }
+            }
+        };
+    </script>
+    <style>
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            background-image:
+                radial-gradient(circle at 15% 50%, rgba(20, 184, 166, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 30%, rgba(14, 165, 233, 0.08) 0%, transparent 40%);
+            background-attachment: fixed;
+            overflow-x: hidden;
+        }
+
+        .gradient-text {
+            background: linear-gradient(to right, #2dd4bf, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glass-panel {
+            background: rgba(22, 27, 34, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .terminal-glow {
+            box-shadow: 0 0 60px -15px rgba(45, 212, 191, 0.25);
+        }
+
+        .accordion-content {
+            transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out, padding 0.3s ease;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        .accordion-content.open {
+            max-height: 200px;
+            opacity: 1;
+            padding-bottom: 1.5rem;
+        }
+
+        .accordion-icon {
+            transition: transform 0.3s ease;
+        }
+
+        .accordion-button.active .accordion-icon {
+            transform: rotate(45deg);
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+
+    <nav class="fixed top-0 w-full z-50 glass-panel border-b border-white/5">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center gap-2 cursor-pointer">
+                    <i data-lucide="waves" class="w-6 h-6 text-brand-400"></i>
+                    <span class="font-bold text-xl tracking-tight">Waveflow</span>
+                </div>
+                <div class="hidden md:flex items-center space-x-8 text-sm font-medium text-gray-300">
+                    <a href="https://github.com/nqmn/waveflow" target="_blank" rel="noreferrer" class="hover:text-white transition-colors flex items-center gap-2">
+                        <i data-lucide="github" class="w-4 h-4"></i> GitHub
+                    </a>
+                    <a href="https://github.com/nqmn/waveflow/blob/main/TUTORIAL.md" target="_blank" rel="noreferrer" class="hover:text-white transition-colors flex items-center gap-2">
+                        <i data-lucide="book" class="w-4 h-4"></i> Docs
+                    </a>
+                    <a href="#install" class="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-all border border-white/10">
+                        Install Now
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow pt-32 pb-20">
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-400 text-xs font-semibold mb-8">
+                <i data-lucide="sparkles" class="w-3 h-3"></i>
+                <span>v2.0 Available on PyPI</span>
+            </div>
+
+            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-tight">
+                Simulate RIS systems <br class="hidden md:block">
+                <span class="gradient-text">before you build them.</span>
+            </h1>
+
+            <p class="text-lg md:text-xl text-gray-400 mb-10 max-w-3xl mx-auto leading-relaxed">
+                Stop wrestling with expensive physical prototypes and fragmented data silos. Waveflow natively combines
+                propagation physics, ML-guided beam sweeping, and link quality analysis
+                into a highly-efficient Python engine. It just works.
+            </p>
+
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mb-20">
+                <a href="https://github.com/nqmn/waveflow" target="_blank" rel="noreferrer" class="w-full sm:w-auto flex items-center justify-center gap-2 bg-brand-500 hover:bg-brand-400 text-dark-900 font-semibold px-6 py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(45,212,191,0.3)] hover:shadow-[0_0_30px_rgba(45,212,191,0.5)]">
+                    <i data-lucide="star" class="w-5 h-5 fill-current"></i>
+                    Star on GitHub
+                </a>
+                <a href="#terminal" class="w-full sm:w-auto flex items-center justify-center gap-2 glass-panel hover:bg-white/10 text-white font-semibold px-6 py-3 rounded-xl transition-all border border-white/10">
+                    See how it works
+                </a>
+            </div>
+
+            <div id="terminal" class="max-w-4xl mx-auto bg-dark-800 rounded-2xl overflow-hidden border border-white/10 terminal-glow text-left">
+                <div class="flex items-center px-4 py-3 bg-[#0d1117] border-b border-white/5">
+                    <div class="flex gap-2">
+                        <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                        <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+                    </div>
+                    <div class="mx-auto text-xs text-gray-500 font-mono">interactive_cli — waveflow</div>
+                </div>
+                <div class="p-6 font-mono text-sm md:text-base leading-relaxed overflow-x-auto whitespace-nowrap">
+                    <div class="text-gray-500 mb-2"># Set up a smart RIS network in seconds.</div>
+                    <div class="flex"><span class="text-brand-400 mr-2">waveflow&gt;</span><span class="text-gray-300">add ap ap1 0 0</span></div>
+                    <div class="flex"><span class="text-brand-400 mr-2">waveflow&gt;</span><span class="text-gray-300">add ris ris1 5 0 0 16 2</span></div>
+                    <div class="flex"><span class="text-brand-400 mr-2">waveflow&gt;</span><span class="text-gray-300">add ue ue1 10 3</span></div>
+                    <div class="flex"><span class="text-brand-400 mr-2">waveflow&gt;</span><span class="text-cyan-300">connect ap1 ris1 ue1</span></div>
+                    <div class="text-emerald-400 mt-2 font-semibold">SNR: 29.9 dB   Power: -52.3 dBm   Beam angle: 16.7°</div>
+                    <div class="text-gray-500 mt-4 mb-1"># Run ML-guided beam prediction</div>
+                    <div class="flex"><span class="text-brand-400 mr-2">waveflow&gt;</span><span class="text-gray-300">sweep ap1 ris1 ue1 60 10 --algo ml-guided --ml-predictor rf</span></div>
+                    <div class="text-emerald-400 mt-2 font-semibold">Initiating ML Prediction... Best Angle Found: 16.5°</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-24">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center border-y border-white/5 py-12">
+                <div>
+                    <div class="text-4xl font-bold text-white mb-2">2</div>
+                    <div class="text-xs tracking-widest text-gray-500 uppercase">Channel Engines<br>(SimRIS &amp; LightRIS)</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-white mb-2">5+</div>
+                    <div class="text-xs tracking-widest text-gray-500 uppercase">Beam Sweep<br>Algorithms</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-white mb-2">OFDM</div>
+                    <div class="text-xs tracking-widest text-gray-500 uppercase">Waveform<br>Simulation</div>
+                </div>
+                <div>
+                    <div class="text-4xl font-bold text-white mb-2">504</div>
+                    <div class="text-xs tracking-widest text-gray-500 uppercase">Pytest Checks<br>Verified</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl font-bold mb-4">The workflow you were going to build</h2>
+                <p class="text-gray-400 max-w-2xl mx-auto">
+                    Most research teams ship with physical RIS boards + anechoic chambers + disconnected ML scripts + manual path loss math. That&apos;s a lot of overhead. Waveflow is one unified engine.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6 text-left">
+                <div class="glass-panel p-8 rounded-2xl border border-red-500/20 bg-gradient-to-b from-transparent to-red-950/10">
+                    <div class="text-xs text-red-400 font-bold tracking-wider mb-6">BEFORE — Physical Hardware &amp; Glue Code</div>
+                    <ul class="space-y-4">
+                        <li class="flex items-start gap-3 text-gray-400">
+                            <i data-lucide="x" class="w-5 h-5 text-red-500 shrink-0 mt-0.5"></i>
+                            <span>Build and maintain <b>expensive physical</b> RIS prototypes.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-400">
+                            <i data-lucide="x" class="w-5 h-5 text-red-500 shrink-0 mt-0.5"></i>
+                            <span>Rely on slow, <b>brute-force</b> blind beam search algorithms.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-400">
+                            <i data-lucide="x" class="w-5 h-5 text-red-500 shrink-0 mt-0.5"></i>
+                            <span>Calculate FSPL, attenuation, and Rician fading <b>manual</b>.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-400">
+                            <i data-lucide="x" class="w-5 h-5 text-red-500 shrink-0 mt-0.5"></i>
+                            <span>Write custom Python glue code to connect your ML models to your physics math.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-red-400/80 bg-red-500/10 p-4 rounded-xl mt-6 text-sm border border-red-500/10">
+                            <i data-lucide="alert-triangle" class="w-5 h-5 shrink-0"></i>
+                            Weeks of setup time, difficult to gather synthetic data for ML, hard to reproduce results.
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="glass-panel p-8 rounded-2xl border border-brand-500/30 bg-gradient-to-b from-brand-900/10 to-transparent relative overflow-hidden">
+                    <div class="text-xs text-brand-400 font-bold tracking-wider mb-6 relative z-10">AFTER — One Python Library</div>
+                    <ul class="space-y-4 relative z-10">
+                        <li class="flex items-start gap-3 text-gray-200">
+                            <i data-lucide="check" class="w-5 h-5 text-brand-400 shrink-0 mt-0.5"></i>
+                            <span><b>Waveflow</b> — Virtual 2D/3D node placement with walls and obstacles.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-200">
+                            <i data-lucide="check" class="w-5 h-5 text-brand-400 shrink-0 mt-0.5"></i>
+                            <span><b>Waveflow</b> — Dual channel engines (Stochastic SimRIS &amp; Analytical LightRIS).</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-200">
+                            <i data-lucide="check" class="w-5 h-5 text-brand-400 shrink-0 mt-0.5"></i>
+                            <span><b>Waveflow</b> — Built-in ML predictors (RF, XGBoost, SVR, KNN, LGBM).</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-200">
+                            <i data-lucide="check" class="w-5 h-5 text-brand-400 shrink-0 mt-0.5"></i>
+                            <span><b>Waveflow</b> — Built-in OFDM simulation (Per-subcarrier SNR, PAPR).</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-gray-200">
+                            <i data-lucide="check" class="w-5 h-5 text-brand-400 shrink-0 mt-0.5"></i>
+                            <span><b>Waveflow</b> — Rich terminal UI, Interactive CLI, and scriptable Python API.</span>
+                        </li>
+                    </ul>
+                    <div class="mt-8 pt-6 border-t border-white/10 relative z-10">
+                        <p class="text-sm text-brand-300">One import joins them natively. Ship your research, not the plumbing.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl font-bold mb-4">Dual Channel Engines: SimRIS &amp; LightRIS</h2>
+                <p class="text-gray-400 max-w-2xl mx-auto">
+                    Waveflow doesn&apos;t force a single physics model. It ships with two complementary engines, allowing you to seamlessly switch between deep literature-aligned validation and high-speed simulation.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass-panel p-6 sm:p-8 rounded-2xl border border-white/10 hover:border-brand-500/30 transition-colors">
+                    <div class="flex items-center gap-4 mb-6">
+                        <div class="p-3 bg-white/5 rounded-xl text-white">
+                            <i data-lucide="book-open" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-white">SimRIS Engine</h3>
+                            <p class="text-sm text-brand-400 font-mono">Stochastic / Reference</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-400 mb-6 min-h-[48px]">The reference stochastic channel engine, integrated from <a href="https://ieeexplore.ieee.org/document/9282349" target="_blank" rel="noreferrer" class="text-brand-400 hover:text-brand-300 underline underline-offset-2 transition-colors">published articles</a> to enhance Waveflow. Used by default for <code class="bg-black/30 px-1 py-0.5 rounded text-brand-300">connect()</code> scenarios.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Best for <b>literature-aligned</b> channel studies and validation.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Generates full <b>H/G/D channel tensors</b> for deep physical analysis.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Ideal for supported channel-aware single link evaluations.</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <div class="glass-panel p-6 sm:p-8 rounded-2xl border border-white/10 hover:border-brand-500/30 transition-colors">
+                    <div class="flex items-center gap-4 mb-6">
+                        <div class="p-3 bg-brand-500/10 rounded-xl text-brand-400">
+                            <i data-lucide="zap" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-white">LightRIS Engine</h3>
+                            <p class="text-sm text-brand-400 font-mono">Analytical / Native</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-400 mb-6 min-h-[48px]">Waveflow&apos;s native analytical engine. Built explicitly for high-speed performance and massive scale sweeps.</p>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Best for <b>fast system-level evaluation</b> and generating ML datasets.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Native, optimal performance for <b>large beam sweeps</b> and feedback loops.</span>
+                        </li>
+                        <li class="flex items-start gap-3 text-sm text-gray-300">
+                            <i data-lucide="check-circle-2" class="w-5 h-5 text-brand-500 shrink-0 mt-0.5"></i>
+                            <span>Supports advanced beam control and tapering-aware workflows.</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
+            <h2 class="text-3xl font-bold mb-10 text-center">The questions you&apos;re about to ask</h2>
+
+            <div class="space-y-4">
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Isn&apos;t this just a free-space path loss calculator?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        No. While it includes FSPL, Waveflow natively calculates atmospheric absorption, Rician fading, mutual coupling, RIS array gain, and phase quantization loss (1–4 bit) out of the box.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">What&apos;s the difference between SimRIS and LightRIS?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        SimRIS is our published/reference stochastic channel engine, perfect for literature-aligned channel studies. LightRIS is our native analytical engine built for fast system-level evaluation, ML dataset generation, and large beam sweeps.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Can I use my own Machine Learning models?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Yes. Waveflow includes Random Forest, XGBoost, SVR, KNN, and LGBM built-in, but the architecture allows you to easily inject your own custom PyTorch or Scikit-Learn models into the beam sweeping pipeline.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Do I need MATLAB installed to use this?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Not at all. Waveflow is 100% Python. However, we do include an optional MATLAB bridge (`MatlabBridge`) that you can lazy-load if you want to generate 3D far-field beam pattern plots. If you don&apos;t have MATLAB, everything else still works flawlessly.
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="install" class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 mt-32 text-center">
+            <h2 class="text-3xl font-bold mb-6">Ship AI wireless products, not plumbing.</h2>
+            <p class="text-gray-400 mb-8">Install Waveflow today and start simulating your RIS networks in minutes.</p>
+
+            <div class="flex flex-col sm:flex-row justify-center items-center gap-4 mb-12">
+                <div class="flex items-center glass-panel pl-4 pr-1 py-1 rounded-xl border border-white/10 w-full sm:w-auto">
+                    <span class="font-mono text-gray-300 mr-4">pip install waveflow-sim</span>
+                    <button onclick="copyInstallCmd()" class="bg-white/10 hover:bg-white/20 p-2 rounded-lg transition-colors group" title="Copy to clipboard">
+                        <i data-lucide="copy" class="w-4 h-4 text-gray-400 group-hover:text-white"></i>
+                    </button>
+                </div>
+                <a href="https://github.com/nqmn/waveflow" target="_blank" rel="noreferrer" class="w-full sm:w-auto bg-brand-500 hover:bg-brand-400 text-dark-900 font-semibold px-6 py-3.5 rounded-xl transition-all shadow-[0_0_15px_rgba(45,212,191,0.2)]">
+                    Read Documentation
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <footer class="border-t border-white/5 py-8 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-2 text-gray-500 text-sm">
+                <i data-lucide="waves" class="w-4 h-4"></i>
+                <span>© 2026 Mohd Adil Mokti. Apache 2.0 License.</span>
+            </div>
+            <div class="flex gap-6 text-gray-500">
+                <a href="https://github.com/nqmn/waveflow" target="_blank" rel="noreferrer" class="hover:text-white transition-colors">
+                    <i data-lucide="github" class="w-5 h-5"></i>
+                </a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        function toggleAccordion(button) {
+            const content = button.nextElementSibling;
+            const isOpen = content.classList.contains('open');
+
+            document.querySelectorAll('.accordion-content').forEach((el) => {
+                el.classList.remove('open');
+            });
+            document.querySelectorAll('.accordion-button').forEach((el) => {
+                el.classList.remove('active');
+            });
+
+            if (!isOpen) {
+                content.classList.add('open');
+                button.classList.add('active');
+            }
+        }
+
+        function copyInstallCmd() {
+            navigator.clipboard.writeText('pip install waveflow-sim');
+            alert('Copied to clipboard!');
+        }
+    </script>
+</body>
+</html>

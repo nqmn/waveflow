@@ -1,3 +1,27 @@
+## Task: Add Root Landing Page `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Remove the new root `index.html` file and revert this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: new static landing page only] [state mutations: none]
+
+### Scope
+- `index.html` — add the provided marketing landing page as a new root static file.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Confirm the repo does not already have a root `index.html`
+- [x] Add the provided landing page as `index.html`
+- [x] Verify the added file content and working-tree scope
+
+### Review
+- Completed: Confirmed there was no existing root `index.html`, then added the provided Waveflow landing page as a new static root file. Verified that the resulting working-tree scope is limited to `index.html` and this task-log entry.
+- Out-of-scope flagged: I did not wire this page into any deployment, Python route, or docs navigation, and I did not modify existing HTML files under `risformula/`.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This adds a static HTML entry page only; it does not wire deployment, asset bundling, or automated browser tests.
+
 ## Task: Prepare Release 2.0.3 and PyPI Tag Trigger
 Mode: Standard
 Risk: High
