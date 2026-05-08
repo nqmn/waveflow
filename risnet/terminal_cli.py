@@ -62,7 +62,7 @@ def run(argv: Optional[List[str]] = None) -> int:
         from cli.main_shell import RISNetCLI
 
         net = net or _new_network_with_controller()
-        cli = RISNetCLI(net)
+        cli = RISNetCLI(net, auto_load=False)
         if topology is not None:
             cli._load_network_from_file(str(topology))
         return cli

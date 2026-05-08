@@ -31,14 +31,14 @@ class RISNetCLI(cmd.Cmd):
     intro = "Welcome to Waveflow CLI. Type help or ? to list commands."
     prompt = "waveflow> "
 
-    def __init__(self, net):
+    def __init__(self, net, auto_load=True):
         super().__init__()
         self.net = net
         self.topology_helper = TopologyHelper(net)
         self.network_io = NetworkIO()
         self.connection_handler = ConnectionHandler(net)
-        # Load network state on startup
-        self._load_network()
+        if auto_load:
+            self._load_network()
         # Setup tab completion
         self._setup_completer()
 

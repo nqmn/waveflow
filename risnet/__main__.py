@@ -20,7 +20,6 @@ def _run_web(net, controller, host="127.0.0.1", port=5000):
     controller_safe = ThreadSafeController(controller)
 
     state_mgr = WebStateManager()
-    state_mgr.load_network(net_safe)
 
     app = create_app(net_safe, controller_safe, state_mgr)
 

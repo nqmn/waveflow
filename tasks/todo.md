@@ -1,3 +1,29 @@
+## Task: Commit Pending CLI Startup State-Loading Fixes
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the startup-loading edits in `cli/main_shell.py`, `risnet/terminal_cli.py`, and `risnet/__main__.py`, then rerun the CLI smoke suite.
+Change budget: [files 4] [functions: `RISNetCLI.__init__`, terminal CLI shell bootstrap, web bootstrap state initialization] [interfaces: CLI/web startup behavior only] [state mutations: startup load behavior]
+
+### Scope
+- `cli/main_shell.py` — allow shell startup to skip auto-loading persisted state when the caller already controls topology loading.
+- `risnet/terminal_cli.py` — instantiate `RISNetCLI` with `auto_load=False` on the modern terminal path.
+- `risnet/__main__.py` — stop preloading the web state manager with the thread-safe network at bootstrap.
+- `tasks/todo.md` — record this scoped startup-fix task.
+
+### Steps
+- [x] Review the pending startup-loading diffs and confirm they belong to one behavior fix
+- [x] Run the CLI/entrypoint smoke suite against the pending changes
+- [x] Commit the three related files as one scoped batch
+
+### Review
+- Completed: Confirmed the pending diffs are one coherent startup-loading fix: `RISNetCLI` can now skip auto-loading persisted state when the caller already controls topology/bootstrap flow, the modern terminal path opts into that behavior, and the web bootstrap no longer preloads the state manager with the thread-safe network. Verified with `pytest -q tests/test_smoke.py`, which passed cleanly (`35 passed in 32.06s`).
+- Out-of-scope flagged: I did not change the local `.claude/settings.local.json`, nor did I modify any tests or documentation beyond this task log.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This task validates the existing smoke coverage only; it does not add new targeted tests for `auto_load=False` or web state-manager bootstrap semantics.
+
 ## Task: Point Landing Page Documentation CTA to `TUTORIAL.md`
 Mode: Standard
 Risk: Low
