@@ -79,6 +79,18 @@
         .accordion-button.active .accordion-icon {
             transform: rotate(45deg);
         }
+
+        .mobile-menu {
+            transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+            max-height: 0;
+            opacity: 0;
+            overflow: hidden;
+        }
+
+        .mobile-menu.open {
+            max-height: 320px;
+            opacity: 1;
+        }
     </style>
 </head>
 <body class="antialiased min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
@@ -98,6 +110,21 @@
                         <i data-lucide="book" class="w-4 h-4"></i> Docs
                     </a>
                     <a href="#install" class="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-all border border-white/10">
+                        Install Now
+                    </a>
+                </div>
+                <button id="mobile-menu-button" class="md:hidden inline-flex items-center justify-center p-2 rounded-lg border border-white/10 bg-white/5 text-gray-200 hover:bg-white/10 transition-colors" aria-label="Open navigation menu" aria-expanded="false" aria-controls="mobile-menu" onclick="toggleMobileMenu()">
+                    <i data-lucide="menu" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div id="mobile-menu" class="mobile-menu md:hidden">
+                <div class="pb-4 flex flex-col gap-2 text-sm font-medium text-gray-300">
+                    <a href="#terminal" class="px-3 py-2 rounded-lg hover:bg-white/5 transition-colors" onclick="closeMobileMenu()">See how it works</a>
+                    <a href="#engines" class="px-3 py-2 rounded-lg hover:bg-white/5 transition-colors" onclick="closeMobileMenu()">Channel Engines</a>
+                    <a href="#faq" class="px-3 py-2 rounded-lg hover:bg-white/5 transition-colors" onclick="closeMobileMenu()">FAQ</a>
+                    <a href="https://github.com/nqmn/waveflow/blob/main/TUTORIAL.md" target="_blank" rel="noreferrer" class="px-3 py-2 rounded-lg hover:bg-white/5 transition-colors" onclick="closeMobileMenu()">Docs</a>
+                    <a href="https://github.com/nqmn/waveflow" target="_blank" rel="noreferrer" class="px-3 py-2 rounded-lg hover:bg-white/5 transition-colors" onclick="closeMobileMenu()">GitHub</a>
+                    <a href="#install" class="mt-2 bg-white/10 hover:bg-white/20 text-white px-4 py-3 rounded-lg transition-all border border-white/10 text-center" onclick="closeMobileMenu()">
                         Install Now
                     </a>
                 </div>
@@ -177,7 +204,7 @@
             </div>
         </section>
 
-        <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
+        <section id="engines" class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
             <div class="text-center mb-16">
                 <h2 class="text-3xl font-bold mb-4">The workflow you were going to build</h2>
                 <p class="text-gray-400 max-w-2xl mx-auto">
@@ -247,7 +274,7 @@
             <div class="text-center mb-16">
                 <h2 class="text-3xl font-bold mb-4">Dual Channel Engines: SimRIS &amp; LightRIS</h2>
                 <p class="text-gray-400 max-w-2xl mx-auto">
-                    Waveflow doesn&apos;t force a single physics model. It ships with two complementary engines, allowing you to seamlessly switch between deep literature-aligned validation and high-speed simulation.
+                    Waveflow is built around two complementary engines. SimRIS provides the reference stochastic channel model, while LightRIS powers fast analytical simulation, beam sweeps, and system-level workflows.
                 </p>
             </div>
 
@@ -308,7 +335,7 @@
             </div>
         </section>
 
-        <section class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
+        <section id="faq" class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 mt-32">
             <h2 class="text-3xl font-bold mb-10 text-center">The questions you&apos;re about to ask</h2>
 
             <div class="space-y-4">
@@ -334,11 +361,111 @@
 
                 <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
                     <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Do SimRIS and LightRIS replace each other?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        No. They are complementary. SimRIS handles literature-aligned reference channel evaluation, while LightRIS owns fast analytical system workflows such as large sweeps, feedback loops, and ML-oriented experimentation when a full stochastic channel engine would be too heavy.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
                         <span class="font-medium text-lg text-white">Can I use my own Machine Learning models?</span>
                         <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
                     </button>
                     <div class="accordion-content px-6 text-gray-400">
                         Yes. Waveflow includes Random Forest, XGBoost, SVR, KNN, and LGBM built-in, but the architecture allows you to easily inject your own custom PyTorch or Scikit-Learn models into the beam sweeping pipeline.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">What machine learning support is built in?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Waveflow already includes built-in ML-guided sweeping workflows and predictors such as Random Forest, XGBoost, SVR, KNN, and LGBM. The project also supports dataset generation and lets you integrate custom learning pipelines when you want tighter control over training and inference.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Does Waveflow support vision or camera-assisted workflows?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Yes. Waveflow includes vision-oriented workflow hooks for camera-assisted sweeping and marker-based experiments, alongside synthetic simulation paths. That makes it practical both for pure software experimentation and for hybrid setups where visual feedback helps drive beam selection logic.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">What user interfaces does Waveflow provide?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Waveflow is not terminal-only. It provides an interactive CLI, a richer modern terminal UI, scriptable Python APIs, scenario-driven execution paths, and reusable components that can be embedded into your own automation or research tooling.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Will there be a web-based or GUI version in the future?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Yes, that is part of the longer-term direction. Today Waveflow is strongest through its terminal and Python workflows, but a richer web-based or GUI experience is planned for the future as the platform matures.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Which workflows are best suited to LightRIS?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        LightRIS is the right engine when you need speed and scale: beam sweeps, tapering-aware evaluation, repeated connect loops, controller design, ML dataset generation, and large batches of system-level experiments.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Which workflows are best suited to SimRIS?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        SimRIS is best when you need a reference stochastic channel model for supported connect scenarios, literature-aligned channel studies, H/G/D tensor analysis, and validation work that should stay close to published RIS-channel formulations.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">How well tested is the current release?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        The current Waveflow branch is backed by hundreds of pytest checks covering connect flows, SimRIS and LightRIS engine behavior, publication-grounded regressions, CLI smoke tests, and physics-level invariants. The public landing page currently advertises 504 verified checks based on the maintained suite inventory.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Can Waveflow help before I have hardware?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        Yes. That is one of the main reasons to use it. You can place APs, RIS panels, and users virtually, evaluate links, run sweeps, test controller logic, and generate synthetic data before you commit to expensive hardware prototypes or measurement campaigns.
+                    </div>
+                </div>
+
+                <div class="glass-panel rounded-xl border border-white/10 overflow-hidden">
+                    <button class="accordion-button w-full flex justify-between items-center p-6 text-left hover:bg-white/5 transition-colors focus:outline-none" onclick="toggleAccordion(this)">
+                        <span class="font-medium text-lg text-white">Does Waveflow only work through the terminal?</span>
+                        <i data-lucide="plus" class="w-5 h-5 text-gray-400 accordion-icon"></i>
+                    </button>
+                    <div class="accordion-content px-6 text-gray-400">
+                        No. The terminal experience is strong, but Waveflow also exposes a scriptable Python API, engine-aware connect flows, scenario runners, and reusable components for integrating your own experiments and automation pipelines.
                     </div>
                 </div>
 
@@ -388,6 +515,23 @@
 
     <script>
         lucide.createIcons();
+
+        function toggleMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            const button = document.getElementById('mobile-menu-button');
+            const isOpen = menu.classList.contains('open');
+
+            menu.classList.toggle('open', !isOpen);
+            button.setAttribute('aria-expanded', String(!isOpen));
+        }
+
+        function closeMobileMenu() {
+            const menu = document.getElementById('mobile-menu');
+            const button = document.getElementById('mobile-menu-button');
+
+            menu.classList.remove('open');
+            button.setAttribute('aria-expanded', 'false');
+        }
 
         function toggleAccordion(button) {
             const content = button.nextElementSibling;

@@ -1,3 +1,101 @@
+## Task: Add Future Web/GUI FAQ to `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the added FAQ entry in `index.html` and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: static landing-page FAQ copy only] [state mutations: none]
+
+### Scope
+- `index.html` — add an FAQ entry answering whether a web-based or GUI experience is planned in the future.
+- `tasks/todo.md` — record this FAQ addition.
+
+### Steps
+- [x] Add a future-facing FAQ for web/GUI plans
+- [x] Keep the answer aligned with the current roadmap: yes, in future
+- [x] Verify the diff remains limited to `index.html` and this task log
+
+### Review
+- Completed: Added a FAQ entry to `index.html` that explicitly states a richer web-based or GUI experience is planned for the future, while clarifying that the current product surface is centered on the terminal and Python workflow.
+- Out-of-scope flagged: I did not add any new web application implementation or change the existing UI architecture.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is roadmap-oriented copy only; it does not introduce a new frontend implementation.
+
+## Task: Add ML, Vision, and UI FAQs to `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the FAQ additions in `index.html` and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: static landing-page FAQ copy only] [state mutations: none]
+
+### Scope
+- `index.html` — add FAQ entries that explicitly cover machine learning support, vision/computer-vision workflows, and UI surfaces.
+- `tasks/todo.md` — record this FAQ expansion.
+
+### Steps
+- [x] Add an FAQ for built-in ML support
+- [x] Add an FAQ for vision / camera-assisted workflows
+- [x] Add an FAQ for the available UI surfaces
+- [x] Verify the diff remains limited to `index.html` and this task log
+
+### Review
+- Completed: Added three focused FAQ entries to `index.html` covering built-in ML support, vision-assisted workflows, and the available UI surfaces so the landing-page FAQ now addresses those product areas directly.
+- Out-of-scope flagged: I did not alter the engine FAQ, deployment flow, or broader docs outside this landing page.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is FAQ copy only; it does not add new product capabilities or browser-test coverage.
+
+## Task: Expand FAQ and Add Mobile Hamburger Navigation in `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the navigation/FAQ edits in `index.html` and this task-log entry.
+Change budget: [files 2] [functions: static page JavaScript helpers only] [interfaces: landing-page navigation and FAQ content only] [state mutations: none]
+
+### Scope
+- `index.html` — add a usable mobile hamburger menu and expand the FAQ section with broader engine/workflow questions.
+- `tasks/todo.md` — record this landing-page enhancement task.
+
+### Steps
+- [x] Audit the current landing page navigation and FAQ structure
+- [x] Add a mobile hamburger menu with toggle behavior
+- [x] Expand the FAQ content while keeping the page styling consistent
+- [x] Verify the diff remains limited to the landing page and this task log
+
+### Review
+- Completed: Added a mobile hamburger menu with an in-page toggle and close-on-link behavior, expanded the FAQ into a more comprehensive section covering SimRIS vs LightRIS, workflow ownership, validation, deployment, ML usage, and MATLAB dependence, and kept the edits contained to `index.html` plus this task log.
+- Out-of-scope flagged: I did not add browser automation, deploy the landing page, or rework other docs/marketing copy outside this file.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This remains a static HTML landing page; the new mobile menu and FAQ behaviors are not covered by automated browser tests.
+
+## Task: Tighten SimRIS/LightRIS Complementarity Copy in `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the `index.html` copy adjustment and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: static landing-page copy only] [state mutations: none]
+
+### Scope
+- `index.html` — replace engine-section wording that implies `SimRIS` and `LightRIS` are interchangeable, and state their complementary roles more explicitly.
+- `tasks/todo.md` — record this wording correction.
+
+### Steps
+- [x] Audit `index.html` for misleading engine-positioning copy
+- [x] Replace the section intro with complementary-role wording
+- [x] Verify the diff remains limited to `index.html` and this task log
+
+### Review
+- Completed: Updated the engine-section introduction in `index.html` so it now states that Waveflow is built around two complementary engines with distinct roles, rather than implying users simply switch between two substitutes for the same job.
+- Out-of-scope flagged: I did not rewrite the rest of the landing page or adjust other docs outside `index.html`.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is a copy correction only; it does not change the actual engine-selection behavior already implemented in the codebase.
+
 ## Task: Correct SimRIS Positioning Copy in `index.html`
 Mode: Standard
 Risk: Low
