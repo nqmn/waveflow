@@ -1,3 +1,27 @@
+## Task: Point Landing Page Documentation CTA to `TUTORIAL.md`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the CTA href change in `index.html` and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: static landing-page link target only] [state mutations: none]
+
+### Scope
+- `index.html` — update the `Read Documentation` CTA so it links directly to the GitHub `TUTORIAL.md` URL.
+- `tasks/todo.md` — record this landing-page CTA adjustment.
+
+### Steps
+- [x] Locate the documentation CTA in `index.html`
+- [x] Change the target URL to the GitHub `TUTORIAL.md` page
+- [x] Verify the diff remains limited to `index.html` and this task log
+
+### Review
+- Completed: Updated the landing-page `Read Documentation` CTA to point directly to `https://github.com/nqmn/waveflow/blob/main/TUTORIAL.md`.
+- Out-of-scope flagged: I did not change any other navigation or documentation links.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is a single-link landing-page update only.
+
 ## Task: Add Future Web/GUI FAQ to `index.html`
 Mode: Standard
 Risk: Low
