@@ -1,7 +1,7 @@
 ## Task: Commit Pending CLI Startup State-Loading Fixes
 Mode: Standard
 Risk: Medium
-Confidence: Guarded
+Confidence: Stable
 Operational risk: Contained / Trivial
 Rollback plan: Revert the startup-loading edits in `cli/main_shell.py`, `risnet/terminal_cli.py`, and `risnet/__main__.py`, then rerun the CLI smoke suite.
 Change budget: [files 4] [functions: `RISNetCLI.__init__`, terminal CLI shell bootstrap, web bootstrap state initialization] [interfaces: CLI/web startup behavior only] [state mutations: startup load behavior]
@@ -23,6 +23,32 @@ Change budget: [files 4] [functions: `RISNetCLI.__init__`, terminal CLI shell bo
 - Assumptions invalidated: None.
 - Known debt (acknowledged):
 - Limitations: This task validates the existing smoke coverage only; it does not add new targeted tests for `auto_load=False` or web state-manager bootstrap semantics.
+
+## Task: Prepare Release 2.0.4 and Trigger PyPI Build
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the version bumps in `pyproject.toml` / `setup.py`, delete the local and remote `2.0.4` tag if needed, and restore the prior release metadata if validation fails.
+Change budget: [files 3] [functions: none] [interfaces: package metadata version and release tag] [state mutations: git tag and remote push after validation]
+
+### Scope
+- `pyproject.toml` — bump the canonical package version from `2.0.3` to `2.0.4`.
+- `setup.py` — keep the legacy setuptools mirror version aligned to `2.0.4`.
+- `tasks/todo.md` — record this release-preparation task.
+
+### Steps
+- [x] Bump package metadata to `2.0.4`
+- [x] Validate local build metadata for `2.0.4`
+- [x] Commit the release-preparation changes
+- [x] Create and push git tag `2.0.4`
+
+### Review
+- Completed: Bumped package metadata from `2.0.3` to `2.0.4` in both `pyproject.toml` and `setup.py`, then validated the release locally with `python3 -m build --no-isolation`, which successfully produced `waveflow-sim-2.0.4.tar.gz` and `waveflow_sim-2.0.4-py3-none-any.whl`.
+- Out-of-scope flagged: I did not publish directly to PyPI from this environment; publication depends on pushing the release tag so the existing GitHub Actions workflow can perform the authenticated upload.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The local build confirms package metadata and artifact generation only; final PyPI publication depends on the remote CI environment and its configured credentials.
 
 ## Task: Point Landing Page Documentation CTA to `TUTORIAL.md`
 Mode: Standard
