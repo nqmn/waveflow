@@ -1,3 +1,29 @@
+## Task: Validate and Register Toubal 2025 Beam-Tracking Regression Suite
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the task-log entry and unstage the new Toubal test file / related roadmap note if needed.
+Change budget: [files 2] [functions: none] [interfaces: test inventory confirmation only] [state mutations: none]
+
+### Scope
+- `tests/test_toubal2025_beam_tracking.py` — verify the suite structure and pytest status.
+- `tasks/test-suite.md` — confirm the file inventory entry is current and accurate.
+- `FUTURE.md` — keep the Toubal roadmap references aligned with the new regression file.
+- `tasks/todo.md` — record this verification.
+
+### Steps
+- [x] Confirm whether `tests/test_toubal2025_beam_tracking.py` is already listed in `tasks/test-suite.md`
+- [x] Verify the listed test count against the actual file and run the suite
+- [x] Record the verification outcome and prepare the related files for commit
+
+### Review
+- Completed: Confirmed that `tests/test_toubal2025_beam_tracking.py` is already registered in `tasks/test-suite.md` with the correct inventory count (`21` tests). Verified by counting `def test_*` definitions and running `pytest -q tests/test_toubal2025_beam_tracking.py`, which passed cleanly (`21 passed`). The roadmap references in `FUTURE.md` already point to this regression file for the deferred RCS/CRLB extensions.
+- Out-of-scope flagged: I did not implement the deferred Toubal RCS path-loss model or CRLB analysis; those remain roadmap items only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This task validates registration and execution of the current Toubal regression suite only; it does not add the future RCS/CRLB coverage described in `FUTURE.md`.
+
 ## Task: Formalize LightRIS Analytical Guarantees
 Mode: Standard
 Risk: High

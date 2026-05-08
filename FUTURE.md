@@ -1841,191 +1841,102 @@ Definition of done for SimRIS integration (separate from MATLAB parity):
   `environment="indoor", scenario=1`. Callers that omit these params
   automatically route through `SimRISStochasticChannel`.
 
-### Phase 7a - Human-Aware Sensing and Beam Focusing
+### Phase 8 - RIS Control Unit and Sensing Platform
 
-Goal: extend the simulator from UE-centric communications into moving-human RF
-sensing and target-aware beam steering.
+Goal: build the RIS Control Unit (RCU) as a first-class software entity and
+deliver the full sensing platform — human-aware RF sensing, LiDAR, RSS
+analytics, beam tracking, and cooperative localization — as a coherent set
+of services under a single control plane.
 
-Implementation:
-
-- Add `HumanTarget` or `SensingTarget` as an additive actor, not as a direct
-  replacement for `UE`.
-- Add mobility models and deterministic target trajectories to the runtime.
-- Generate target-aware measurement sequences using spatial channels, CSI, RSSI,
-  Doppler, or hybrid observables depending on scenario configuration.
-- Add localization and tracking services that estimate target position over
-  time, then expose that state to beamforming or beam-focusing controllers.
-- Support two experiment modes:
-  - sensing mode: localize and track the human as a target
-  - enhancement mode: steer energy toward a device carried by or near the human
-
-Do not break:
-
-- Existing `UE`-based communication scenarios.
-- Existing beam sweep and localization tests.
-- Base install when optional visualization, ML, or hardware extras are absent.
-
-Exit gate:
-
-- A synthetic single-human moving scenario runs deterministically.
-- Tracking output can drive beam steering or beam focusing in a repeatable way.
-- Legacy AP -> RIS -> UE scenarios remain compatible.
-
-Recommended first slice for Phase 7a:
-
-1. Add `HumanTarget` as an additive actor with position, optional height, and
-   simple reflective/scattering metadata.
-2. Add a synthetic moving-target scenario that updates the target over time
-   using the Phase 6 runtime loop.
-3. Generate a measurement timeline per timestep using existing channel, CSI,
-   RSSI, and optional Doppler-capable primitives.
-4. Add a minimal tracking service:
-   - nearest-state smoothing, or
-   - Kalman filter based state estimation
-5. Feed the tracked target state into beam steering or beam-focusing logic.
-6. Keep `UE` scenarios unchanged; do not replace `UE` with `HumanTarget`.
-
-Definition of done for the first Phase 7a slice:
-
-- One moving synthetic human can be tracked over time.
-- The estimated target state can steer or focus the beam repeatably.
-- The execution path is headless-first and scenario-driven.
-- No existing AP -> RIS -> UE workflow regresses.
-
-Practical sequencing:
-
-```text
-Phase 5 closeout
-    ->
-Phase 6 minimal clock + trajectory loop
-    ->
-Phase 7a single moving human + tracking + beam focus
-```
-
-### Phase 7c - LiDAR Sensing Pipeline and Threat Detection
-
-Goal: add a synthetic LiDAR sensing pipeline as an optional sensor modality
-that runs alongside the RF simulation stack without requiring any RF changes.
-
-Prerequisites: Phase 6 runtime loop and Phase 7a `HumanTarget` / scene graph
-primitives should be in place before this phase begins. LiDAR scanning and
-attack injection require a populated scene with node positions and wall
-geometry.
-
-Implementation:
-
-- Add `world/sensors/lidar.py` with a `LiDARScanner` class that performs
-  NumPy ray-cast scanning against existing `Environment` wall geometry and
-  `RISNetwork` node positions. No new geometry primitives or 3D libraries
-  required at this layer.
-- Add `world/sensors/attack.py` with a `LiDARAttackInjector` class covering
-  four attack types: Gaussian noise, spoofing (false point injection), dropout
-  (random point removal), and replay (stale scan substitution).
-- Add `services/sensing/lidar_features.py` with a `PointCloudFeatureExtractor`
-  that produces fixed-length feature vectors: point density, position
-  mean/variance, angular histograms, and temporal delta statistics between
-  consecutive scans.
-- Add `controller/beamsweeping/ml/lidar_detector.py` with `LiDARDetector`
-  inheriting from `BasePredictorML` and registering into the existing ML
-  plugin registry. Input: feature vector. Output: classification label
-  (normal / noisy / spoofed / replay / dropout).
-- Add `tests/test_lidar_pipeline.py` covering scanner output shape,
-  attack injection reproducibility under seed, feature vector dimensions,
-  and detector classification paths.
-- Expose scan and detection results through the existing Rich terminal and
-  Flask web surfaces without adding new visualization dependencies.
-
-Do not break:
-
-- Existing RF simulation, beam sweeping, and localization workflows.
-- Base install: LiDAR pipeline is optional (`pip install -e ".[lidar]"`).
-- ML registry: `LiDARDetector` is additive and does not change existing
-  predictor registrations.
-
-Exit gate:
-
-- A synthetic LiDAR scan can be generated from an existing `RISNetwork`
-  topology without any RF computation.
-- Attack injection is reproducible under a fixed seed.
-- The ML detector classifies clean vs. attacked scans in a test scenario.
-- All existing RF and beam-sweep tests remain unaffected.
-
-Current status:
-
-- Not started. Planned after Phase 7a `HumanTarget` and basic scene graph
-  primitives are stable.
-
-### Phase 7d - RIS Control Unit (RCU) and Sensing Integration
-
-Goal: model the RIS Control Unit as a software entity in Waveflow, enabling
-RSS-based beam tracking, cooperative multi-RIS localization, and a structured
-control plane between the WaveFlow core and deployed passive RIS panels.
+Prerequisites: Phase 6 runtime kernel (simulation clock + trajectory loop).
 
 Background:
 
-The current architecture treats RIS as a passive node whose phase is set by
-the central `RISController`. In practical deployments each passive RIS panel
-is managed by a co-located RCU (microcontroller, FPGA, or edge SBC) that
-measures pilot energy, feeds RSS observations back to the central controller,
-and applies the received phase configuration. Waveflow should model this
-control-plane structure explicitly so that latency, quantized feedback, and
-distributed orchestration can be studied in simulation without hardware.
+The current architecture treats RIS as a passive node whose phase is set
+centrally by `RISController`. In practical deployments each passive RIS panel
+is co-located with an RCU (MCU, FPGA, or edge SBC) that measures pilot energy,
+feeds RSS observations back to the central controller, and applies received
+phase configurations. Phase 8 models this control-plane structure so that
+latency, quantized feedback, distributed orchestration, human sensing, and
+LiDAR-based threat detection can all be studied in simulation without hardware.
 
-Relationship to existing codebase:
+System architecture:
 
-The foundations are already in place:
-- `core/feedback_channel.py` — UE→RIS CSI feedback channel already exists.
-- `core/snr_messaging.py` — latency-aware SNR/RSS messaging system already
-  exists and is used by `RISNetwork`.
-- `utils/rssi.py` — RSS/RSSI computation helpers already exist.
-- `controller/beamtracking/__init__.py` — module stub exists; `controller/
-  beam_tracker.py` already implements `GreedyHillClimbTracker` and
-  `GradientDescentTracker` against live SNR measurements.
+```text
+                WaveFlow Core
+                     |
+            RCUManager (central)
+                     |
+        --------------------------
+        |            |           |
+   RCU-1/R1     RCU-2/R2    RCU-N/RN
+        |            |           |
+  Passive RIS  Passive RIS  Passive RIS
+```
+
+Existing foundations (already in codebase, no new code needed):
+
+- `core/feedback_channel.py` — UE→RIS CSI feedback channel
+- `core/snr_messaging.py` — latency-aware SNR/RSS messaging system
+- `utils/rssi.py` — RSS/RSSI computation helpers
+- `controller/beam_tracker.py` — `GreedyHillClimbTracker` and
+  `GradientDescentTracker` already work against live SNR measurements
 - `controller/beamsweeping/algorithms/` — HOG and OpenCV sensing sweeps
-  already provide UE/human detection sweep modes.
-- `SimRISStochasticChannel` and `LightRISChannel` — both already expose
-  `snr_dB` results that the RCU feedback path can consume.
+  already provide UE/human detection modes
+- `SimRISStochasticChannel` and `LightRISChannel` — both expose `snr_dB`
+  that the RCU feedback path consumes
 
-What Phase 7d adds on top:
+#### 8.1 Scene Graph and HumanTarget
 
-- **`core/rcu.py`** — `RCUNode` entity: software model of the RIS Control
-  Unit with configurable sensing option (power/RSS, semi-passive, external).
-  Each RCU is associated with one RIS panel. Carries local beam history,
-  RSS measurement buffer, and a reference to its parent RIS node.
-- **`controller/rcu_manager.py`** — `RCUManager`: registers RCUs, routes
-  RSS observations from RCUs to the central controller, dispatches phase
-  configurations back to RCUs, supports hierarchical clustering (Edge-RCU
-  groups, each managing a local RIS cluster).
-- **`services/beam_tracking/rss_tracker.py`** — `RSSBeamTracker`: implements
-  the power-sensing beam tracking workflow. Consumes RSS sequence from RCU
-  buffer, computes beam quality score, RSS gradient, and beam transition
-  pattern, then issues a beam update request to the central controller.
-- **`services/localization/cooperative_loc.py`** — `CooperativeLocalizer`:
-  multi-RIS triangulation using AoA or RSS difference across at least two
-  RCUs. First slice: nearest-beam centroid; later slice: weighted least-squares
-  or Kalman filter with trajectory smoothing.
+Add the actor and scene primitives that all sensing sub-phases depend on.
+
+Deliverables:
+
+- **`core/actors/human_target.py`** — `HumanTarget`: additive actor with
+  position, height, optional reflective/scattering metadata. Not a replacement
+  for `UE`; both coexist.
+- **`core/actors/mobility.py`** — deterministic trajectory iterator: linear,
+  waypoint, and random-walk models. Integrates with the Phase 6 runtime clock.
+- Synthetic moving-target scenario: generates measurement timeline per
+  timestep using existing channel, CSI, RSSI, and Doppler-capable primitives.
+
+Exit gate:
+
+- One moving synthetic human runs deterministically over multiple timesteps.
+- `HumanTarget` coexists with `UE` in the same topology without conflict.
+- No existing AP → RIS → UE workflow regresses.
+
+#### 8.2 RSS / Power Sensing (Option A — recommended first)
+
+Model the RCU power-sensing module and connect it to the central controller.
+
+Deliverables:
+
+- **`core/rcu.py`** — `RCUNode`: software model of the co-located RIS
+  controller. Configurable sensing option (`"power"`, `"semi_passive"`,
+  `"external"`). Carries local beam history, RSS measurement buffer, reference
+  to parent RIS node.
+- **`controller/rcu_manager.py`** — `RCUManager`: registers RCUs, routes RSS
+  observations to the central controller, dispatches phase configurations back
+  to RCUs. Hierarchical cluster support (Edge-RCU groups, each managing a
+  local RIS cluster). Uses `SNRMessagingSystem` for latency modeling.
+- **`services/beam_tracking/rss_tracker.py`** — `RSSBeamTracker`: consumes RSS
+  sequence from RCU buffer, computes beam quality score and RSS gradient, issues
+  beam update request to the central controller.
 - **`services/sensing/rss_analytics.py`** — `RSSAnalytics`: derives human
-  presence, motion direction, and occupancy signals from temporal RSS
-  fluctuation across the RCU observation buffer. Complements (does not
-  replace) the LiDAR sensing pipeline in Phase 7c.
+  presence, motion direction, and occupancy from temporal RSS fluctuation across
+  the RCU buffer.
 
-Sensing options to support:
+Sensing options reference:
 
 | Option | Description | Complexity |
 |---|---|---|
-| A — Power/RSS | Energy detector + RSSI circuit + small sense antenna | Low (recommended first) |
+| A — Power/RSS | Energy detector + RSSI circuit + small sense antenna | Low (first) |
 | B — Semi-passive | Subset of RIS elements act as sensors | Medium |
-| C — External | RSS from BS/AP/edge gateway forwarded to WaveFlow | Low, requires integration |
+| C — External | RSS forwarded from BS/AP/edge gateway | Low, requires integration |
 
-Option A is the recommended first implementation. Option C reuses the existing
-`SNRMessagingSystem` and `FeedbackChannelManager` with minimal new code.
-
-Control-plane communication model:
-
-The `RCUManager` models the link between each RCU and the WaveFlow controller
-as a software message queue with configurable latency (default reuses
-`SNRMessagingSystem` parameters). No real networking stack is required; this
-is a simulation abstraction only.
+Option C reuses the existing `SNRMessagingSystem` and `FeedbackChannelManager`
+with minimal new code.
 
 ```python
 from core.rcu import RCUNode
@@ -2035,54 +1946,78 @@ rcu1 = RCUNode("RCU-1", ris_name="R1", sensing_option="power")
 manager = RCUManager(network, controller)
 manager.register(rcu1)
 
-# Beam tracking step: RCU reports RSS → manager computes new phase
 result = manager.step(ap_name="AP1", ue_name="UE1")
 ```
 
-Hierarchical RIS control (later slice):
+Exit gate:
 
-```text
-WaveFlow RCUManager (central)
-    |
-    +-- Edge cluster A: [RCU-1/R1, RCU-2/R2]
-    +-- Edge cluster B: [RCU-3/R3, RCU-4/R4]
-```
+- `RCUManager.step()` produces a beam update result equivalent to a direct
+  `controller.connect()` call for the static case.
+- RSS-based beam tracking test passes under fixed seed without hardware.
 
-Each edge cluster optimizes locally; the central manager handles inter-cluster
-handover and cooperative localization.
+#### 8.3 Cooperative Localization
 
-LiDAR integration note:
+Multi-RIS triangulation using RSS or AoA across at least two RCUs.
 
-The LiDAR pipeline (Phase 7c) and RCU RSS sensing (Phase 7d) are independent
-modalities. They share the same scene geometry (`RISNetwork` + `Environment`)
-and can produce fused occupancy or position estimates through
-`services/sensing/`, but they must remain independently executable.
+Deliverables:
 
-Do not break:
-
-- Existing `RISNetwork.connect()`, `RISController`, and all sweep algorithms.
-- `core/feedback_channel.py` and `core/snr_messaging.py` public APIs.
-- `controller/beam_tracker.py` which already works without RCU abstraction.
-- Base install: `RCUNode` and `RCUManager` must not require optional extras.
+- **`services/localization/cooperative_loc.py`** — `CooperativeLocalizer`:
+  first slice: nearest-beam centroid; second slice: weighted least-squares or
+  Kalman filter with trajectory smoothing.
 
 Exit gate:
 
-- `RCUNode` can be instantiated and associated with an existing RIS node.
-- `RCUManager.step()` produces a beam update result equivalent to a direct
-  `controller.connect()` call for the static (no-mobility) case.
-- RSS-based beam tracking test passes under fixed seed without hardware.
 - Cooperative localization test produces a plausible position estimate for a
-  two-RIS geometry.
-- All existing tests remain unaffected.
+  two-RIS geometry under fixed seed.
+
+#### 8.4 LiDAR Sensing Pipeline and Threat Detection
+
+Synthetic LiDAR as a complementary sensor modality alongside RSS sensing.
+Both are independent — a scenario can run RF-only, LiDAR-only, or both.
+Requires 8.1 scene graph primitives.
+
+Deliverables:
+
+- **`world/sensors/lidar.py`** — `LiDARScanner`: NumPy ray-cast scanning
+  against existing `Environment` wall geometry and `RISNetwork` node positions.
+  No new geometry primitives or 3D library dependencies required.
+- **`world/sensors/attack.py`** — `LiDARAttackInjector`: Gaussian noise,
+  spoofing (false point injection), dropout (random point removal), replay
+  (stale scan substitution).
+- **`services/sensing/lidar_features.py`** — `PointCloudFeatureExtractor`:
+  fixed-length feature vectors — point density, position mean/variance, angular
+  histograms, temporal delta statistics.
+- **`controller/beamsweeping/ml/lidar_detector.py`** — `LiDARDetector`:
+  inherits `BasePredictorML`, registers into the existing ML plugin registry.
+  Input: feature vector. Output: normal / noisy / spoofed / replay / dropout.
+- **`tests/test_lidar_pipeline.py`** — scanner shape, attack reproducibility
+  under seed, feature vector dimensions, detector classification paths.
+
+LiDAR is optional: `pip install -e ".[lidar]"`. Base install unaffected.
+ML registry: `LiDARDetector` is additive, changes no existing registrations.
+
+Exit gate:
+
+- A synthetic LiDAR scan generates from an existing `RISNetwork` topology
+  without any RF computation.
+- Attack injection is reproducible under a fixed seed.
+- The ML detector classifies clean vs. attacked scans in a test scenario.
+- All existing RF and beam-sweep tests remain unaffected.
+
+Do not break (Phase 8 overall):
+
+- `RISNetwork.connect()`, `RISController`, all sweep algorithms.
+- `core/feedback_channel.py` and `core/snr_messaging.py` public APIs.
+- `controller/beam_tracker.py` — still works without `RCUNode`.
+- Base install: `RCUNode`, `RCUManager`, `HumanTarget` require no optional
+  extras. LiDAR pipeline goes behind `[lidar]` optional extra.
 
 Current status:
 
-- Not started. Planned after Phase 7a `HumanTarget` and Phase 7c LiDAR
-  pipeline are stable, since RCU sensing shares the same scene and actor
-  primitives. Foundations (feedback channel, SNR messaging, beam tracker,
-  RSSI utilities) already exist and are tested.
+- Not started. Phase 6 runtime kernel is the direct prerequisite.
+- All foundational codebase primitives already exist and are tested.
 
-### Phase 8 - AI Runtime and Dataset Tools
+### Phase 9 - AI Runtime and Dataset Tools
 
 Goal: expose learning-friendly interfaces without making ML dependencies
 mandatory.
@@ -2107,7 +2042,7 @@ Exit gate:
 - Core tests pass without ML extras installed.
 - ML tests are optional and clearly marked.
 
-### Phase 9 - Hardware, Visualization, and Digital Twin Runtime
+### Phase 10 - Hardware, Visualization, and Digital Twin Runtime
 
 Goal: add integration-heavy features only after deterministic local execution is
 stable.
@@ -2314,24 +2249,43 @@ Status as of 2026-05-08:
 20. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
     Status: In Progress. Flask/API and terminal `ui connect` are already routed
     through the shared service. Notebook and broader CLI sweep paths are not yet.
-21. Implement Phase 7a `HumanTarget` and basic scene graph primitives. Status:
-    Not started. Required prerequisite before Phase 7c LiDAR pipeline can begin.
-22. Implement Phase 7c LiDAR sensing pipeline. Status: Not started. Depends on
-    Phase 7a scene primitives. Deliverables: `world/sensors/lidar.py` (scanner),
-    `world/sensors/attack.py` (noise/spoofing/dropout/replay injection),
-    `services/sensing/lidar_features.py` (feature extraction), and
-    `controller/beamsweeping/ml/lidar_detector.py` (ML threat detector).
-    All LiDAR components go behind an optional `[lidar]` extra; base install
-    must remain unaffected.
-23. Implement Phase 7d RIS Control Unit (RCU) and Sensing Integration. Status:
-    Not started. Depends on Phase 7a and Phase 7c scene primitives. Deliverables:
-    `core/rcu.py` (RCUNode entity), `controller/rcu_manager.py` (RCUManager with
-    hierarchical cluster support), `services/beam_tracking/rss_tracker.py`
-    (RSS-based beam tracker), `services/localization/cooperative_loc.py`
-    (multi-RIS triangulation), `services/sensing/rss_analytics.py` (human
-    presence/motion from temporal RSS). Option A (power/RSS sensing) is the
-    first implementation target. Foundations already in codebase: feedback
-    channels, SNR messaging, RSSI utilities, GreedyHillClimbTracker.
+21. Implement Phase 8 — RIS Control Unit and Sensing Platform. Status: Not
+    started. Direct prerequisite: Phase 6 runtime kernel. Deliver in sequence:
+    8.1 scene graph + HumanTarget → 8.2 RCUNode + RCUManager + RSSBeamTracker +
+    RSSAnalytics → 8.3 CooperativeLocalizer → 8.4 LiDAR pipeline. All
+    foundational primitives (feedback channels, SNR messaging, RSSI, beam
+    tracker) already exist and are tested. LiDAR goes behind `[lidar]` optional
+    extra; all other 8.x deliverables go in base install.
+22. Add RCS-based two-hop path loss model from Toubal et al. (EuCNC/6G 2025).
+    Status: Not started. Source: Eq. 4–6 of the paper. The paper expresses
+    received power as Pr = Pt·η_eff·(Gtx·Grx·G_RIS(θ_in)·G_RIS(θ_out)·AF·λ⁴)
+    / ((4π)⁴·(d_tx·d_rx)²), derived from the RCS of the RIS metasurface.  The
+    current `Physics.array_gain_dBi()` uses an aperture-directivity formula
+    which yields a structurally different answer. The RCS-based formula should be
+    added as a new static method (e.g. `Physics.ris_rcs_path_loss_dB()`) beside
+    the existing aperture model, not replacing it.  Once implemented, regression
+    tests must be added to `tests/test_toubal2025_beam_tracking.py` covering: (a)
+    the λ⁴ frequency dependence (doubling frequency → −12 dB), (b) the d_tx·d_rx
+    product denominator (same 12 dB rule as the current two-hop FSPL tests), and
+    (c) a frozen numerical value for the lab geometry d_tx=0.15 m, d_rx=1.0 m,
+    f=28 GHz, N=1600, η_eff=1.0.  Blocked on: deciding whether `G_RIS(θ)` reuses
+    `Physics.compute_array_factor()` or needs a separate element-pattern model.
+23. Add Fisher Information / Cramér-Rao Lower Bound (CRLB) analysis from
+    Toubal et al. (EuCNC/6G 2025). Status: Not started. Source: Eq. 7–9 of the
+    paper. The paper derives the Fisher Information Matrix (FIM) for a Gaussian
+    observation model: I(θ)_ij = Σ(∂_i μ)²/σ² (scalar noise case), and the
+    CRLB as CRLB(θ̂) = I(θ)⁻¹. Applied to azimuth localization at 28 GHz with
+    the 40×40 element RIS, the paper reports CRLB(θ) ≈ 10⁻² deg² at d_rx=1 m,
+    σ=1.18 dB, Tx-RIS distance=0.15 m. Implementation requires: (a) a
+    `compute_fisher_information()` utility (probably in `utils/localization.py`
+    or a new `utils/crlb.py`) that accepts an array of observation angles, a
+    path-loss function, and a noise std; (b) a `compute_crlb_deg2()` wrapper
+    that inverts the scalar FI result; (c) regression tests pinning the CRLB
+    value at the paper's reference geometry against a numerically-computed
+    derivative of the RCS path loss model. Blocked on: item 22 (RCS path loss
+    model) must exist before the FI derivative is meaningful. The test assertions
+    for the CRLB magnitude (≈ 10⁻² deg²) should be added to
+    `tests/test_toubal2025_beam_tracking.py` once both items 22 and 23 are done.
 
 ## Risks
 
