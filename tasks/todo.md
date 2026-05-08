@@ -1,3 +1,28 @@
+## Task: Validate Burtakov 2023 QRIS Regression Suite Registration
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert this task-log entry only.
+Change budget: [files 1] [functions: none] [interfaces: test inventory confirmation only] [state mutations: none]
+
+### Scope
+- `tests/test_burtakov2023_qris.py` — verify suite structure, actual test count, and pytest status.
+- `tasks/test-suite.md` — confirm whether the existing inventory entry is already correct.
+- `tasks/todo.md` — record this verification.
+
+### Steps
+- [x] Confirm whether `tests/test_burtakov2023_qris.py` is already listed in `tasks/test-suite.md`
+- [x] Verify the listed test count against the actual file and run the suite
+- [x] Record the verification outcome without changing the inventory when already correct
+
+### Review
+- Completed: Confirmed that `tests/test_burtakov2023_qris.py` is already registered in `tasks/test-suite.md` with the correct inventory count (`25` tests). Verified by counting `def test_*` definitions and running `pytest -q tests/test_burtakov2023_qris.py`, which passed cleanly (`25 passed in 0.42s`).
+- Out-of-scope flagged: I did not edit `tasks/test-suite.md` because the existing Burtakov entry was already accurate; I also did not touch unrelated working-tree changes in `README.md`, `TUTORIAL.md`, `FUTURE.md`, or `.claude/settings.local.json`.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This task validates registration and execution of the current Burtakov QRIS regression suite only; it does not change the QRIS model coverage itself.
+
 ## Task: Document the Official SimRIS and LightRIS Engine Split
 Mode: Standard
 Risk: Low
