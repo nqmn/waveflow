@@ -23,7 +23,13 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
 | `test_link_budget_channel.py` | pytest | 9 | `LinkBudgetChannel` adapter | |
+| `test_simris_channel.py` | pytest | 52 | SimRIS engine | Verifies the additive deterministic SimRIS LOS engine against published-formula reference slices, compares its received-power math against the current Waveflow link-budget path across multiple published-style geometries, and covers seeded stochastic H/G/D plus MATLAB-style `h/g/h_SISO` tensor generation, deterministic published-geometry presets for all four GUI-recommended layouts, additive published-case helper wrappers including outdoor Scenario 2 end-to-end coverage, a published-network builder with deterministic channel execution and AP/RIS frequency consistency checks, deterministic and seeded stochastic helper-consistency parity across all four presets, additive published-case adapter helpers for full `ChannelEvaluation` parity, determinism, forced LOS-only reduction behavior, seeded direct-link NLOS generation, scenario 2, UPA terminal arrays, indoor RIS→Rx LOS seed sensitivity, outdoor stochastic determinism, frozen seeded regression signatures for indoor/outdoor cases, additive MATLAB-style validation checks, optional preflight raise/report behavior on adapters, published-case entrypoints, wrapper helpers, and base primitive SimRIS APIs, plus stochastic adapter `noise_power_dBm` contract parity, self-describing stochastic result metadata (`environment`, `scenario`, `array_type`, `frequency_GHz`, `num_realizations`), per-realization stochastic channel-gain summaries, symmetric hop-level LOS path-gain/distance metadata on both deterministic and stochastic helpers, NLOS cluster/sub-ray/active-scatterer count summaries for stochastic introspection, per-realization LOS-component summaries (`los_path_gain_*`, `los_path_loss_*`, `theta_*`, `ris_pattern_*`) with explicit `NaN` behavior when LOS is absent, and first-realization scalar alias parity on the public stochastic adapter result |
 | `test_scenarios.py` | pytest | 20 | Headless scenario runner and shared service adoption | Includes shared execution-service equivalence, request validation failures, golden example topology loading, and API routing through the shared scenario service |
+| `test_johari2025_ris_5ghz.py` | pytest | 20 | Johari et al. (IEEE Access 2025) — 5.8 GHz 1-bit RIS | 1-bit quantization states and bounds, quantization loss (1-bit vs 2-bit), array factor steering trend, EVM↔SNR↔BER formula verification against Table 2 SDR measurements (EVM OFF=57.30%, ON=24.39%) |
+| `test_simris_paper_formulas.py` | pytest | 34 | SimRIS paper formula gaps | RIS element pattern G_e(θ), path gain monotonicity, N² gain scaling (RIS-only path), LOS probability boundary conditions, `evaluate_simris_los_reference` direct call, waveflow.channels re-export smoke |
+| `test_basar2020_channel_model.py` | pytest | 47 | Basar & Yildirim (2020) — indoor/outdoor mmWave channel model | Table I path-loss parameters, Eq. 4 element-pattern energy conservation, Eq. 7 indoor LOS boundaries, Eq. 11 outdoor LOS probability (UMi), Eq. 13 achievable rate formula, outdoor Fig. 4 geometry evaluation, `summarize_simris_tensors` structure, 73 GHz band validity |
+| `test_simris_physics_regression.py` | pytest | 28 | SimRIS frozen physics regression | Pins exact numerical values: path-loss parameter tuples, G_e(θ) at 5 angles, path gain dB at 4 (env,d,freq) combinations, outdoor p_LOS at 5 distances, channel_gain_dB for 8 (freq,N,env) combinations + N² diff, stochastic H/G Frobenius norms (seed=0) |
+| `test_johari2025_physics_regression.py` | pytest | 24 | Johari 2025 frozen physics regression | Pins exact numerical values: SNR from EVM (4.837 dB OFF, 12.256 dB ON), BER values and ratio (1959.7×), 1-bit quantization loss (−1.671 dB), 2-bit (−0.745 dB), reflection loss 20·log10(0.84)=−1.514 dB, aperture gain drop 10°→60°=−2.944 dB |
 | `test_side_lobes.py` | dual-mode | 1 | RIS sidelobe suppression | pytest-compatible `def test_*` with `assert` |
 | `test_hybrid_mode.py` | dual-mode | 4 | Hybrid phase engine | pytest-compatible `def test_*` with `assert` |
 | `test_de_localization_sweep.py` | dual-mode | 3 | DE beam sweep algorithm | pytest-compatible `def test_*` with `assert` |
@@ -83,6 +89,42 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Link budget reproducibility under seeded fading (`test_connect_characterization.py`)
 - `LinkBudgetChannel` adapter reproduces `connect()` metrics (`test_link_budget_channel.py`)
 - Blocked-path propagation via environment walls (`test_link_budget_channel.py`)
+- Deterministic published SimRIS LOS path-gain slices for indoor Scenario 1, indoor Scenario 2, and outdoor Scenario 1, including coherent cascaded gain scaling against the current Waveflow path (`test_simris_channel.py`)
+- Published SimRIS GUI geometry presets for indoor/outdoor Scenarios 1 and 2 are now exposed as a production helper and validated against MATLAB-style geometry checks (`test_simris_channel.py`)
+- Published-case helper wrappers now drive deterministic and stochastic SimRIS evaluation directly from the production presets, including outdoor Scenario 2 end-to-end coverage (`test_simris_channel.py`)
+- Published SimRIS network builder now constructs a `RISNetwork` directly from a GUI preset and is checked against the indoor Scenario 1 reference network plus deterministic channel execution (`test_simris_channel.py`)
+- Published SimRIS network builder now also guarantees AP/RIS frequency parity for both 28 GHz and 73 GHz presets (`test_simris_channel.py`)
+- Deterministic LOS helper consistency is now enforced across the published-case helper, the published-network builder, and node-level evaluation for all four GUI presets (`test_simris_channel.py`)
+- Seeded stochastic helper consistency is now enforced across the published-case helper, the published-network builder, and node-level evaluation for all four GUI presets, including stable LOS-indicator metadata parity (`test_simris_channel.py`)
+- Published-case adapter helpers now return full deterministic and stochastic `ChannelEvaluation` results and are checked for parity against the standard adapters on top of a built published network (`test_simris_channel.py`)
+- Seeded SimRIS stochastic H/G/D tensor generation with deterministic replay and LOS-only reduction controls (`test_simris_channel.py`)
+- Additive MATLAB-style `h/g` aliases now mirror deterministic and stochastic `H/G` data with shape/transposition parity checks (`test_simris_channel.py`)
+- Seeded SimRIS stochastic `h_SISO` alias/output parity with the direct-channel tensor (`test_simris_channel.py`)
+- Indoor RIS→Rx LOS branch now explicitly validates MATLAB-style random Rx AoA seed sensitivity (`test_simris_channel.py`)
+- Additive SimRIS validation helpers now cover published-style indoor acceptance, multi-error outdoor rejection, and non-reference-frequency warnings (`test_simris_channel.py`)
+- SimRIS stochastic adapter preflight now covers both failure-on-invalid and non-blocking validation-report behavior when `validate_preflight` is enabled (`test_simris_channel.py`)
+- Raw SimRIS deterministic/stochastic helper APIs and published-case wrappers now mirror that optional preflight behavior, including invalid-geometry raises, non-blocking validation payloads, and published-band warning surfacing (`test_simris_channel.py`)
+- Base SimRIS LOS/stochastic primitive helpers now also expose the same optional preflight raise/report behavior, including published-band warnings on the deterministic formula helper and invalid-geometry raises on the seeded tensor generator (`test_simris_channel.py`)
+- Published-case adapter helpers now explicitly cover preflight warning/error reporting on their public `ChannelEvaluation` entrypoints, not just parity against built-network adapters (`test_simris_channel.py`)
+- SimRIS stochastic adapters now explicitly expose `noise_power_dBm` and preserve the `snr_dB = pwr_dBm - noise_power_dBm` contract just like the deterministic adapter (`test_simris_channel.py`)
+- Seeded stochastic SimRIS results now also preserve self-describing configuration metadata (`environment`, `scenario`, `array_type`, `frequency_GHz`, `num_realizations`) on the raw helper output (`test_simris_channel.py`)
+- Seeded stochastic SimRIS helpers now expose per-realization `channel_gain_linear` / `channel_gain_dB` summaries, and the stochastic adapter reuses the first realization instead of recomputing it independently (`test_simris_channel.py`)
+- Deterministic and LOS-only stochastic SimRIS helpers now both carry per-hop `distance_m` plus LOS path-gain summaries for Tx→RIS, RIS→Rx, and Tx→Rx, and those summaries are checked for parity (`test_simris_channel.py`)
+- Stochastic SimRIS metadata now also surfaces NLOS structure summaries (`nlos_cluster_count`, `nlos_subray_count`, `nlos_active_scatterer_count`) for indoor shared-cluster and outdoor scattered branches (`test_simris_channel.py`)
+- Stochastic SimRIS helpers now also expose LOS-component per-realization summaries (`los_path_gain_*`, `los_path_loss_*`, `theta_*`, `ris_pattern_*`) and explicitly report `NaN` when a LOS component is forced off (`test_simris_channel.py`)
+- The public stochastic SimRIS adapter now exposes first-realization scalar aliases for path gain/loss, RIS angles, and RIS pattern summaries, and these are tested for deterministic parity and no-LOS `NaN` semantics (`test_simris_channel.py`)
+- Seeded SimRIS indoor direct-link NLOS generation when LOS is forced off, plus zero-direct-path behavior when both LOS and NLOS are disabled (`test_simris_channel.py`)
+- SimRIS scenario 2 branch, square-antenna UPA terminal arrays, and outdoor stochastic replay under fixed seeds (`test_simris_channel.py`)
+- Frozen indoor/outdoor seeded SimRIS tensor signatures guard against unintended drift in the current Python port (`test_simris_channel.py`)
+
+- SimRIS Table I path-loss parameters (n, σ, b, f₀) for all four scenarios pinned as exact regression values (`test_simris_physics_regression.py`)
+- SimRIS path gain dB at canonical (env, d, freq) combinations, no shadow (`test_simris_physics_regression.py`)
+- Outdoor UMi LOS probability formula (Eq. 11) numerical values at 5 distances (`test_basar2020_channel_model.py`, `test_simris_physics_regression.py`)
+- Indoor LOS probability boundary values at d=1.2 m and d=6.5 m (Eq. 7) (`test_basar2020_channel_model.py`)
+- EVM↔SNR formula (SNR = −20·log10(EVM_rms)) verified against Johari 2025 Table 2 (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
+- BER from EVM for QPSK (Eq. 10 Johari 2025) (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
+- Reflection loss from measured |Γ|=0.84 (`test_johari2025_physics_regression.py`)
+- Aperture gain drop cos(θ) law from 10°→60° (`test_johari2025_physics_regression.py`)
 
 **Not covered**:
 - Analytical Friis equation cross-check at specific frequencies (2.4/5.8/28/60 GHz)
@@ -103,9 +145,14 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Hybrid phase engine selection and RIS node integration (`test_hybrid_mode.py`)
 - DE sweep finds valid beam angle (`test_de_localization_sweep.py`)
 
+- RIS element pattern G_e(θ) = π·cos(θ)^(2·0.285) at 5 angles including endfire (`test_simris_paper_formulas.py`, `test_simris_physics_regression.py`)
+- Element-pattern energy-conservation normalization — hemisphere integral ≈ 4π, broadside gain ≈ 5 dBi (`test_basar2020_channel_model.py`)
+- N² gain scaling (RIS-only path, N_side 8→16 gives ~12.04 dB) (`test_simris_paper_formulas.py`, `test_simris_physics_regression.py`)
+- 1-bit quantization states {0, π} and max error bound = 90° (`test_johari2025_ris_5ghz.py`, `test_johari2025_physics_regression.py`)
+- channel_gain_dB frozen for 8 (freq, N_side, env) combinations at published paper geometries (`test_simris_physics_regression.py`)
+
 **Not covered**:
 - Beam peak angle vs analytical array factor — direct numerical comparison
-- Coherent gain scaling: verify G ∝ N² across N values
 - Beamwidth vs element count
 - Near-field focusing accuracy (Fraunhofer transition)
 
@@ -119,6 +166,10 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Uniform quantization matches `Physics.quantization_loss_dB()` (`test_array_quantization.py`)
 - Wrapped phase error convention (`test_array_quantization.py`)
 - Quantization loss at 1–4 bits (`test_physics_fixes.py`)
+
+- Quantization loss at 1-bit (−1.671 dB) and 2-bit (−0.745 dB) frozen as regression values (`test_johari2025_physics_regression.py`)
+- 1-bit phase state mapping verified for canonical 5-element input (`test_johari2025_physics_regression.py`)
+- `validate_quantization_error` status and max_allowed_deg bound for 1-bit (`test_johari2025_physics_regression.py`)
 
 **Not covered**:
 - Quantization loss against closed-form formula:
@@ -167,6 +218,8 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Environment-blocked path behavior
 - Shared link-budget helper/re-export compatibility between `utils.link_budget`
   and `risnet.channels`
+- Additive deterministic SimRIS LOS adapter returns channel matrices (`H`, `G`, `D`) and matches the published-formula reference slice more closely than the current link-budget path for the covered geometry
+- Additive stochastic SimRIS adapter returns seeded `H`, `G`, `D` tensors and preserves deterministic replay under fixed seeds
 
 ---
 
@@ -258,11 +311,11 @@ have automated test coverage in the current repo:
 
 | Area | Gap |
 |---|---|
+| SimRIS parity | Full MATLAB v18 parity incomplete: exact branch-by-branch numerical equivalence and true MATLAB/Octave golden-output comparison remain unvalidated |
 | Friis equation cross-check | No test computes FSPL analytically and compares at specific GHz frequencies |
-| Coherent gain G ∝ N² | No test verifies gain scaling across N values |
 | Near-field transition | Fraunhofer boundary detection is implemented; behavior not tested |
 | OFDM orthogonality | No subcarrier leakage test |
-| EVM under ideal channel | No EVM measurement in tests |
+| EVM under ideal channel | No EVM measurement under simulated AWGN/Rician channel (only from paper SDR measurements) |
 | Rician PDF distribution | Statistical PDF test not implemented |
 | Doppler shift | Not implemented in core |
 | Mobility/temporal coherence | Not implemented in core |
@@ -271,7 +324,6 @@ have automated test coverage in the current repo:
 | `waveflow validate` CLI | Not implemented |
 | Live sweep progress contract | Only smoke-covered for `linear`; broader event compatibility across sweep algorithms is not yet validated |
 | Cross-simulator comparison | Manual/aspirational only |
-| Measurement validation | Manual/aspirational only |
 
 These are future test targets, ordered by proximity to current implementation.
 
@@ -297,7 +349,12 @@ pytest tests/test_smoke.py \
        tests/test_array_primitives.py \
        tests/test_array_quantization.py \
        tests/test_link_budget_channel.py \
-       tests/test_scenarios.py -v
+       tests/test_scenarios.py \
+       tests/test_johari2025_ris_5ghz.py \
+       tests/test_simris_paper_formulas.py \
+       tests/test_basar2020_channel_model.py \
+       tests/test_simris_physics_regression.py \
+       tests/test_johari2025_physics_regression.py -v
 ```
 
 ### Direct-execution checks (no optional extras required)

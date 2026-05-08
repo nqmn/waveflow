@@ -23,6 +23,473 @@ Change budget: [files 3] [functions: none] [interfaces: documentation only] [sta
 - Known debt (acknowledged):
 - Limitations: The tutorial now describes the richer `status` and `connect` sections textually instead of embedding large verbatim terminal captures, to avoid documentation drift from minor presentational changes.
 
+## Task: Add SimRIS Channel Engine and Comparison Test
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive `risnet/channels/simris*` engine files, the export wiring, the focused comparison test, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 6] [functions: `SimRISChannel.evaluate`, deterministic SimRIS reference helpers, focused comparison tests] [interfaces: additive `risnet.channels` exports only] [state mutations: none]
+
+### Scope
+- `risnet/channels/` — add a scoped SimRIS engine and deterministic reference helpers for published-formula comparison.
+- `tests/` — add a focused regression/comparison test against the current Waveflow link-budget path.
+- `tasks/test-suite.md` — record the new engine/comparison coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add a scoped SimRIS engine and published-formula helpers under `risnet/channels`
+- [x] Add a deterministic comparison test versus the current Waveflow engine
+- [x] Verify focused tests and review the diff for scope discipline
+
+### Review
+- Completed: Added an additive deterministic SimRIS LOS engine in `risnet/channels/simris.py`, exported it through `risnet.channels` and `waveflow.channels.simris`, and added `tests/test_simris_channel.py` to verify the engine against a published-formula LOS reference slice while comparing its received-power math with the current Waveflow link-budget path. Updated `tasks/test-suite.md` to record the new coverage and the remaining full-SimRIS parity gap.
+- Out-of-scope flagged: Full SimRIS v18 stochastic parity was not ported in this task; LOS/NLOS probability sampling, cluster/sub-ray generation, shadow fading, and Monte Carlo realizations remain outside the current engine slice.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The new engine is intentionally limited to a deterministic LOS subset that is directly testable against the published equations; it does not yet claim behavioral equivalence to the full MATLAB simulator.
+
+## Task: Extend SimRIS Engine Toward Full Stochastic Port
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive stochastic SimRIS engine changes, the new SimRIS tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: seeded SimRIS H/G/D generator, stochastic helper functions, focused SimRIS tests] [interfaces: additive `risnet.channels.simris` API only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — extend the current LOS subset toward the full SimRIS v18 stochastic channel generator with seeded controls.
+- `tests/test_simris_channel.py` — add focused tests for each newly ported behavior.
+- `tasks/test-suite.md` — record the expanded SimRIS engine coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Extend the SimRIS engine with seeded stochastic H/G/D generation
+- [x] Add focused tests for deterministic seed behavior, output shapes, and forced deterministic reductions
+- [x] Verify focused tests and review the diff for scope discipline
+
+### Review
+- Completed: Extended `risnet/channels/simris.py` from a deterministic LOS slice into a seeded stochastic SimRIS-style H/G/D generator, added additive `SimRISConfig` and `SimRISStochasticChannel` exports, and expanded `tests/test_simris_channel.py` with coverage for tensor shapes, seeded determinism, and forced LOS-only reduction. Updated `tasks/test-suite.md` to record the broader SimRIS engine coverage and the remaining parity gap.
+- Out-of-scope flagged: I did not claim full MATLAB v18 equivalence in this batch. The direct-link shared-cluster parity (`h_SISO`-style behavior), several environment-specific edge branches, and GUI validation logic remain outside the implemented/tested scope.
+- Assumptions invalidated: Exact element-wise complex equality for the RIS→UE LOS tensor is not stable across deterministic and seeded stochastic paths because the model carries an arbitrary global phase term; the test was tightened to compare the physically meaningful magnitude reduction instead.
+- Known debt (acknowledged):
+- Limitations: The stochastic engine now produces seeded H/G/D tensors, but some MATLAB-v18 branches are still approximated or omitted, so this is a strong incremental port rather than a completed one-to-one reproduction.
+
+## Task: Port SimRIS Direct-Link NLOS Generation
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive direct-link SimRIS changes, the new direct-link tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: SimRIS direct-link generator, direct-link regression tests] [interfaces: additive `risnet.channels.simris` behavior only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — extend the direct-path generator so `D` includes SimRIS-style NLOS behavior instead of LOS-only approximation.
+- `tests/test_simris_channel.py` — add focused tests for seeded direct-link NLOS behavior.
+- `tasks/test-suite.md` — record the expanded SimRIS direct-path coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Extend the SimRIS direct-path generator with NLOS behavior
+- [x] Add focused direct-link tests and update the test map
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Extended the SimRIS direct-path generator so `D` now includes seeded NLOS behavior instead of a LOS-only approximation, reusing shared Tx→RIS scatterers for the indoor path and generating seeded Tx→Rx scatterers for the outdoor path. Added focused tests covering indoor direct-link NLOS generation when LOS is forced off and zero-direct-path behavior when both LOS and NLOS are disabled. Updated `tasks/test-suite.md` to record the expanded direct-link coverage.
+- Out-of-scope flagged: I still did not claim one-to-one MATLAB v18 parity for every direct-link branch; some detailed angle sampling and branch-specific conventions remain approximated.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The direct-link generator is now materially closer to SimRIS, but golden MATLAB-output parity for the full `D` tensor across multiple scenarios and seeds is still not established.
+
+## Task: Expand SimRIS Branch Coverage
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS branch fixes, the new scenario/array/outdoor tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: targeted SimRIS branch fixes, focused branch-coverage tests] [interfaces: additive `risnet.channels.simris` behavior only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — audit and tighten scenario 2, UPA, and outdoor stochastic branches where needed.
+- `tests/test_simris_channel.py` — add focused tests for scenario 2, UPA arrays, and outdoor stochastic determinism.
+- `tasks/test-suite.md` — record the expanded SimRIS branch coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Audit branch behavior and apply targeted parity fixes if required
+- [x] Add focused branch-coverage tests and update the test map
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Expanded `tests/test_simris_channel.py` with focused coverage for Scenario 2, square-terminal UPA arrays, and outdoor seeded stochastic replay. The current SimRIS engine passed these branches without requiring extra code changes in this batch, and `tasks/test-suite.md` now records the broader branch coverage explicitly.
+- Out-of-scope flagged: This batch did not add MATLAB golden-output fixtures, so it still validates branch behavior through internal consistency and deterministic replay rather than direct MATLAB parity snapshots.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Branch coverage is now broader, but it still does not prove one-to-one numerical equivalence with MATLAB across all scenarios and seeds.
+
+## Task: Add SimRIS Golden-Parity Harness
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive parity harness, the focused parity tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: parity harness, focused golden tests or deterministic fixture layer] [interfaces: additive SimRIS validation tooling only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` or adjacent validation helper — add the narrowest viable golden-parity harness available in the local environment.
+- `tests/test_simris_channel.py` — add focused parity tests using the available reference path.
+- `tasks/test-suite.md` — record the new parity coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Probe the local environment for MATLAB/Octave-compatible runtime support
+- [x] Implement the best viable parity harness from that result
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Confirmed there is no local `matlab` or `octave` runtime in this environment, so I added the best viable fallback parity layer: a compact seeded regression-signature harness (`summarize_simris_tensors`) plus frozen indoor/outdoor seeded signature tests in `tests/test_simris_channel.py`. Updated `tasks/test-suite.md` to record this new regression-fixture coverage.
+- Out-of-scope flagged: True external golden-output comparison against MATLAB/Octave could not be added in this environment because no compatible runtime is installed locally.
+- Assumptions invalidated: The environment does not provide `matlab` or `octave`, so parity work had to fall back to deterministic local fixtures rather than external reference execution.
+- Known debt (acknowledged):
+- Limitations: These frozen signatures are strong local regression guards, but they are still derived from the Python port itself and therefore do not replace true MATLAB-to-Python parity checks.
+
+## Task: Port SimRIS `h_SISO` Branch
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive `h_SISO` engine changes, the focused `h_SISO` tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: additive `h_SISO` generator, focused `h_SISO` tests] [interfaces: additive `risnet.channels.simris` output only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add seeded `h_SISO` generation for indoor/outdoor SimRIS branches.
+- `tests/test_simris_channel.py` — add focused tests for `h_SISO` presence and seeded behavior.
+- `tasks/test-suite.md` — record the new `h_SISO` coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Extend the SimRIS engine with additive `h_SISO` generation
+- [x] Add focused `h_SISO` tests and update the test map
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Extended the additive SimRIS engine so the direct-channel tensor is also exposed under the published-model name `h_SISO`, tightened the direct Tx→Rx branch by using MATLAB-style random Rx AoA sampling, and expanded `tests/test_simris_channel.py` to validate `h_SISO` presence, alias parity with `D`, and updated seeded regression fixtures. Updated `tasks/test-suite.md` to record the new `h_SISO` coverage.
+- Out-of-scope flagged: This still does not prove one-to-one MATLAB numerical parity for every `h_SISO` branch; the environment still lacks external MATLAB/Octave execution for true golden comparison.
+- Assumptions invalidated: The frozen seeded signatures had to be updated after improving the direct Tx→Rx AoA branch, which confirms that the previous fixtures were guarding an earlier approximation rather than the tightened branch.
+- Known debt (acknowledged):
+- Limitations: `h_SISO` is now represented explicitly and regression-tested, but external parity against MATLAB outputs remains unavailable in the current environment.
+
+## Task: Tighten Indoor RIS→Rx LOS AoA Parity
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive indoor RIS→Rx LOS AoA parity changes, the focused indoor branch tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: indoor RIS→Rx LOS AoA branch, focused indoor branch tests] [interfaces: additive `risnet.channels.simris` behavior only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — tighten the indoor RIS→Rx LOS branch so Rx AoA sampling matches the MATLAB SimRIS structure more closely.
+- `tests/test_simris_channel.py` — add focused tests for the indoor RIS→Rx branch behavior.
+- `tasks/test-suite.md` — record the new indoor branch coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Tighten the indoor RIS→Rx LOS branch
+- [x] Add focused indoor branch tests and update the test map
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Tightened the indoor RIS→Rx LOS branch so Rx AoA sampling now follows the MATLAB-style seeded random model instead of a purely geometric AoA, expanded `tests/test_simris_channel.py` with a focused indoor branch test for seed-sensitive `G`, and refreshed the frozen indoor/outdoor regression signatures accordingly. Updated `tasks/test-suite.md` to record the new indoor branch coverage.
+- Out-of-scope flagged: I did not add an indoor RIS→Rx NLOS branch because that would deviate from the MATLAB code we are using as the reference; this batch stayed aligned to the published branch structure instead of inventing new physics.
+- Assumptions invalidated: The indoor/outdoor frozen signatures changed once the RIS→Rx LOS branch was tightened, confirming that the previous fixtures were guarding a weaker approximation.
+- Known debt (acknowledged):
+- Limitations: This branch is now closer to MATLAB structurally, but true cross-runtime numerical parity is still unavailable without MATLAB/Octave execution.
+
+## Task: Port SimRIS Validation Layer
+Mode: Standard
+Risk: Medium
+Confidence: Guarded
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS validation helpers, the focused validation tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: SimRIS validation helpers, focused validation tests] [interfaces: additive `risnet.channels.simris` validation API only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add geometry/config validation helpers that mirror the published MATLAB GUI checks.
+- `tests/test_simris_channel.py` — add focused validation tests.
+- `tasks/test-suite.md` — record the new validation coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive SimRIS validation helpers
+- [x] Add focused validation tests and update the test map
+- [x] Verify focused tests and review scope
+
+### Review
+- Completed: Added `validate_simris_configuration(...)` and `SimRISValidationResult` to mirror the important published MATLAB GUI checks for square-array counts, Tx placement, Rx height, far-field, cell radius, outdoor Tx height ordering, and reference-frequency warnings. Added focused tests for valid indoor geometry, multi-error outdoor rejection, and frequency warnings. Updated `tasks/test-suite.md` to record the new validation coverage.
+- Out-of-scope flagged: I did not wire these validation helpers into the stochastic engine as hard blockers yet; they are exposed as additive validation API so we can keep the current engine behavior stable while parity work continues.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The validation layer now mirrors the prominent MATLAB GUI checks, but it still exists as additive API rather than mandatory preflight behavior on every engine call.
+
+## Task: Add Optional SimRIS Validation Preflight
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS preflight wiring, the focused preflight tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: SimRIS engine preflight options, focused preflight tests] [interfaces: additive `validate_preflight` engine option only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add optional MATLAB-style validation preflight to the SimRIS engine adapters.
+- `tests/test_simris_channel.py` — add focused tests for preflight behavior.
+- `tasks/test-suite.md` — record the new preflight coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add optional validation preflight controls to the SimRIS engine adapters
+- [x] Add focused preflight tests and update the test map
+
+### Review
+- Completed: Wired the additive SimRIS validation layer into the engine adapters behind optional `validate_preflight` and `error_on_invalid` controls, so invalid geometry can now either raise immediately or be reported non-blockingly through the adapter result. Expanded `tests/test_simris_channel.py` with focused adapter-preflight coverage for both behaviors and updated `tasks/test-suite.md` to record the new validation-path coverage.
+- Out-of-scope flagged: I did not make preflight validation mandatory on every SimRIS call; the default remains opt-in to avoid changing existing adapter behavior unexpectedly.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The preflight path now mirrors the additive MATLAB-style validation API during adapter execution, but true MATLAB/Octave cross-runtime parity is still unavailable in this environment.
+
+## Task: Expand SimRIS vs Waveflow LOS Comparison Coverage
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the focused SimRIS comparison-test expansion and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 3] [functions: generalized SimRIS LOS reference helper, focused comparison tests] [interfaces: test coverage only] [state mutations: none]
+
+### Scope
+- `tests/test_simris_channel.py` — generalize the deterministic LOS reference helper and compare SimRIS versus the current Waveflow engine across multiple published-style geometries.
+- `tasks/test-suite.md` — record the broader comparison coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Generalize the deterministic SimRIS LOS reference helper for indoor and outdoor LOS cases
+- [x] Expand the SimRIS-versus-Waveflow comparison test across multiple published-style geometries
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Generalized the deterministic SimRIS LOS reference helper so it can score both indoor and outdoor published-style LOS cases, then expanded the SimRIS-versus-Waveflow comparison coverage across indoor Scenario 1, indoor Scenario 2, and outdoor Scenario 1 geometries. Updated `tasks/test-suite.md` to reflect the broader comparison coverage.
+- Out-of-scope flagged: This batch still compares only deterministic LOS slices against the current Waveflow link-budget path; it does not claim that SimRIS is uniformly better across full stochastic/NLOS behavior.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The stronger comparison matrix now covers three published-style LOS geometries, but full MATLAB v18 parity still depends on branch-by-branch stochastic validation and external MATLAB/Octave reference execution.
+
+## Task: Add MATLAB-Style `h/g` Output Aliases to SimRIS Port
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS output-alias changes, the focused alias tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: deterministic/stochastic SimRIS output packing, focused alias tests] [interfaces: additive SimRIS output keys only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add MATLAB-style `h` and `g` output aliases while preserving existing GUI-style `H/G/D` outputs.
+- `tests/test_simris_channel.py` — add focused tests for alias shapes and transpose parity.
+- `tasks/test-suite.md` — record the new output-alias coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive MATLAB-style `h` and `g` aliases to deterministic and stochastic SimRIS outputs
+- [x] Add focused alias tests for shape and transpose parity
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added additive MATLAB-style `h` and `g` aliases to both deterministic and stochastic SimRIS outputs so the Python port now exposes both function-level naming (`h/g/h_SISO`) and GUI-level naming (`H/G/D`). Expanded existing SimRIS tests to verify alias shapes and transpose parity without changing the current `H/G/D` contract. Updated `tasks/test-suite.md` to record the new output-alias coverage.
+- Out-of-scope flagged: I did not rename or remove the existing `H/G/D` keys; this batch keeps backward compatibility and only adds function-level aliases for closer MATLAB parity.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Output naming is now closer to MATLAB, but exact branch-by-branch numerical parity still depends on further stochastic validation and external MATLAB/Octave reference comparison.
+
+## Task: Port SimRIS Published Geometry Presets
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS geometry-preset helper, the focused preset tests, and the `tasks/test-suite.md`/`FUTURE.md` updates for this task.
+Change budget: [files 5] [functions: SimRIS geometry preset helper, focused preset tests, FUTURE status note] [interfaces: additive SimRIS helper only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add the published SimRIS GUI recommended geometry presets as a reusable helper.
+- `risnet/channels/__init__.py` — export the new helper.
+- `tests/test_simris_channel.py` — add focused tests for all four published presets and validation pass-through.
+- `tasks/test-suite.md` — record the new preset coverage.
+- `FUTURE.md` — mark external MATLAB/Octave golden parity as KIV while internal Python porting continues.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add a reusable SimRIS published-geometry helper
+- [x] Add focused preset tests and update the test map
+- [x] Update FUTURE.md to defer external MATLAB parity as KIV and verify focused tests
+
+### Review
+- Completed: Added `get_simris_published_geometry(...)` to expose the four recommended published SimRIS GUI geometries directly from production code, exported it through `risnet.channels`, and added focused parameterized tests that verify each preset and its validation pass-through. Updated `FUTURE.md` so external MATLAB/Octave golden parity is explicitly KIV while Python-side porting and regression work continue.
+- Out-of-scope flagged: I did not wire the preset helper into CLI or scenario-loading flows; this batch only ports the published geometry presets into the SimRIS engine layer and validates them there.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The preset helper now removes duplication around published reference geometries, but full MATLAB v18 parity still depends on further stochastic branch tightening and deferred external verification.
+
+## Task: Add End-to-End Published-Case SimRIS Helpers
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive published-case helper functions, the focused end-to-end tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: published-case SimRIS helper wrappers, focused end-to-end tests] [interfaces: additive SimRIS helper exports only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add helper wrappers that evaluate deterministic and stochastic SimRIS outputs directly from the published GUI presets.
+- `risnet/channels/__init__.py` — export the new helpers.
+- `tests/test_simris_channel.py` — add focused end-to-end coverage for the new published-case helpers, including outdoor Scenario 2.
+- `tasks/test-suite.md` — record the new helper coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive published-case SimRIS helper wrappers
+- [x] Add focused end-to-end tests for the published-case helpers
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added `evaluate_simris_los_published_case(...)` and `simulate_simris_published_case(...)` so production code can evaluate SimRIS deterministic or stochastic outputs directly from the published GUI presets without rebuilding geometry by hand. Exported both helpers through `risnet.channels` and added focused end-to-end coverage that exercises outdoor Scenario 2 through both helper paths.
+- Out-of-scope flagged: I did not thread these helpers into CLI or scenario YAML flows; this batch keeps them as additive engine-layer helpers only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Published-case helpers now remove more boilerplate around the reference presets, but branch-by-branch stochastic equivalence with MATLAB still requires further tightening and deferred external verification.
+
+## Task: Add Published SimRIS Network Builder
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive SimRIS network-builder helper, the focused builder tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: published SimRIS network builder, focused builder tests] [interfaces: additive SimRIS helper export only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add a helper that builds a `RISNetwork` directly from a published SimRIS GUI preset.
+- `risnet/channels/__init__.py` — export the new helper.
+- `tests/test_simris_channel.py` — add focused coverage for the builder and a deterministic channel run through the built network.
+- `tasks/test-suite.md` — record the new builder coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add an additive published SimRIS network-builder helper
+- [x] Add focused tests for builder parity and deterministic channel execution
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added `build_simris_published_network(...)` so production code can construct a `RISNetwork` directly from a published SimRIS GUI preset with sensible reference defaults for frequency, power, bandwidth, RIS quantization, and noise figure. Exported the helper through `risnet.channels` and added focused tests that verify parity with the indoor Scenario 1 reference network plus a deterministic `SimRISChannel` run through the built network.
+- Out-of-scope flagged: I did not wire the builder into CLI/demo flows; this batch keeps it as an additive engine/helper API only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The builder now centralizes published reference network construction, but it still serves the Python-side port only; full MATLAB numerical parity remains a separate deferred track.
+
+## Task: Fix Published SimRIS Network Builder Frequency Consistency
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the RIS-frequency fix in the published network builder, the focused frequency assertions, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: published SimRIS network builder, focused frequency tests] [interfaces: additive helper behavior only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — ensure the published network builder propagates the requested frequency to the RIS as well as the AP.
+- `tests/test_simris_channel.py` — add focused assertions for RIS frequency parity at 28 GHz and 73 GHz.
+- `tasks/test-suite.md` — record the new builder-frequency coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Propagate builder frequency consistently to the RIS node
+- [x] Add focused builder-frequency tests
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Fixed `build_simris_published_network(...)` so the requested frequency now propagates to the RIS node instead of leaving it at the core `add_ris()` default of `10e9`. Added focused tests that assert AP/RIS frequency parity for the default 28 GHz reference case and for a custom 73 GHz published preset.
+- Out-of-scope flagged: I did not retrofit this frequency normalization into unrelated network-building helpers elsewhere in the repo; this batch only fixes the additive SimRIS published-network builder.
+- Assumptions invalidated: The previous builder implementation silently inherited `add_ris()`'s default frequency, so the first published-network test was incomplete until RIS frequency parity was asserted directly.
+- Known debt (acknowledged):
+- Limitations: Published SimRIS reference builders are now frequency-consistent, but broader MATLAB numerical parity still depends on the remaining stochastic-port work and deferred external verification.
+
+## Task: Add Published SimRIS Helper Consistency Checks
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the focused helper-consistency tests and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 3] [functions: focused SimRIS helper consistency tests] [interfaces: test coverage only] [state mutations: none]
+
+### Scope
+- `tests/test_simris_channel.py` — verify deterministic LOS parity between the published-case helper, the published network builder, and node-level evaluation across all four presets.
+- `tasks/test-suite.md` — record the broader helper-consistency coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add focused deterministic helper-consistency tests across all four published presets
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added deterministic consistency tests proving that the published-case LOS helper, the published-network builder, and node-level LOS evaluation all return matching `H/G/D` results across indoor/outdoor Scenarios 1 and 2. This closes a drift risk between the additive production helpers that now exist around SimRIS presets.
+- Out-of-scope flagged: This batch checks deterministic helper consistency only; it does not yet extend the same equivalence matrix to the stochastic helper path.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Helper consistency is now enforced for the deterministic path across all four presets, but stochastic branch-by-branch parity with MATLAB remains a separate unresolved track.
+
+## Task: Add Published SimRIS Stochastic Helper Consistency Checks
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the focused stochastic helper-consistency tests and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 3] [functions: focused SimRIS stochastic helper consistency tests] [interfaces: test coverage only] [state mutations: none]
+
+### Scope
+- `tests/test_simris_channel.py` — verify seeded stochastic parity between the published-case helper and the published-network builder plus node-level evaluation across all four presets.
+- `tasks/test-suite.md` — record the broader stochastic helper-consistency coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add focused seeded stochastic helper-consistency tests across all four published presets
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added seeded stochastic consistency tests across all four published presets to prove that `simulate_simris_published_case(...)` and `build_simris_published_network(...)` plus `evaluate_simris_from_nodes(...)` produce the same `H/G/D`, MATLAB-style aliases, and stable LOS-indicator metadata under the same seed. This extends the earlier deterministic helper-consistency guard into the stochastic helper path.
+- Out-of-scope flagged: I intentionally compare only stable scalar metadata fields (`los_indicator`) instead of raw metadata blobs, because the full metadata structure contains NumPy arrays that are not valid for direct `==` comparison.
+- Assumptions invalidated: The first version of this test incorrectly assumed raw metadata dicts could be compared directly; verification showed that was a test bug, not an engine issue, so the assertion was tightened to stable scalar metadata.
+- Known debt (acknowledged):
+- Limitations: Stochastic helper consistency is now enforced across helpers for all four presets, but branch-by-branch MATLAB numerical parity is still a separate unresolved track.
+
+## Task: Add Published SimRIS Adapter Helpers
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive published-case adapter helpers, the focused adapter-parity tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: published-case adapter helpers, focused adapter-parity tests] [interfaces: additive SimRIS helper exports only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add helper wrappers that return `ChannelEvaluation` directly for deterministic and stochastic published SimRIS presets.
+- `risnet/channels/__init__.py` — export the new adapter helpers.
+- `tests/test_simris_channel.py` — add focused parity tests against the standard adapters on top of a built published network.
+- `tasks/test-suite.md` — record the new adapter-helper coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive published-case adapter helper wrappers
+- [x] Add focused adapter-helper parity tests across all four presets
+- [x] Verify focused tests and update the test map
+
+### Review
+- Completed: Added `evaluate_simris_channel_published_case(...)` and `evaluate_simris_stochastic_channel_published_case(...)` so published SimRIS presets can now return full `ChannelEvaluation` adapter results directly, not just raw tensors or built networks. Added parity tests across all four presets showing these helper wrappers match the standard `SimRISChannel` and `SimRISStochasticChannel` evaluations on top of the same built published network.
+- Out-of-scope flagged: I did not add equivalent convenience helpers for the current Waveflow link-budget engine; this batch stays scoped to the additive SimRIS port surface.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Published-case adapter helpers now complete the preset API stack, but they still sit on top of the current Python SimRIS implementation rather than external MATLAB-verified outputs.
+
 ## Task: Replace `waveflow ui links` Wrapper With Native Rich Renderer
 Mode: Standard
 Risk: Medium
@@ -1372,3 +1839,407 @@ Change budget: [files 5] [functions: terminal `run` command, smoke coverage, doc
 - Assumptions invalidated: The first implementation used `ctx: typer.Context` without making `typer` visible to Typer’s runtime annotation resolver, which broke multiple `waveflow ui` commands; the fix exposed the local Typer import through module globals before command registration.
 - Known debt (acknowledged):
 - Limitations: Verification covered `tests/test_smoke.py` and compile checks; this slice does not add broader command-by-command coverage for every legacy shell verb through `waveflow ui run`.
+
+## Task: Update FUTURE.md with QRIS comparison and current status
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the FUTURE.md edits for this task.
+Change budget: [files 2] [functions: none] [interfaces: documentation only] [state mutations: none]
+
+### Scope
+- `FUTURE.md` — add Phase 7b GSCM channel engine section (QRIS-inspired), update Phase 6 current status, update Known Technical Debt, and bring Immediate Action Items to 2026-05-08 state.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add Phase 7b GSCM channel engine section
+- [x] Update Phase 6 current status
+- [x] Update Known Technical Debt (print(), SNR/link-budget)
+- [x] Bring Immediate Action Items to current state
+
+### Review
+- Completed: Added Phase 7b GSCM channel engine section with implementation spec, computational design rationale (precomputed scenario channel), integration point, and current status linking back to the existing SimRIS precursor. Updated Phase 6 status to reflect that parallel CLI work is largely done but the kernel itself is not started. Updated Known Technical Debt to mark print() migration as resolved and SNR/link-budget as partially resolved. Brought Immediate Action Items to 2026-05-08 state covering 20 items.
+- Out-of-scope flagged: No code was changed; this is documentation only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: FUTURE.md now reflects the QRIS investigation findings as design intent for Phase 7b; the implementation has not started.
+
+## Task: Align SimRIS Raw Helper Preflight Validation
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive raw-helper preflight wiring in `risnet/channels/simris.py`, the focused SimRIS helper tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `evaluate_simris_los_from_nodes`, `evaluate_simris_los_published_case`, `evaluate_simris_from_nodes`, `simulate_simris_published_case`, focused SimRIS helper tests] [interfaces: additive `validate_preflight` / `error_on_invalid` options on existing raw helper APIs] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add optional preflight validation/reporting parity to the raw node-level and published-case SimRIS helper APIs.
+- `tests/test_simris_channel.py` — add focused tests for raw helper raise/report/warning behavior.
+- `tasks/test-suite.md` — record the expanded SimRIS helper-preflight coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Wire optional preflight validation into the raw node-level and published-case SimRIS helper APIs
+- [x] Add focused raw-helper preflight tests for raise/report/warning behavior
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Added optional `validate_preflight` and `error_on_invalid` controls to the raw deterministic/stochastic node helpers and the published-case raw helpers, so they now mirror the adapter path by either raising on invalid geometry or attaching a non-blocking `validation` payload. Expanded `tests/test_simris_channel.py` with focused coverage for invalid raw-helper raises, non-blocking validation reports, and published-case warning/error surfacing. Updated `tasks/test-suite.md` to record the broader helper-preflight coverage.
+- Out-of-scope flagged: I did not make preflight validation mandatory by default, and I did not touch the external MATLAB/Octave KIV work or unrelated new test files already present in the working tree.
+- Assumptions invalidated: The first version of the new tests assumed shorter validation strings than the actual helper emits; verification exposed that mismatch and the tests were tightened to match the real messages and substring semantics.
+- Known debt (acknowledged):
+- Limitations: This closes the parity gap between Python helper call paths, but it still does not provide cross-runtime MATLAB/Octave equivalence proof for the full SimRIS stochastic model.
+
+## Task: Align SimRIS Primitive Helper Preflight Validation
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the additive primitive-helper preflight wiring in `risnet/channels/simris.py`, the focused SimRIS primitive tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `evaluate_simris_los_reference`, `simulate_simris_channels`, focused SimRIS primitive tests] [interfaces: additive `validate_preflight` / `error_on_invalid` options on existing primitive helper APIs] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add optional preflight validation/reporting parity to the base deterministic and stochastic SimRIS helper APIs.
+- `tests/test_simris_channel.py` — add focused tests for primitive helper warning/raise behavior.
+- `tasks/test-suite.md` — record the expanded primitive-helper preflight coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Wire optional preflight validation into the base deterministic and stochastic SimRIS helper APIs
+- [x] Add focused primitive-helper tests for warning/raise behavior
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Added optional `validate_preflight` and `error_on_invalid` controls to the base deterministic formula helper and the seeded stochastic tensor generator, so the lowest-level SimRIS APIs now mirror the adapter and wrapper layers by either raising on invalid geometry or attaching a `validation` payload. Expanded `tests/test_simris_channel.py` with focused coverage for a published-band warning on `evaluate_simris_los_reference(...)` and invalid-geometry raising on `simulate_simris_channels(...)`. Updated `tasks/test-suite.md` to record the broader primitive-helper coverage.
+- Out-of-scope flagged: I did not remove the duplicated validation calls in upper wrappers, and I did not touch the external MATLAB/Octave KIV work or unrelated new test files already present in the working tree.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This makes the Python-side SimRIS API surface internally consistent, but it still does not prove numerical parity against the full MATLAB simulator without external reference execution.
+
+## Task: Cover SimRIS Published-Case Adapter Preflight Paths
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the focused published-case adapter tests and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 3] [functions: focused SimRIS published-case adapter tests] [interfaces: none; coverage only] [state mutations: none]
+
+### Scope
+- `tests/test_simris_channel.py` — add focused preflight coverage for the published-case deterministic and stochastic adapter helpers.
+- `tasks/test-suite.md` — record the added published-case adapter preflight coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add focused preflight warning/error tests for the published-case adapter helpers
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Added focused coverage proving that the published-case deterministic adapter helper surfaces non-blocking reference-band warnings and that the published-case stochastic adapter helper surfaces invalid preflight errors on its public `ChannelEvaluation` result path. Updated `tasks/test-suite.md` to record the additional published-case adapter entrypoint coverage.
+- Out-of-scope flagged: This batch did not change SimRIS engine behavior; it only tightened coverage on already-supported adapter options.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The published-case adapter entrypoints are now covered for preflight reporting, but full stochastic numerical parity against MATLAB remains outside the current environment.
+
+## Task: Deduplicate SimRIS Wrapper Preflight Flow
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the wrapper-helper delegation edits in `risnet/channels/simris.py` and this task entry.
+Change budget: [files 2] [functions: `evaluate_simris_los_from_nodes`, `evaluate_simris_los_published_case`, `evaluate_simris_from_nodes`, `simulate_simris_published_case`] [interfaces: none; internal delegation only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — remove duplicated preflight-validation logic from wrapper helpers now that the primitive helpers support the same options directly.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Replace wrapper-local validation with direct pass-through to the primitive helper preflight options
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Simplified the node-level and published-case raw wrapper helpers so they now pass `validate_preflight` and `error_on_invalid` directly down to `evaluate_simris_los_reference(...)` and `simulate_simris_channels(...)` instead of re-running the same validation logic locally. This keeps the wrapper behavior unchanged while removing one obvious source of future drift.
+- Out-of-scope flagged: I did not change the adapter-level preflight duplication in this batch, because that would touch a different layer and was not required to keep the helper APIs consistent.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is an internal cleanup only; it reduces duplication in the raw helper layer but does not change the remaining MATLAB parity gap.
+
+## Task: Deduplicate SimRIS Adapter Preflight Flow
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the adapter delegation edits in `risnet/channels/simris.py` and this task entry.
+Change budget: [files 2] [functions: `SimRISChannel.evaluate`, `SimRISStochasticChannel.evaluate`] [interfaces: none; internal delegation only] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — remove duplicated preflight-validation logic from the deterministic and stochastic adapters now that the lower helper layers return the same validation payloads directly.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Replace adapter-local validation with direct pass-through to helper preflight options
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Simplified both SimRIS adapters so they now rely on the validation payload already produced by `evaluate_simris_los_from_nodes(...)` and `evaluate_simris_from_nodes(...)` instead of re-running `_maybe_run_preflight_validation(...)` locally. This keeps adapter results unchanged while removing another layer of duplicated validation flow.
+- Out-of-scope flagged: I did not alter the published-case adapter wrappers beyond inheriting the adapter simplification, and I did not touch the external MATLAB/Octave KIV work.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is internal delegation cleanup only; it reduces drift risk but does not close the remaining stochastic MATLAB parity gap.
+
+## Task: Align SimRIS Stochastic Adapter Result Contract
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic adapter result-field edit in `risnet/channels/simris.py`, the focused SimRIS adapter test, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `SimRISStochasticChannel.evaluate`, focused SimRIS stochastic adapter tests] [interfaces: additive result field parity for stochastic adapter] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add `noise_power_dBm` to the stochastic SimRIS adapter result so it matches the deterministic adapter contract.
+- `tests/test_simris_channel.py` — add focused coverage for the stochastic adapter noise-power contract.
+- `tasks/test-suite.md` — record the added stochastic adapter contract coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add `noise_power_dBm` to the stochastic SimRIS adapter result
+- [x] Add focused stochastic adapter contract test
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the stochastic SimRIS adapter result with `noise_power_dBm`, bringing it into line with the deterministic adapter and making the `snr_dB = pwr_dBm - noise_power_dBm` relationship explicit on both paths. Added focused coverage to confirm the metric is present and numerically consistent with the published default bandwidth/noise-figure setup. Updated `tasks/test-suite.md` to record the new adapter-contract parity.
+- Out-of-scope flagged: I did not change the raw tensor helpers in this batch because the inconsistency was at the adapter contract layer only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This closes a Python-side result-contract gap, but it does not address the remaining stochastic MATLAB parity work.
+
+## Task: Add Self-Describing Metadata to Stochastic SimRIS Results
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic helper result-metadata edit in `risnet/channels/simris.py`, the focused SimRIS result-metadata assertion, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `simulate_simris_channels`, focused SimRIS stochastic helper test] [interfaces: additive metadata fields on stochastic helper output] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add self-describing configuration metadata to stochastic SimRIS helper results.
+- `tests/test_simris_channel.py` — assert that the raw stochastic helper now exposes the configuration metadata.
+- `tasks/test-suite.md` — record the added stochastic result-metadata coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add configuration metadata to the stochastic SimRIS helper result
+- [x] Add focused assertions for the stochastic helper metadata contract
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the stochastic SimRIS helper result with `frequency_GHz`, `environment`, `scenario`, `array_type`, and `num_realizations`, making the raw tensor output self-describing in the same way the deterministic helper already is. Added focused assertions to lock this metadata contract in `tests/test_simris_channel.py`. Updated `tasks/test-suite.md` to record the new coverage.
+- Out-of-scope flagged: I did not add per-realization path-loss summaries in this batch; this change was limited to stable configuration metadata already known at call time.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This improves Python-side result introspection, but it does not close the remaining stochastic MATLAB parity gap.
+
+## Task: Add Per-Realization Gain Summaries to Stochastic SimRIS Helpers
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic helper gain-summary edits in `risnet/channels/simris.py`, the focused SimRIS gain-summary tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `simulate_simris_channels`, `SimRISStochasticChannel.evaluate`, focused SimRIS gain-summary tests] [interfaces: additive per-realization summary fields on stochastic helper output] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add per-realization effective channel-gain summaries to the stochastic helper output and reuse them in the stochastic adapter.
+- `tests/test_simris_channel.py` — add focused coverage for the new gain-summary contract and adapter reuse.
+- `tasks/test-suite.md` — record the added stochastic gain-summary coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add per-realization gain summaries to the stochastic helper output
+- [x] Reuse the helper-supplied first-realization gain in the stochastic adapter
+- [x] Add focused tests and verify focused SimRIS and link-budget suites
+
+### Review
+- Completed: Extended `simulate_simris_channels(...)` with per-realization `channel_gain_linear` and `channel_gain_dB` summaries, then simplified `SimRISStochasticChannel.evaluate(...)` to reuse the first realization from that helper output instead of recomputing the same effective gain independently. Added focused coverage to verify the helper summaries match a manual reconstruction and that the stochastic adapter’s public `gain_linear` / `gain_dBi` now align with the first stochastic realization. Updated `tasks/test-suite.md` to record the added coverage.
+- Out-of-scope flagged: I did not add per-realization path-gain/path-loss breakdowns for each hop in this batch; the scope was limited to the effective end-to-end gain summary already used by the adapter.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This closes another Python-side duplication gap, but it does not resolve the remaining MATLAB stochastic parity work.
+
+## Task: Add Hop-Level LOS Metadata to Stochastic SimRIS Links
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the hop-metadata edits in `risnet/channels/simris.py`, the focused SimRIS metadata-parity test, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `_generate_tx_ris_channel`, `_generate_ris_rx_channel`, `_generate_direct_channel`, focused SimRIS metadata tests] [interfaces: additive hop-level metadata fields on stochastic results] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add per-hop LOS metadata (`distance_m`, `los_path_gain_dB`, `los_path_gain_linear`) to the stochastic SimRIS link metadata when that branch is active.
+- `tests/test_simris_channel.py` — add focused parity coverage against the deterministic helper for the LOS-only case.
+- `tasks/test-suite.md` — record the added hop-level metadata coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add hop-level distance and LOS path-gain metadata to the stochastic SimRIS link generators
+- [x] Add focused LOS-only metadata parity test against the deterministic helper
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the stochastic link metadata for Tx→RIS, RIS→Rx, and Tx→Rx so each branch now records `distance_m`, and when LOS is active also records `los_path_gain_dB` and `los_path_gain_linear`. Added a focused LOS-only parity test showing that these stochastic metadata summaries match the deterministic helper’s published path-gain outputs for the same geometry. Updated `tasks/test-suite.md` to record the new coverage.
+- Out-of-scope flagged: I did not add equivalent NLOS aggregate path-gain metadata in this batch because there is not a single deterministic per-hop NLOS scalar in the current stochastic formulation.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This improves stochastic introspection and deterministic parity for LOS metadata, but it does not close the remaining MATLAB stochastic parity work.
+
+## Task: Expose Deterministic SimRIS Hop Metadata Symmetrically
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the deterministic metadata edit in `risnet/channels/simris.py`, the focused SimRIS metadata-parity assertions, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `evaluate_simris_los_reference`, focused SimRIS metadata tests] [interfaces: additive deterministic metadata field] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — expose deterministic hop-level metadata (`tx_ris`, `ris_rx`, `direct`) alongside the existing deterministic SimRIS summaries.
+- `tests/test_simris_channel.py` — extend the LOS-only metadata parity test so deterministic and stochastic helpers are both checked explicitly.
+- `tasks/test-suite.md` — record the deterministic/stochastic metadata symmetry coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add deterministic hop metadata to `evaluate_simris_los_reference(...)`
+- [x] Extend focused metadata parity assertions across deterministic and stochastic helpers
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the deterministic SimRIS helper with a `metadata` block containing `tx_ris`, `ris_rx`, and `direct` hop summaries, reusing the same distance and LOS path-gain information already available from the lower link generators. Tightened the existing LOS-only parity test so deterministic and stochastic helpers are both checked explicitly for matching hop-level metadata. Updated `tasks/test-suite.md` to record the new symmetry coverage.
+- Out-of-scope flagged: I did not add stochastic-style per-realization wrapper lists to the deterministic helper; it remains a single deterministic evaluation with a single metadata block.
+- Assumptions invalidated: An initial edit tried to construct the no-direct-path metadata before `d_tx_rx` had been computed; this was corrected immediately before verification.
+- Known debt (acknowledged):
+- Limitations: Deterministic and stochastic LOS introspection are now more symmetric, but full stochastic MATLAB parity remains the main unresolved work.
+
+## Task: Add NLOS Structure Summaries to Stochastic SimRIS Metadata
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the NLOS-summary edits in `risnet/channels/simris.py`, the focused SimRIS metadata test, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `_generate_tx_side_scatterers`, `_generate_ris_side_scatterers`, `_generate_tx_ris_channel`, `_generate_ris_rx_channel`, `_generate_direct_channel`, focused SimRIS metadata tests] [interfaces: additive NLOS summary fields on stochastic metadata] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — expose stable NLOS structure summaries (`nlos_cluster_count`, `nlos_subray_count`, `nlos_active_scatterer_count`) on stochastic link metadata.
+- `tests/test_simris_channel.py` — add focused coverage for indoor and outdoor stochastic metadata summaries.
+- `tasks/test-suite.md` — record the added NLOS metadata coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Extend scatterer-generation metadata with cluster and sub-ray counts
+- [x] Surface stable NLOS summary counts on stochastic link metadata
+- [x] Add focused metadata coverage and verify focused SimRIS and link-budget suites
+
+### Review
+- Completed: Extended the stochastic scatterer-generation metadata to retain cluster counts and sub-ray counts, then surfaced stable NLOS summaries (`nlos_cluster_count`, `nlos_subray_count`, `nlos_active_scatterer_count`) on the Tx→RIS, RIS→Rx, and direct-link metadata where NLOS branches are active. Added focused tests covering both indoor shared-cluster behavior and outdoor scattered branches. Updated `tasks/test-suite.md` to record the new stochastic metadata coverage.
+- Out-of-scope flagged: I did not invent a single NLOS path-gain scalar summary in this batch, because that would flatten a multi-scatter stochastic branch into a misleading metric.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This improves stochastic structure introspection considerably, but the remaining work is still the deeper MATLAB parity of the stochastic physics itself.
+
+## Task: Add LOS-Component Summaries to Stochastic SimRIS Results
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic LOS-summary edits in `risnet/channels/simris.py`, the focused SimRIS LOS-summary tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `simulate_simris_channels`, focused SimRIS LOS-summary tests] [interfaces: additive per-realization LOS summary arrays on stochastic helper output] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add per-realization LOS-component summaries (`los_path_gain_*`, `theta_*`, `ris_pattern_*`) to the stochastic helper output.
+- `tests/test_simris_channel.py` — add focused coverage for deterministic parity in the LOS-only case and `NaN` semantics when LOS is absent.
+- `tasks/test-suite.md` — record the added stochastic LOS-summary coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add per-realization LOS-component summary arrays to the stochastic helper output
+- [x] Add focused tests for deterministic parity and explicit no-LOS `NaN` behavior
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the stochastic SimRIS helper with per-realization LOS-component summary arrays for path gain, RIS incidence/departure elevation, and RIS element-pattern gain. Added focused tests proving that the LOS-only stochastic case matches the deterministic helper and that these arrays resolve to `NaN` when the LOS component is forced off. Updated `tasks/test-suite.md` to record the new stochastic summary coverage.
+- Out-of-scope flagged: I did not expose equivalent top-level NLOS path-gain arrays because the current stochastic model does not reduce the NLOS branch to a single physically honest scalar per hop.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This further improves Python-side introspection and deterministic/stochastic symmetry, but the remaining unresolved work is still the deeper MATLAB parity of the stochastic model.
+
+## Task: Complete Stochastic LOS Path-Loss Summary Symmetry
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic LOS path-loss summary edit in `risnet/channels/simris.py`, the focused SimRIS LOS-summary assertions, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `simulate_simris_channels`, focused SimRIS LOS-summary tests] [interfaces: additive per-realization LOS path-loss arrays on stochastic helper output] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — add `los_path_loss_*_dB` arrays alongside the existing stochastic LOS path-gain summaries.
+- `tests/test_simris_channel.py` — extend LOS-summary coverage for deterministic parity and explicit `NaN` behavior on the new path-loss arrays.
+- `tasks/test-suite.md` — record the added stochastic LOS path-loss coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add per-realization LOS path-loss arrays to the stochastic helper output
+- [x] Extend focused LOS-summary tests for deterministic parity and no-LOS `NaN` behavior
+- [x] Verify focused SimRIS and link-budget suites and review scope
+
+### Review
+- Completed: Extended the stochastic SimRIS helper with `los_path_loss_ap_ris_dB`, `los_path_loss_ris_ue_dB`, and `los_path_loss_direct_dB`, completing the symmetry with the existing LOS path-gain summaries and the deterministic helper’s top-level path-loss fields. Tightened the LOS-summary tests so they now cover deterministic parity and explicit `NaN` behavior for the new path-loss arrays. Updated `tasks/test-suite.md` to record the new coverage.
+- Out-of-scope flagged: I did not add top-level non-LOS path-loss arrays, because the current stochastic NLOS formulation still does not reduce to a single physically honest scalar per hop.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This likely closes the last obvious Python-side LOS-summary contract gap; the remaining unresolved work is the deeper stochastic MATLAB parity.
+
+## Task: Align Public Stochastic Adapter Scalar LOS Summaries
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the stochastic adapter scalar-summary aliases in `risnet/channels/simris.py`, the focused SimRIS adapter tests, and the `tasks/test-suite.md` updates for this task.
+Change budget: [files 4] [functions: `SimRISStochasticChannel.evaluate`, focused SimRIS adapter scalar-summary tests] [interfaces: additive scalar alias parity on public stochastic adapter results] [state mutations: none]
+
+### Scope
+- `risnet/channels/simris.py` — expose first-realization scalar aliases for LOS path gain/loss, RIS angles, and RIS pattern summaries on the public stochastic adapter result.
+- `tests/test_simris_channel.py` — add focused coverage for deterministic parity and no-LOS `NaN` semantics on those scalar aliases.
+- `tasks/test-suite.md` — record the added public stochastic adapter coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add first-realization scalar LOS-summary aliases to the public stochastic adapter result
+- [x] Add focused tests for deterministic parity and no-LOS `NaN` behavior
+- [x] Fix the scalar-alias override bug exposed during verification and rerun focused suites
+
+### Review
+- Completed: Extended the public stochastic adapter result with first-realization scalar aliases for LOS path gain/loss, RIS angles, and RIS pattern summaries so the public stochastic contract now more closely mirrors the deterministic adapter. Added focused tests for deterministic parity and explicit no-LOS `NaN` semantics. Verification exposed a real bug where the new scalar aliases were being overwritten by `**tensors`; the result-dict order was corrected so the scalar aliases now survive as intended. Updated `tasks/test-suite.md` to record the new coverage.
+- Out-of-scope flagged: I did not add analogous scalar aliases for NLOS structure summaries on the adapter result because those are already available through the nested metadata and do not need lossy flattening.
+- Assumptions invalidated: The first implementation assumed the new scalar aliases would survive the result merge order, but `**tensors` was overriding them; this was fixed before completion.
+- Known debt (acknowledged):
+- Limitations: This likely closes the remaining obvious public adapter contract gap on the Python side; the remaining unresolved work is the deeper stochastic MATLAB parity.
+
+## Task: Verify Additional SimRIS Formula and Physics Suites
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: N/A — verification only.
+Change budget: [files 1] [functions: none] [interfaces: none] [state mutations: none]
+
+### Scope
+- `tasks/todo.md` — record the review/run of the existing auxiliary SimRIS test suites.
+
+### Steps
+- [x] Inspect `tests/test_simris_paper_formulas.py` and `tests/test_simris_physics_regression.py`
+- [x] Run both suites and capture their status
+- [x] Confirm whether `tasks/test-suite.md` already records them accurately
+
+### Review
+- Completed: Reviewed `tests/test_simris_paper_formulas.py` and `tests/test_simris_physics_regression.py`, then ran both directly. `test_simris_paper_formulas.py` passed with `34 passed in 0.50s`, and `test_simris_physics_regression.py` passed with `28 passed in 0.52s`. `tasks/test-suite.md` already contained both files in the inventory and coverage sections, so no update there was needed.
+- Out-of-scope flagged: I did not merge these auxiliary checks into the main `test_simris_channel.py` suite; they remain separate by design because they pin paper formulas and frozen physics values.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This batch only verified the auxiliary suites and their documentation status; it did not change engine behavior or close any additional MATLAB-parity gaps.
