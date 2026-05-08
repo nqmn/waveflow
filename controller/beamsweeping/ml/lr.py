@@ -11,7 +11,7 @@ import numpy as np
 
 from .base import SweepMLPredictor
 
-from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
+from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_metrics
 
 try:
     from sklearn.linear_model import LinearRegression  # type: ignore
@@ -132,8 +132,8 @@ class LRPredictor(SweepMLPredictor):
         aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0]))) % 360
         aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0]))) % 360
 
-        physics_config = build_config_from_nodes(ap, ris, ue)
-        metrics = compute_ris_link_metrics(ap_pos, ris_pos, ue_pos, aod, physics_config)
+        physics_config = build_lightris_config_from_nodes(ap, ris, ue)
+        metrics = evaluate_lightris_metrics(ap_pos, ris_pos, ue_pos, aod, physics_config)
         snr = float(metrics['snr_dB'])
         rssi = float(metrics['rssi_dBm'])
 

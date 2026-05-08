@@ -8,7 +8,7 @@ from .pathfinding import get_algorithm, list_algorithms
 from .beamforming import BeamformingEngine
 from core.physics import Physics
 from core.nodes import AccessPoint, RIS, UE
-from utils.link_budget import evaluate_ris_link_from_nodes
+from utils.lightris import evaluate_lightris_from_nodes
 
 
 class RISController:
@@ -382,7 +382,7 @@ class RISController:
                 break
 
         if ris_node and ap_node and ue_node:
-            metrics = evaluate_ris_link_from_nodes(
+            metrics = evaluate_lightris_from_nodes(
                 ap_node,
                 ris_node,
                 ue_node,

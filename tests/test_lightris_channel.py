@@ -7,12 +7,16 @@ from risnet.channels import (
     ChannelEvaluation,
     ChannelModel,
     LightRISChannel,
-    build_link_budget_config,
-    build_link_budget_config_from_nodes,
-    evaluate_ris_link_from_nodes,
-    evaluate_ris_link_metrics,
+    build_lightris_config,
+    build_lightris_config_from_nodes,
+    evaluate_lightris_from_nodes,
+    evaluate_lightris_metrics,
 )
-from utils.link_budget import build_config, build_config_from_nodes, compute_ris_link_metrics
+from utils.lightris import (
+    build_lightris_config as low_level_build_lightris_config,
+    build_lightris_config_from_nodes as low_level_build_lightris_config_from_nodes,
+    evaluate_lightris_metrics as low_level_evaluate_lightris_metrics,
+)
 
 
 def build_channel_network(*, max_angle_deg=180):
@@ -21,6 +25,12 @@ def build_channel_network(*, max_angle_deg=180):
     net.add_ris("ris1", 5, 0, max_angle_deg=max_angle_deg)
     net.add_ue("ue1", 10, 0)
     return net
+
+
+def test_waveflow_lightris_module_reexports_official_adapter():
+    from waveflow.channels.lightris import LightRISChannel as WaveflowLightRISChannel
+
+    assert WaveflowLightRISChannel is LightRISChannel
 
 
 def test_lightris_channel_reproduces_current_connect_metrics():
@@ -67,27 +77,49 @@ def test_lightris_channel_reproduces_current_connect_metrics():
     assert evaluation.result["channel_model_used"] == "lightris"
 
 
-def test_phase3_shared_link_budget_helpers_preserve_utils_compatibility():
+def test_phase3_shared_lightris_helpers_preserve_utils_compatibility():
     net = build_channel_network()
     ap = net.get("ap1")
     ris = net.get("ris1")
     ue = net.get("ue1")
 
-    channel_config = build_link_budget_config()
-    compat_config = build_config()
+    channel_config = build_lightris_config()
+    compat_config = low_level_build_lightris_config()
     assert channel_config == compat_config
 
-    channel_node_config = build_link_budget_config_from_nodes(ap, ris, ue)
-    compat_node_config = build_config_from_nodes(ap, ris, ue)
+    channel_node_config = build_lightris_config_from_nodes(ap, ris, ue)
+    compat_node_config = low_level_build_lightris_config_from_nodes(ap, ris, ue)
     assert channel_node_config == compat_node_config
 
     beam_angle_deg = 0.0
-    direct_metrics = evaluate_ris_link_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, channel_node_config)
-    compat_metrics = compute_ris_link_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, compat_node_config)
+    direct_metrics = evaluate_lightris_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, channel_node_config)
+    compat_metrics = low_level_evaluate_lightris_metrics(
+        ap.pos, ris.pos, ue.pos, beam_angle_deg, compat_node_config
+    )
 
     assert direct_metrics.keys() == compat_metrics.keys()
     for key in direct_metrics:
         assert direct_metrics[key] == pytest.approx(compat_metrics[key])
+
+
+def test_phase3_lightris_node_helper_matches_channel_adapter_inputs():
+    net = build_channel_network()
+    ap = net.get("ap1")
+    ris = net.get("ris1")
+    ue = net.get("ue1")
+
+    helper_result = evaluate_lightris_from_nodes(ap, ris, ue, beam_angle_deg=0.0)
+    direct_result = evaluate_lightris_metrics(
+        ap.pos,
+        ris.pos,
+        ue.pos,
+        0.0,
+        build_lightris_config_from_nodes(ap, ris, ue),
+    )
+
+    assert helper_result.keys() == direct_result.keys()
+    for key in helper_result:
+        assert helper_result[key] == pytest.approx(direct_result[key])
 
 def test_lightris_channel_preserves_phase_payload_shape():
     net = build_channel_network()

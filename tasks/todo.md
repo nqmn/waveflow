@@ -1,3 +1,28 @@
+## Task: Finalize Active LightRIS Naming and Verification
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the active-doc wording updates and this task-log entry.
+Change budget: [files 3] [functions: none] [interfaces: active documentation wording and coverage map only] [state mutations: none]
+
+### Scope
+- `FUTURE.md` — keep present-tense LightRIS guidance free of stale `LinkBudgetChannel` wording.
+- `tasks/test-suite.md` — keep the active LightRIS adapter coverage wording aligned with `utils.lightris`.
+- `tasks/todo.md` — record the closing verification pass for the internal LightRIS rename batch.
+
+### Steps
+- [x] Remove the last active-doc references that still described current LightRIS behavior with stale `link_budget` names
+- [x] Rerun the focused/broad pytest suites on the current internal-rename branch
+- [x] Record the verification status for the closing batch
+
+### Review
+- Completed: Cleaned the remaining active `test-suite` wording so the documented helper compatibility now points at `utils.lightris`, and updated the forward-looking `FUTURE.md` language so the current native engine is described directly as `LightRIS` rather than by the old adapter name. Reverified the current branch with `pytest -q tests/test_lightris_channel.py tests/test_connect_characterization.py tests/test_scenarios.py tests/test_smoke.py tests/test_simris_channel.py tests/test_simris_paper_formulas.py tests/test_simris_physics_regression.py tests/test_johari2025_ris_5ghz.py tests/test_johari2025_physics_regression.py` (`255 passed`).
+- Out-of-scope flagged: Historical roadmap/task-log entries still mention `LinkBudgetChannel` or `link_budget` where they describe earlier phases; I left those intact as history instead of rewriting past entries.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This closes the active LightRIS naming pass on the Python side, but it does not rewrite historical records or change MATLAB-parity scope for SimRIS.
+
 ## Task: Refactor the Native Engine Name to LightRIS
 Mode: Standard
 Risk: High
@@ -26,6 +51,82 @@ Change budget: [files 10] [functions: `RISNetwork.connect`, native channel adapt
 - Assumptions invalidated: The assumption that the native adapter tests could still compare against bare `connect()` defaults was false after the earlier SimRIS-first switch; they had to compare against explicit `channel_model="lightris"` to stay engine-consistent.
 - Known debt (acknowledged):
 - Limitations: This completes the public engine-name refactor for the tested surface, but there are still historical internal names (`link_budget`) in helper/module paths that can be cleaned up in a later pass if we decide to fully rename the underlying implementation files.
+
+## Task: Rename the Public Native Helper Surface to LightRIS
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Revert the `risnet.channels` / `waveflow.channels` helper-export changes, the focused LightRIS helper test additions, and the roadmap/test-map wording for this task.
+Change budget: [files 4] [functions: LightRIS helper exports, focused helper-equivalence tests] [interfaces: public helper names under `risnet.channels` / `waveflow.channels`] [state mutations: none]
+
+### Scope
+- `risnet/channels/lightris.py` and `risnet/channels/__init__.py` — expose official `LightRIS` helper names instead of `build_link_budget_*` on the public channel surface.
+- `tests/test_link_budget_channel.py` — migrate the focused helper-equivalence coverage to the `LightRIS` helper names.
+- `tasks/test-suite.md` and `tasks/todo.md` — keep the helper-surface coverage map current.
+
+### Steps
+- [x] Add official `LightRIS` helper names on the public channel surface
+- [x] Migrate focused helper-equivalence coverage to those names
+- [x] Verify impacted suites and update the coverage map
+
+### Review
+- Completed: Added official `LightRIS` helper names (`build_lightris_config`, `build_lightris_config_from_nodes`, `evaluate_lightris_from_nodes`, `evaluate_lightris_metrics`) on the public `risnet.channels` / `waveflow.channels` surface, and migrated the focused helper-equivalence tests to those names. The low-level `utils/link_budget.py` implementation remains the numerical source of truth for now, but the public helper surface now matches the `LightRIS` engine naming.
+- Out-of-scope flagged: I did not rename the low-level utility module `utils/link_budget.py`, the internal adapter carrier file `risnet/channels/link_budget.py`, or the historical test filename `tests/test_link_budget_channel.py` in this task.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Public helper naming is now aligned to `LightRIS`, but there are still historical internal file/module names that can be cleaned up later if we decide the extra churn is worth it.
+
+## Task: Remove Stale Channel/ Test File Names from the Native LightRIS Surface
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Restore the deleted `risnet/channels/link_budget.py` and `waveflow/channels/link_budget.py` wrappers, rename `tests/test_lightris_channel.py` back to its historical filename, and revert the focused import/reference updates.
+Change budget: [files 7] [functions: LightRIS adapter/export wiring, focused connect helper rename, test-file rename] [interfaces: internal module paths and test-file naming for the native LightRIS surface] [state mutations: none]
+
+### Scope
+- `risnet/channels/lightris.py` and `risnet/channels/__init__.py` — make the LightRIS module self-contained so the deleted channel wrapper is no longer needed.
+- `core/network.py` and `tests/test_connect_characterization.py` — rename the remaining internal connect helper to `lightris`.
+- `tests/test_lightris_channel.py` — keep adapter/helper coverage under the new filename after the rename from `test_link_budget_channel.py`.
+- `tasks/test-suite.md` and `tasks/todo.md` — keep the test inventory and task log consistent with the renamed files.
+
+### Steps
+- [x] Remove stale channel wrapper modules that still carried the `link_budget` filename
+- [x] Rename the remaining focused native-adapter test file and helper references to `lightris`
+- [x] Verify impacted suites and update the test inventory
+
+### Review
+- Completed: Made `risnet/channels/lightris.py` self-contained, removed the stale `risnet/channels/link_budget.py` and `waveflow/channels/link_budget.py` wrappers, renamed the remaining focused adapter test file to `tests/test_lightris_channel.py`, and renamed the internal connect helper to `_prepare_connect_lightris`. Updated the test inventory accordingly.
+- Out-of-scope flagged: I intentionally kept `utils/link_budget.py` as the low-level physics utility module for now; this batch removed stale channel-surface names, not the shared utility implementation name.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The official LightRIS engine surface is now free of stale channel/test wrapper filenames, but the low-level numerical utility module still uses the historical `link_budget` name internally.
+
+## Task: Rename the Low-Level Native Utility Module to LightRIS
+Mode: Standard
+Risk: Medium
+Confidence: Stable
+Operational risk: Contained / Trivial
+Rollback plan: Restore `utils/link_budget.py`, revert the utility-import renames across the native/ML/controller modules, and restore the LightRIS helper exports to their previous utility source.
+Change budget: [files 20] [functions: low-level LightRIS utility helpers and their imports] [interfaces: internal utility module path and helper names] [state mutations: none]
+
+### Scope
+- `utils/lightris.py` and `utils/snr.py` — make `utils.lightris` the low-level source of truth for native engine geometry/physics helpers.
+- `controller/`, `risnet/channels/`, and focused tests — update live imports and helper calls to the new utility names.
+- `FUTURE.md`, `tasks/test-suite.md`, and `tasks/todo.md` — keep the roadmap and task map aligned with the completed rename.
+
+### Steps
+- [x] Create `utils.lightris` and migrate live imports/helper names to it
+- [x] Remove the stale `utils/link_budget.py` module
+- [x] Verify compile/regression status and update docs/task tracking
+
+### Review
+- Completed: Introduced `utils/lightris.py` as the low-level source of truth for the native fast-engine geometry/physics helpers, migrated active imports in `utils/snr.py`, `controller/ris_controller.py`, the ML beam-sweeping modules, and the LightRIS channel/test surface to the new helper names, then removed `utils/link_budget.py`. Also updated the forward-looking parts of `FUTURE.md` so the present-tense roadmap now refers to `LightRIS` instead of `LinkBudgetChannel` where appropriate.
+- Out-of-scope flagged: Historical task-log text in `tasks/todo.md` still mentions older `LinkBudgetChannel` / `link_budget` names where it records what happened at the time; I left those as historical artifacts instead of rewriting history.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: Active code paths are now on `utils.lightris`, but some historical roadmap/task text still references `LinkBudgetChannel` when describing past phases.
 
 ## Task: Plan `LightRIS` Naming Split in Roadmap
 Mode: Standard

@@ -22,7 +22,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 | `test_physics_fixes.py` | dual-mode | 5 | Physics equations, SNR bounds | pytest-compatible `def test_*` with `assert` |
 | `test_array_primitives.py` | pytest | 6 | Array geometry, steering vectors | |
 | `test_array_quantization.py` | pytest | 7 | Phase quantization helpers | |
-| `test_link_budget_channel.py` | pytest | 10 | `LightRISChannel` adapter | Covers the renamed native lightweight adapter, including explicit coverage that it pins `channel_model="lightris"` under the official engine name |
+| `test_lightris_channel.py` | pytest | 12 | `LightRISChannel` adapter | Covers the renamed native lightweight adapter, including explicit coverage that it pins `channel_model="lightris"` under the official engine name, that the public LightRIS helper names stay aligned with the underlying geometry-evaluation utilities, and that `waveflow.channels.lightris` re-exports the official adapter |
 | `test_simris_channel.py` | pytest | 52 | SimRIS engine | Verifies the additive deterministic SimRIS LOS engine against published-formula reference slices, compares its received-power math against the current Waveflow link-budget path across multiple published-style geometries, and covers seeded stochastic H/G/D plus MATLAB-style `h/g/h_SISO` tensor generation, deterministic published-geometry presets for all four GUI-recommended layouts, additive published-case helper wrappers including outdoor Scenario 2 end-to-end coverage, a published-network builder with deterministic channel execution and AP/RIS frequency consistency checks, deterministic and seeded stochastic helper-consistency parity across all four presets, additive published-case adapter helpers for full `ChannelEvaluation` parity, determinism, forced LOS-only reduction behavior, seeded direct-link NLOS generation, scenario 2, UPA terminal arrays, indoor RIS→Rx LOS seed sensitivity, outdoor stochastic determinism, frozen seeded regression signatures for indoor/outdoor cases, additive MATLAB-style validation checks, optional preflight raise/report behavior on adapters, published-case entrypoints, wrapper helpers, and base primitive SimRIS APIs, plus stochastic adapter `noise_power_dBm` contract parity, self-describing stochastic result metadata (`environment`, `scenario`, `array_type`, `frequency_GHz`, `num_realizations`), per-realization stochastic channel-gain summaries, symmetric hop-level LOS path-gain/distance metadata on both deterministic and stochastic helpers, NLOS cluster/sub-ray/active-scatterer count summaries for stochastic introspection, per-realization LOS-component summaries (`los_path_gain_*`, `los_path_loss_*`, `theta_*`, `ris_pattern_*`) with explicit `NaN` behavior when LOS is absent, and first-realization scalar alias parity on the public stochastic adapter result |
 | `test_scenarios.py` | pytest | 22 | Headless scenario runner and shared service adoption | Includes shared execution-service equivalence, request validation failures, golden example topology loading, API routing through the shared scenario service, official LightRIS `connect()` passthrough, and official SimRIS `connect()` passthrough via scenario kwargs |
 | `test_johari2025_ris_5ghz.py` | pytest | 20 | Johari et al. (IEEE Access 2025) — 5.8 GHz 1-bit RIS | 1-bit quantization states and bounds, quantization loss (1-bit vs 2-bit), array factor steering trend, EVM↔SNR↔BER formula verification against Table 2 SDR measurements (EVM OFF=57.30%, ON=24.39%) |
@@ -87,8 +87,9 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - FSPL consistency at multiple distances (`test_physics_fixes.py`)
 - SNR noise floor and bandwidth scaling (`test_physics_fixes.py`)
 - Link budget reproducibility under seeded fading (`test_connect_characterization.py`)
-- `LightRISChannel` adapter reproduces `connect()` metrics (`test_link_budget_channel.py`)
-- Blocked-path propagation via environment walls (`test_link_budget_channel.py`)
+- `LightRISChannel` adapter reproduces `connect()` metrics (`test_lightris_channel.py`)
+- Public `LightRIS` helper names (`build_lightris_config*`, `evaluate_lightris_*`) remain numerically aligned with the underlying utility layer (`test_lightris_channel.py`)
+- Blocked-path propagation via environment walls (`test_lightris_channel.py`)
 - Deterministic published SimRIS LOS path-gain slices for indoor Scenario 1, indoor Scenario 2, and outdoor Scenario 1, including coherent cascaded gain scaling against the current Waveflow path (`test_simris_channel.py`)
 - Published SimRIS GUI geometry presets for indoor/outdoor Scenarios 1 and 2 are now exposed as a production helper and validated against MATLAB-style geometry checks (`test_simris_channel.py`)
 - Published-case helper wrappers now drive deterministic and stochastic SimRIS evaluation directly from the production presets, including outdoor Scenario 2 end-to-end coverage (`test_simris_channel.py`)
@@ -217,8 +218,7 @@ benchmarks, or dataset tools that are not intended for automated pytest runs.
 - Missing-node error propagation
 - FOV rejection propagation
 - Environment-blocked path behavior
-- Shared link-budget helper/re-export compatibility between `utils.link_budget`
-  and `risnet.channels`
+- Shared `utils.lightris` helper/re-export compatibility with `risnet.channels`
 - Additive deterministic SimRIS LOS adapter returns channel matrices (`H`, `G`, `D`) and matches the published-formula reference slice more closely than the current link-budget path for the covered geometry
 - Additive stochastic SimRIS adapter returns seeded `H`, `G`, `D` tensors and preserves deterministic replay under fixed seeds
 
@@ -355,7 +355,7 @@ pytest tests/test_smoke.py \
        tests/test_physics_fixes.py \
        tests/test_array_primitives.py \
        tests/test_array_quantization.py \
-       tests/test_link_budget_channel.py \
+       tests/test_lightris_channel.py \
        tests/test_scenarios.py \
        tests/test_johari2025_ris_5ghz.py \
        tests/test_simris_paper_formulas.py \

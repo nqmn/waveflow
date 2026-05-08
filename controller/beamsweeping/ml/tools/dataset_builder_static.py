@@ -37,7 +37,7 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
-from utils.link_budget import build_config, compute_ris_link_metrics
+from utils.lightris import build_lightris_config, evaluate_lightris_metrics
 
 
 # ============================================================================
@@ -270,7 +270,7 @@ def _add_physics_metrics(sample: Dict, physics_config: Dict) -> None:
     ue_pos = np.array(sample['ue_pos'], dtype=float)
     beam_angle = float(sample['aod'])
 
-    metrics = compute_ris_link_metrics(
+    metrics = evaluate_lightris_metrics(
         ap_pos=ap_pos,
         ris_pos=ris_pos,
         ue_pos=ue_pos,
@@ -438,7 +438,7 @@ def main():
     # RIS FOV constraint
     ris_max_angle = 60.0
 
-    physics_config = build_config({
+    physics_config = build_lightris_config({
         'tx_power_dBm': args.tx_power,
         'ap_antenna_gain_dBi': args.ap_gain,
         'ue_antenna_gain_dBi': args.ue_gain,

@@ -10,7 +10,7 @@ from typing import List
 import numpy as np
 
 from .base import SweepMLPredictor
-from utils.link_budget import build_config_from_nodes, compute_ris_link_metrics
+from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_metrics
 
 try:
     import joblib
@@ -119,8 +119,8 @@ class KGMFPredictor(SweepMLPredictor):
         ap_pos = np.array(ap.pos)
         ris_pos = np.array(ris.pos)
         ue_pos = np.array(ue.pos)
-        physics_config = build_config_from_nodes(ap, ris, ue)
-        metrics = compute_ris_link_metrics(ap_pos, ris_pos, ue_pos,
+        physics_config = build_lightris_config_from_nodes(ap, ris, ue)
+        metrics = evaluate_lightris_metrics(ap_pos, ris_pos, ue_pos,
                                            float(np.degrees(math.atan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])) % 360),
                                            physics_config)
         return float(metrics['snr_dB']), float(metrics['rssi_dBm'])

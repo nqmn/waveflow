@@ -52,7 +52,7 @@ These pieces already exist and should be treated as current foundations, not
 future-only ideas:
 
 - Typer/Rich terminal commands are available through `waveflow ui ...`.
-- `ChannelModel` and `LinkBudgetChannel` already provide a channel adapter
+- `ChannelModel` and `LightRISChannel` already provide a channel adapter
   layer.
 - Array-related primitives already exist under `risnet/arrays`.
 - Packaging, entry points, and base imports are already working.
@@ -359,7 +359,7 @@ Planned features:
 
 Implementation note:
 
-Start with a `ChannelModel` protocol and a `LinkBudgetChannel` adapter around
+Start with a `ChannelModel` protocol and a `LightRISChannel` adapter around
 the current `Physics` and `RISNetwork.connect()` behavior. Then add spatial and
 MIMO models without breaking current tests.
 
@@ -1617,7 +1617,8 @@ Do not break:
 
 Exit gate:
 
-- Existing simulations still use `LinkBudgetChannel` by default.
+- Existing simulations still use `LightRIS` as the native fast engine by default
+  when SimRIS is not selected or supported.
 - Spatial-channel scenarios pass dedicated tests without changing compatibility
   results.
 
@@ -1629,7 +1630,7 @@ that plugs into the existing `ChannelModel` protocol.
 
 Background:
 
-The current `LinkBudgetChannel` uses scalar FSPL + Rician fading. This is fast
+The current `LightRIS` engine uses scalar FSPL + Rician fading. This is fast
 and sufficient for beam management algorithm comparison, but it cannot model
 stochastic multipath clusters, spatial correlation, angle-of-arrival/departure
 spreads, or per-element UC radiation patterns. QRIS addresses these gaps by
@@ -1684,7 +1685,7 @@ Integration point:
 
 `risnet/channels/base.py` already defines `ChannelModel` with an `evaluate()`
 method. Add `GSCMChannel` as a new implementation. Existing scenarios continue
-using `LinkBudgetChannel` by default. A scenario opts into GSCM by setting
+using `LightRIS` by default. A scenario opts into GSCM by setting
 `channel_model: gscm` in its YAML/JSON configuration.
 
 ```python
@@ -1697,7 +1698,7 @@ result  = channel.evaluate(network, "AP1", "RIS1", "UE1")
 
 Do not break:
 
-- Default `LinkBudgetChannel` behavior for all existing tests and examples.
+- Default `LightRIS` behavior for all existing tests and examples.
 - Base install: GSCM engine is an optional extra (`pip install -e ".[gscm]"`
   or included in `[all]`). NumPy and SciPy are sufficient; no MATLAB, no GPU.
 - Existing sweep algorithm interfaces — they call `channel.evaluate()` and
@@ -1707,7 +1708,7 @@ Exit gate:
 
 - `GSCMChannel` passes dedicated tests: channel matrix shapes, stochastic
   reproducibility under fixed seed, SNR plausibility vs FSPL baseline.
-- Existing `LinkBudgetChannel` tests and smoke tests are unaffected.
+- Existing `LightRIS` tests and smoke tests are unaffected.
 - A scenario YAML can select `channel_model: gscm` and run end-to-end without
   changing any beam sweep algorithm code.
 
@@ -1779,8 +1780,8 @@ Official engine policy for the intermediate phase:
 Recommended engine naming and publication split:
 
 - `SimRIS` remains the published/reference engine.
-- The current `LinkBudgetChannel` path should be evolved into a distinct novel
-  engine named `LightRIS`.
+- The current native lightweight path should remain a distinct novel engine
+  named `LightRIS`.
 - Positioning:
   - `simris` = literature-aligned channel baseline
   - `lightris` = lightweight native Waveflow/RISNet engine for fast
@@ -1792,7 +1793,7 @@ Recommended engine naming and publication split:
   - `LightRIS` answers: "What fast native engine do we propose for practical
     control/system experiments?"
 
-Recommended migration plan for `LinkBudgetChannel` -> `LightRIS`:
+Recommended migration plan for the native engine -> `LightRIS`:
 
 1. Introduce a new public engine identifier:
    - `channel_model="lightris"`
@@ -1823,14 +1824,22 @@ Definition of done for the `LightRIS` split:
 
 Definition of done for SimRIS integration (separate from MATLAB parity):
 
-- `RISNetwork.connect(..., channel_model="simris")` works end-to-end.
-- Shared scenario execution accepts `channel_model: simris`.
+- ~~`RISNetwork.connect(..., channel_model="simris")` works end-to-end.~~ Done.
+- ~~Shared scenario execution accepts `channel_model: simris`.~~ Done.
 - CLI/UI can select `simris` explicitly.
-- Unsupported SimRIS requests fall back cleanly to `LightRIS` with an
-  explicit reason, rather than failing or silently mixing engines.
-- Existing native-engine tests and behavior remain unchanged under the
-  `LightRIS` name.
-- SimRIS integration tests pass without requiring MATLAB.
+- ~~Unsupported SimRIS requests fall back cleanly to `LightRIS` with an
+  explicit reason, rather than failing or silently mixing engines.~~ Done.
+  `beam_angle_deg`, `enable_feedback`, non-uniform tapering, and
+  `fixed_ris_normal` still trigger fallback to `LightRIS` with explicit reason.
+- ~~Existing native-engine tests and behavior remain unchanged under the
+  `LightRIS` name.~~ Done. `LightRISChannel` in `risnet/channels/lightris.py`;
+  `channel_model="lightris"` accepted; `"link_budget"` now rejected with error.
+- ~~SimRIS integration tests pass without requiring MATLAB.~~ Done.
+  `tests/test_simris_channel.py`, `tests/test_simris_physics_regression.py`,
+  and `tests/test_connect_characterization.py` all pass.
+- SimRIS is now the default engine: `connect()` defaults to
+  `environment="indoor", scenario=1`. Callers that omit these params
+  automatically route through `SimRISStochasticChannel`.
 
 ### Phase 7a - Human-Aware Sensing and Beam Focusing
 
@@ -1945,6 +1954,133 @@ Current status:
 
 - Not started. Planned after Phase 7a `HumanTarget` and basic scene graph
   primitives are stable.
+
+### Phase 7d - RIS Control Unit (RCU) and Sensing Integration
+
+Goal: model the RIS Control Unit as a software entity in Waveflow, enabling
+RSS-based beam tracking, cooperative multi-RIS localization, and a structured
+control plane between the WaveFlow core and deployed passive RIS panels.
+
+Background:
+
+The current architecture treats RIS as a passive node whose phase is set by
+the central `RISController`. In practical deployments each passive RIS panel
+is managed by a co-located RCU (microcontroller, FPGA, or edge SBC) that
+measures pilot energy, feeds RSS observations back to the central controller,
+and applies the received phase configuration. Waveflow should model this
+control-plane structure explicitly so that latency, quantized feedback, and
+distributed orchestration can be studied in simulation without hardware.
+
+Relationship to existing codebase:
+
+The foundations are already in place:
+- `core/feedback_channel.py` — UE→RIS CSI feedback channel already exists.
+- `core/snr_messaging.py` — latency-aware SNR/RSS messaging system already
+  exists and is used by `RISNetwork`.
+- `utils/rssi.py` — RSS/RSSI computation helpers already exist.
+- `controller/beamtracking/__init__.py` — module stub exists; `controller/
+  beam_tracker.py` already implements `GreedyHillClimbTracker` and
+  `GradientDescentTracker` against live SNR measurements.
+- `controller/beamsweeping/algorithms/` — HOG and OpenCV sensing sweeps
+  already provide UE/human detection sweep modes.
+- `SimRISStochasticChannel` and `LightRISChannel` — both already expose
+  `snr_dB` results that the RCU feedback path can consume.
+
+What Phase 7d adds on top:
+
+- **`core/rcu.py`** — `RCUNode` entity: software model of the RIS Control
+  Unit with configurable sensing option (power/RSS, semi-passive, external).
+  Each RCU is associated with one RIS panel. Carries local beam history,
+  RSS measurement buffer, and a reference to its parent RIS node.
+- **`controller/rcu_manager.py`** — `RCUManager`: registers RCUs, routes
+  RSS observations from RCUs to the central controller, dispatches phase
+  configurations back to RCUs, supports hierarchical clustering (Edge-RCU
+  groups, each managing a local RIS cluster).
+- **`services/beam_tracking/rss_tracker.py`** — `RSSBeamTracker`: implements
+  the power-sensing beam tracking workflow. Consumes RSS sequence from RCU
+  buffer, computes beam quality score, RSS gradient, and beam transition
+  pattern, then issues a beam update request to the central controller.
+- **`services/localization/cooperative_loc.py`** — `CooperativeLocalizer`:
+  multi-RIS triangulation using AoA or RSS difference across at least two
+  RCUs. First slice: nearest-beam centroid; later slice: weighted least-squares
+  or Kalman filter with trajectory smoothing.
+- **`services/sensing/rss_analytics.py`** — `RSSAnalytics`: derives human
+  presence, motion direction, and occupancy signals from temporal RSS
+  fluctuation across the RCU observation buffer. Complements (does not
+  replace) the LiDAR sensing pipeline in Phase 7c.
+
+Sensing options to support:
+
+| Option | Description | Complexity |
+|---|---|---|
+| A — Power/RSS | Energy detector + RSSI circuit + small sense antenna | Low (recommended first) |
+| B — Semi-passive | Subset of RIS elements act as sensors | Medium |
+| C — External | RSS from BS/AP/edge gateway forwarded to WaveFlow | Low, requires integration |
+
+Option A is the recommended first implementation. Option C reuses the existing
+`SNRMessagingSystem` and `FeedbackChannelManager` with minimal new code.
+
+Control-plane communication model:
+
+The `RCUManager` models the link between each RCU and the WaveFlow controller
+as a software message queue with configurable latency (default reuses
+`SNRMessagingSystem` parameters). No real networking stack is required; this
+is a simulation abstraction only.
+
+```python
+from core.rcu import RCUNode
+from controller.rcu_manager import RCUManager
+
+rcu1 = RCUNode("RCU-1", ris_name="R1", sensing_option="power")
+manager = RCUManager(network, controller)
+manager.register(rcu1)
+
+# Beam tracking step: RCU reports RSS → manager computes new phase
+result = manager.step(ap_name="AP1", ue_name="UE1")
+```
+
+Hierarchical RIS control (later slice):
+
+```text
+WaveFlow RCUManager (central)
+    |
+    +-- Edge cluster A: [RCU-1/R1, RCU-2/R2]
+    +-- Edge cluster B: [RCU-3/R3, RCU-4/R4]
+```
+
+Each edge cluster optimizes locally; the central manager handles inter-cluster
+handover and cooperative localization.
+
+LiDAR integration note:
+
+The LiDAR pipeline (Phase 7c) and RCU RSS sensing (Phase 7d) are independent
+modalities. They share the same scene geometry (`RISNetwork` + `Environment`)
+and can produce fused occupancy or position estimates through
+`services/sensing/`, but they must remain independently executable.
+
+Do not break:
+
+- Existing `RISNetwork.connect()`, `RISController`, and all sweep algorithms.
+- `core/feedback_channel.py` and `core/snr_messaging.py` public APIs.
+- `controller/beam_tracker.py` which already works without RCU abstraction.
+- Base install: `RCUNode` and `RCUManager` must not require optional extras.
+
+Exit gate:
+
+- `RCUNode` can be instantiated and associated with an existing RIS node.
+- `RCUManager.step()` produces a beam update result equivalent to a direct
+  `controller.connect()` call for the static (no-mobility) case.
+- RSS-based beam tracking test passes under fixed seed without hardware.
+- Cooperative localization test produces a plausible position estimate for a
+  two-RIS geometry.
+- All existing tests remain unaffected.
+
+Current status:
+
+- Not started. Planned after Phase 7a `HumanTarget` and Phase 7c LiDAR
+  pipeline are stable, since RCU sensing shares the same scene and actor
+  primitives. Foundations (feedback channel, SNR messaging, beam tracker,
+  RSSI utilities) already exist and are tested.
 
 ### Phase 8 - AI Runtime and Dataset Tools
 
@@ -2158,7 +2294,13 @@ Status as of 2026-05-08:
     Legacy `ConnectionHandler.print_sweep_results` now normalizes NumPy sequences.
 17. ~~Fix `waveflow ui run` legacy flag passthrough.~~ — Done. Unknown trailing
     flags like `--breakdown` now pass through to the legacy shell command.
-18. Begin Phase 6 minimal runtime kernel. Status: Not started.
+18. ~~Make SimRIS the default channel engine for all `connect()` calls.~~ — Done.
+    `connect()` now defaults to `environment="indoor", scenario=1`. Callers that
+    omit environment/scenario automatically use `SimRISStochasticChannel`.
+    Fallback to `LightRIS` still triggers for `beam_angle_deg`, feedback, tapering,
+    and `fixed_ris_normal`. Two characterization tests updated to reflect new behavior.
+    `channel_model="lightris"` accepted; `"link_budget"` now raises `ValueError`.
+18a. Begin Phase 6 minimal runtime kernel. Status: Not started.
     First slice: minimal simulation clock, deterministic trajectory iterator,
     metric sampling loop. Must validate that `t=0` static output matches the
     existing scenario result exactly.
@@ -2181,6 +2323,15 @@ Status as of 2026-05-08:
     `controller/beamsweeping/ml/lidar_detector.py` (ML threat detector).
     All LiDAR components go behind an optional `[lidar]` extra; base install
     must remain unaffected.
+23. Implement Phase 7d RIS Control Unit (RCU) and Sensing Integration. Status:
+    Not started. Depends on Phase 7a and Phase 7c scene primitives. Deliverables:
+    `core/rcu.py` (RCUNode entity), `controller/rcu_manager.py` (RCUManager with
+    hierarchical cluster support), `services/beam_tracking/rss_tracker.py`
+    (RSS-based beam tracker), `services/localization/cooperative_loc.py`
+    (multi-RIS triangulation), `services/sensing/rss_analytics.py` (human
+    presence/motion from temporal RSS). Option A (power/RSS sensing) is the
+    first implementation target. Foundations already in codebase: feedback
+    channels, SNR messaging, RSSI utilities, GreedyHillClimbTracker.
 
 ## Risks
 

@@ -1,14 +1,14 @@
 """Channel model interfaces and compatibility adapters."""
 
 from .base import ChannelEvaluation, ChannelModel
-from .link_budget import (
-    DEFAULT_RIS_LINK_CONFIG,
-    build_link_budget_config,
-    build_link_budget_config_from_nodes,
-    evaluate_ris_link_from_nodes,
-    evaluate_ris_link_metrics,
+from .lightris import (
+    DEFAULT_LIGHTRIS_CONFIG,
+    LightRISChannel,
+    build_lightris_config,
+    build_lightris_config_from_nodes,
+    evaluate_lightris_from_nodes,
+    evaluate_lightris_metrics,
 )
-from .lightris import LightRISChannel
 from .simris import (
     build_simris_published_network,
     evaluate_simris_channel_published_case,
@@ -32,12 +32,12 @@ from .simris import (
 __all__ = [
     "ChannelEvaluation",
     "ChannelModel",
-    "DEFAULT_RIS_LINK_CONFIG",
+    "DEFAULT_LIGHTRIS_CONFIG",
     "LightRISChannel",
-    "build_link_budget_config",
-    "build_link_budget_config_from_nodes",
-    "evaluate_ris_link_from_nodes",
-    "evaluate_ris_link_metrics",
+    "build_lightris_config",
+    "build_lightris_config_from_nodes",
+    "evaluate_lightris_from_nodes",
+    "evaluate_lightris_metrics",
     "build_simris_published_network",
     "evaluate_simris_channel_published_case",
     "get_simris_published_geometry",

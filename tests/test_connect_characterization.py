@@ -563,13 +563,13 @@ def test_store_last_connect_result_captures_parameter_snapshot():
     assert net.last_connect_result["metrics"]["snr_dB"] == pytest.approx(19.0)
 
 
-def test_prepare_connect_link_budget_applies_impairments_and_phase_metadata():
+def test_prepare_connect_lightris_applies_impairments_and_phase_metadata():
     net = build_line_network()
     net.set_impairments({"extra_path_loss_dB_ris": 7.5})
     ap, ris, ue = net._resolve_connect_nodes("ap1", "ris1", "ue1")
     ris = ris.clone()
 
-    budget = net._prepare_connect_link_budget(
+    budget = net._prepare_connect_lightris(
         ap,
         ris,
         ue,

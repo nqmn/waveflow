@@ -9,7 +9,7 @@ Used throughout beamforming, beam sweeping, and core network modules.
 import numpy as np
 from typing import Dict, Optional, Union
 
-from utils.link_budget import build_link_budget_config, evaluate_ris_link_metrics
+from utils.lightris import build_lightris_config, evaluate_lightris_metrics
 
 
 def compute_snr(
@@ -197,8 +197,8 @@ def _compute_snr_from_positions(
         beam_angle_abs = beam_angle if beam_angle is not None else float(
             np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])) % 360
         )
-        config = physics_config or build_link_budget_config()
-        metrics = evaluate_ris_link_metrics(
+        config = physics_config or build_lightris_config()
+        metrics = evaluate_lightris_metrics(
             ap_pos=ap_pos,
             ris_pos=ris_pos,
             ue_pos=ue_pos,

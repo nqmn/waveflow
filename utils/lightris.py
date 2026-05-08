@@ -1,4 +1,4 @@
-"""Shared RIS link-budget helpers and compatibility wrappers."""
+"""Shared LightRIS helpers and low-level geometry/physics utilities."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 from core.physics import Physics
 
 
-DEFAULT_RIS_LINK_CONFIG: Dict[str, float] = {
+DEFAULT_LIGHTRIS_CONFIG: Dict[str, float] = {
     "tx_power_dBm": 15.0,
     "ap_antenna_gain_dBi": 16.0,
     "ue_antenna_gain_dBi": 16.0,
@@ -31,17 +31,17 @@ DEFAULT_RIS_LINK_CONFIG: Dict[str, float] = {
 }
 
 
-def build_link_budget_config(
+def build_lightris_config(
     overrides: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
-    """Create a compatibility link-budget config dictionary."""
-    config = DEFAULT_RIS_LINK_CONFIG.copy()
+    """Create a low-level LightRIS config dictionary."""
+    config = DEFAULT_LIGHTRIS_CONFIG.copy()
     if overrides:
         config.update({key: value for key, value in overrides.items() if value is not None})
     return config
 
 
-def build_link_budget_config_from_nodes(
+def build_lightris_config_from_nodes(
     ap: Any,
     ris: Any,
     ue: Any,
@@ -51,8 +51,8 @@ def build_link_budget_config_from_nodes(
     noise_figure_dB: Optional[float] = None,
     overrides: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
-    """Build a link-budget config dictionary using node metadata."""
-    config = build_link_budget_config(overrides)
+    """Build a low-level LightRIS config dictionary using node metadata."""
+    config = build_lightris_config(overrides)
 
     config["tx_power_dBm"] = getattr(ap, "power_dBm", config["tx_power_dBm"])
     config["ap_antenna_gain_dBi"] = getattr(ap, "antenna_gain_dBi", config["ap_antenna_gain_dBi"])
@@ -82,14 +82,14 @@ def build_link_budget_config_from_nodes(
     return config
 
 
-def evaluate_ris_link_metrics(
+def evaluate_lightris_metrics(
     ap_pos: Sequence[float],
     ris_pos: Sequence[float],
     ue_pos: Sequence[float],
     beam_angle_deg: float,
     physics_config: Mapping[str, float],
 ) -> Dict[str, float]:
-    """Compute SNR/RSSI for an AP→RIS→UE link using shared Phase 3 helpers."""
+    """Compute SNR/RSSI for an AP→RIS→UE link using shared LightRIS helpers."""
     ap_pos = np.asarray(ap_pos, dtype=float)
     ris_pos = np.asarray(ris_pos, dtype=float)
     ue_pos = np.asarray(ue_pos, dtype=float)
@@ -166,7 +166,7 @@ def evaluate_ris_link_metrics(
     }
 
 
-def evaluate_ris_link_from_nodes(
+def evaluate_lightris_from_nodes(
     ap: Any,
     ris: Any,
     ue: Any,
@@ -177,11 +177,11 @@ def evaluate_ris_link_from_nodes(
     noise_figure_dB: Optional[float] = None,
     overrides: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
-    """Evaluate RIS link metrics directly from node metadata."""
+    """Evaluate LightRIS metrics directly from node metadata."""
     if beam_angle_deg is None:
         beam_angle_deg = float(np.degrees(np.arctan2(ue.pos[1] - ris.pos[1], ue.pos[0] - ris.pos[0])) % 360)
 
-    config = build_link_budget_config_from_nodes(
+    config = build_lightris_config_from_nodes(
         ap,
         ris,
         ue,
@@ -190,41 +190,4 @@ def evaluate_ris_link_from_nodes(
         noise_figure_dB=noise_figure_dB,
         overrides=overrides,
     )
-    return evaluate_ris_link_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, config)
-
-
-def build_config(overrides: Optional[Mapping[str, float]] = None) -> Dict[str, float]:
-    """Compatibility wrapper around the Phase 3 channel helper."""
-    return build_link_budget_config(overrides)
-
-
-def build_config_from_nodes(
-    ap,
-    ris,
-    ue,
-    frequency_ghz: Optional[float] = None,
-    bandwidth_mhz: Optional[float] = None,
-    noise_figure_dB: Optional[float] = None,
-    overrides: Optional[Mapping[str, float]] = None,
-) -> Dict[str, float]:
-    """Compatibility wrapper around the Phase 3 channel helper."""
-    return build_link_budget_config_from_nodes(
-        ap,
-        ris,
-        ue,
-        frequency_ghz=frequency_ghz,
-        bandwidth_mhz=bandwidth_mhz,
-        noise_figure_dB=noise_figure_dB,
-        overrides=overrides,
-    )
-
-
-def compute_ris_link_metrics(
-    ap_pos: Sequence[float],
-    ris_pos: Sequence[float],
-    ue_pos: Sequence[float],
-    beam_angle_deg: float,
-    physics_config: Mapping[str, float],
-) -> Dict[str, float]:
-    """Compatibility wrapper around the Phase 3 channel helper."""
-    return evaluate_ris_link_metrics(ap_pos, ris_pos, ue_pos, beam_angle_deg, physics_config)
+    return evaluate_lightris_metrics(ap.pos, ris.pos, ue.pos, beam_angle_deg, config)

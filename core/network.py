@@ -757,8 +757,8 @@ class RISNetwork:
             'metrics': dict(result)
         }
 
-    def _prepare_connect_link_budget(self, ap, ris, ue, *, d_ap_ris, d_ris_ue, beam_angle_deg,
-                                     target_angle, phase_metadata, bandwidth_MHz=None):
+    def _prepare_connect_lightris(self, ap, ris, ue, *, d_ap_ris, d_ris_ue, beam_angle_deg,
+                                  target_angle, phase_metadata, bandwidth_MHz=None):
         """Prepare link-budget inputs and beam metadata for connect calculations."""
         if bandwidth_MHz is None:
             bandwidth_MHz = getattr(ap, 'bandwidth_MHz', 100.0)
@@ -1025,7 +1025,7 @@ class RISNetwork:
             compute_phases=compute_phases,
         )
 
-        budget = self._prepare_connect_link_budget(
+        budget = self._prepare_connect_lightris(
             ap,
             ris,
             ue,

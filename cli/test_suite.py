@@ -54,8 +54,8 @@ def run_testall(net) -> SuiteResults:
     waveform_lines = _section_waveform_checks(net, context)
     sections.append(SectionResult("Waveform-level diagnostics", waveform_lines))
 
-    channel_lines = _section_link_budget_channel(net, context)
-    sections.append(SectionResult("LinkBudgetChannel parity", channel_lines))
+    channel_lines = _section_lightris_channel(net, context)
+    sections.append(SectionResult("LightRISChannel parity", channel_lines))
 
     scenario_lines = _section_scenario_runner(net)
     sections.append(SectionResult("Scenario runner checks", scenario_lines))
@@ -466,17 +466,17 @@ def _section_waveform_checks(net, ctx) -> List[str]:
     return lines
 
 
-def _section_link_budget_channel(net, ctx) -> List[str]:
+def _section_lightris_channel(net, ctx) -> List[str]:
     lines: List[str] = []
     if not ctx:
         lines.append("  Skipped (link validation failed).")
         return lines
 
     try:
-        from risnet.channels import LinkBudgetChannel
+        from risnet.channels import LightRISChannel
 
-        direct = net.connect("AP1", "R1", "UE1", seed=42, use_get_snr=False)
-        evaluation = LinkBudgetChannel().evaluate(
+        direct = net.connect("AP1", "R1", "UE1", channel_model="lightris", seed=42, use_get_snr=False)
+        evaluation = LightRISChannel().evaluate(
             net,
             "AP1",
             "R1",
@@ -490,7 +490,7 @@ def _section_link_budget_channel(net, ctx) -> List[str]:
             "gain_dBi": abs(evaluation.gain_dBi - direct["gain_dBi"]),
             "quant_loss_dB": abs(evaluation.quant_loss_dB - direct["quant_loss_dB"]),
         }
-        lines.append("  ✓ LinkBudgetChannel evaluation completed")
+        lines.append("  ✓ LightRISChannel evaluation completed")
         for key, delta in deltas.items():
             lines.append(f"    • Δ {key} = {delta:.6f}")
 
@@ -500,7 +500,7 @@ def _section_link_budget_channel(net, ctx) -> List[str]:
             lines.append("  ✗ Adapter parity drift detected")
 
     except Exception as exc:
-        lines.append(f"  ✗ LinkBudgetChannel checks failed: {exc}")
+        lines.append(f"  ✗ LightRISChannel checks failed: {exc}")
 
     return lines
 
