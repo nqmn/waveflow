@@ -171,6 +171,8 @@ Now type these commands one by one:
 waveflow> add ap ap1 0 0
 
 # Step 2: Add a RIS at position (5, 0) with 16 elements and 2-bit phase resolution
+#         Syntax: add ris <name> <x> <y> <z> <N> <bits>
+#         N = number of elements, bits = phase resolution (1–4)
 #         max_angle_deg defaults to 60; set it wider via the ris command if needed
 waveflow> add ris ris1 5 0 0 16 2
 
@@ -829,6 +831,16 @@ print(f"SNR: {result['snr_dB']:.1f} dB")
 Setting `max_angle_deg=90` gives the RIS a ±90° cone, which comfortably covers
 collinear AP→RIS→UE layouts where AP is behind the RIS.
 
+**Common beginner error — node outside FOV:**
+
+If the AP or UE falls outside the RIS cone, `connect()` will reject the link:
+
+```
+Error: UE ue1 is outside RIS ris1 FOV (angle=75.2°, max=60.0°)
+```
+
+Fix by either widening the FOV (`max_angle_deg=90`) or repositioning the nodes so both AP and UE are within the cone. Use `status` or `list` in the CLI to check geometry before connecting.
+
 ### 4.3 Comparing Two Configurations
 
 ```python
@@ -857,6 +869,21 @@ N=32, bits=2: SNR=35.9 dB
 ```
 
 More elements → higher array gain → better SNR. More bits → less quantization loss.
+
+---
+
+## Part 4.4 — Common Errors and Fixes
+
+| Error message | Cause | Fix |
+|---|---|---|
+| `UE ue1 is outside RIS ris1 FOV` | UE angle exceeds `max_angle_deg` | Increase `max_angle_deg` or reposition nodes |
+| `AP ap1 is outside RIS ris1 FOV` | AP angle exceeds `max_angle_deg` | Same as above |
+| `Algorithm 'xyz' not found` | Typo in `--algo` value | Run `waveflow> help` or check spelling against the algorithm table |
+| `ModuleNotFoundError: No module named 'sklearn'` | ML extra not installed | `pip install -e ".[ml]"` |
+| `ModuleNotFoundError: No module named 'typer'` | Terminal extra not installed | `pip install -e ".[terminal]"` |
+| `ModuleNotFoundError: No module named 'cv2'` | Vision extra not installed | `pip install -e ".[vision]"` |
+| `No active links` on `stream` | `connect` not run first | Run `connect ap1 ris1 ue1` before `stream` |
+| SNR is unexpectedly low (e.g. −40 dB) | Nodes too far apart or wrong geometry | Check distances with `status`; reduce separation or increase `N` |
 
 ---
 
@@ -1133,7 +1160,7 @@ print(f"Fading coefficient: {fading:.4f}")
 
 ### 9.5 Physics Validation Suite
 
-Run all 14 physics validation sections (53 checks) against analytically
+Run all 14 physics validation sections (66 checks) against analytically
 derived reference values:
 
 ```bash

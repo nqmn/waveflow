@@ -2286,6 +2286,44 @@ Status as of 2026-05-08:
     model) must exist before the FI derivative is meaningful. The test assertions
     for the CRLB magnitude (≈ 10⁻² deg²) should be added to
     `tests/test_toubal2025_beam_tracking.py` once both items 22 and 23 are done.
+24. Implement multi-hop RIS channel combiner (Tx → RIS1 → RIS2 → Rx).
+    Status: Not started. Does NOT require GSCM or Phase 7b — can be delivered
+    independently using the existing SimRIS LOS engine.
+
+    Background: QRIS paper Eq. 9 expresses the effective channel for a two-RIS
+    network as H̃ = R̃ΦŨR + R̃ΦT + RΦT + H, where R̃, T̃ are the new
+    RIS2 subchannels, U is the inter-RIS subchannel, and R, T, H are the
+    original RIS1 subchannels plus direct link. This is important when the
+    direct link is blocked by obstacles and a single RIS cannot cover the path.
+    The current `RISNetwork` only supports one RIS per AP→RIS→UE path; chaining
+    two RIS hops requires explicit combiner logic.
+
+    Implementation plan:
+    - Add `evaluate_multihop_los_reference(tx, ris1, ris2, rx, ...)` in
+      `risnet/channels/simris.py` that chains two `_generate_tx_ris_channel` /
+      `_generate_ris_rx_channel` calls and combines the four terms from Eq. 9.
+    - The reflection matrix Φ for each RIS is a diagonal matrix with unit-
+      amplitude complex entries (passive RIS: α_i = 1 for all i).
+    - Expose via `RISNetwork.connect(ap, ris1, ris2, ue)` with an optional
+      second RIS argument, or as a standalone scenario action.
+    - Add `tests/test_multihop_ris.py` covering: (a) two-RIS path gain exceeds
+      one-RIS path gain when geometry forces a relay (obstacle between Tx and
+      Rx, both RIS on clear LOS); (b) channel matrix shape is (Nr × Nt); (c)
+      N² scaling still holds per hop; (d) removing RIS2 (setting its Φ = 0)
+      degrades back to single-hop result; (e) frozen numerical regression for
+      a reference geometry (e.g. Tx=(0,0,3), RIS1=(20,20,3), RIS2=(40,20,3),
+      Rx=(60,0,2), f=5.3 GHz, N_side=8).
+
+    Relationship to GSCM (Phase 7b): the combiner interface introduced here
+    should be designed so that `GSCMChannel` can slot in as a drop-in
+    replacement for the LOS subchannels without changing the combiner logic.
+    Keep the subchannel evaluation behind a callable so the combiner is
+    engine-agnostic.
+
+    Do not break:
+    - Existing single-RIS `evaluate_simris_los_reference` behavior.
+    - `RISNetwork.connect(ap, ris, ue)` single-RIS contract.
+    - All existing SimRIS and LightRIS tests.
 
 ## Risks
 

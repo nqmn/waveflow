@@ -41,7 +41,7 @@ Step-by-step tutorials: **[TUTORIAL.md](TUTORIAL.md)**
 | **ML** | Random Forest, XGBoost, SVR, KNN, LGBM, MLP beam angle predictors; trainable from generated datasets |
 | **Streaming** | Per-chunk BER, SER, throughput, and Shannon capacity over active RIS links |
 | **Interface** | Interactive CLI, Typer/Rich terminal UI (`waveflow ui`), Python API, headless scenario runner |
-| **Validation** | 14-section physics validation suite, 66 pytest checks against analytical reference values |
+| **Validation** | 14-section physics validation suite, 66 physics checks; 504 pytest checks across full suite |
 | **MATLAB** | Optional bridge for far-field beam pattern plots and phase visualisation |
 
 ## Channel Engines
@@ -355,13 +355,13 @@ python3 -m compileall core controller cli risnet waveflow config utils
 # Physics regression
 PYTHONPATH=. python3 tests/test_physics_fixes.py
 
-# Physics model validation suite (14 sections, 53 checks)
+# Physics model validation suite (14 sections, 66 checks)
 waveflow ui testphysics
 
 # Full test suite via terminal UI
 waveflow ui testall
 
-# Full suite with pytest (66 checks including test_physics_core.py)
+# Full suite with pytest (504 checks across all test files)
 pip install -e ".[dev]"
 pytest tests/ -v
 ```
