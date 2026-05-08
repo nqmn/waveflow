@@ -80,27 +80,62 @@ def test_connect_can_route_through_official_simris_channel_model():
     assert net.last_connect_result["metrics"]["channel_model_used"] == "simris"
 
 
-def test_connect_falls_back_to_link_budget_when_simris_request_is_unsupported():
+def test_connect_falls_back_to_lightris_when_simris_request_is_unsupported():
     net = build_line_network()
 
+    # explicit beam_angle_deg is a remaining valid fallback trigger
     result = net.connect(
         "ap1",
         "ris1",
         "ue1",
         channel_model="simris",
+        beam_angle_deg=45.0,
         use_get_snr=False,
         store_in_active_links=False,
     )
 
     assert result["channel_model_requested"] == "simris"
-    assert result["channel_model_used"] == "link_budget"
-    assert "requires an explicit environment" in result["channel_model_fallback_reason"]
-    assert "requires an explicit scenario" in result["channel_model_fallback_reason"]
+    assert result["channel_model_used"] == "lightris"
+    assert "beam_angle_deg" in result["channel_model_fallback_reason"]
     assert "H" not in result
-    assert net.last_connect_result["metrics"]["channel_model_used"] == "link_budget"
+    assert net.last_connect_result["metrics"]["channel_model_used"] == "lightris"
 
 
-def test_default_connect_now_requests_simris_and_falls_back_explicitly_when_unsupported():
+def test_connect_accepts_lightris_as_the_official_native_engine_name():
+    net = build_line_network()
+
+    result = net.connect(
+        "ap1",
+        "ris1",
+        "ue1",
+        channel_model="lightris",
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert result["channel_model_requested"] == "lightris"
+    assert result["channel_model_used"] == "lightris"
+    assert result["channel_model_fallback_reason"] is None
+    assert "H" not in result
+
+
+def test_connect_rejects_legacy_link_budget_engine_name():
+    net = build_line_network()
+
+    with pytest.raises(ValueError) as exc_info:
+        net.connect(
+            "ap1",
+            "ris1",
+            "ue1",
+            channel_model="link_budget",
+            use_get_snr=False,
+            store_in_active_links=False,
+        )
+
+    assert "Unsupported channel_model" in str(exc_info.value)
+
+
+def test_default_connect_now_uses_simris_with_indoor_scenario1():
     net = build_line_network()
 
     result = net.connect(
@@ -112,9 +147,8 @@ def test_default_connect_now_requests_simris_and_falls_back_explicitly_when_unsu
     )
 
     assert result["channel_model_requested"] == "simris"
-    assert result["channel_model_used"] == "link_budget"
-    assert "requires an explicit environment" in result["channel_model_fallback_reason"]
-    assert "requires an explicit scenario" in result["channel_model_fallback_reason"]
+    assert result["channel_model_used"] == "simris"
+    assert result["channel_model_fallback_reason"] is None
 
 
 def test_seeded_connect_is_deterministic():

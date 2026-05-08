@@ -1,4 +1,4 @@
-"""Equivalence tests for the Phase 3 link-budget channel adapter."""
+"""Equivalence tests for the Phase 3 LightRIS channel adapter."""
 
 import pytest
 
@@ -6,7 +6,7 @@ from core import RISNetwork
 from risnet.channels import (
     ChannelEvaluation,
     ChannelModel,
-    LinkBudgetChannel,
+    LightRISChannel,
     build_link_budget_config,
     build_link_budget_config_from_nodes,
     evaluate_ris_link_from_nodes,
@@ -23,15 +23,16 @@ def build_channel_network(*, max_angle_deg=180):
     return net
 
 
-def test_link_budget_channel_reproduces_current_connect_metrics():
+def test_lightris_channel_reproduces_current_connect_metrics():
     direct_net = build_channel_network()
     adapter_net = build_channel_network()
-    channel: ChannelModel = LinkBudgetChannel()
+    channel: ChannelModel = LightRISChannel()
 
     direct = direct_net.connect(
         "ap1",
         "ris1",
         "ue1",
+        channel_model="lightris",
         seed=42,
         use_get_snr=False,
         store_in_active_links=False,
@@ -62,8 +63,8 @@ def test_link_budget_channel_reproduces_current_connect_metrics():
     assert evaluation.rssi_dBm == pytest.approx(direct["rssi_dBm"])
     assert evaluation.gain_dBi == pytest.approx(direct["gain_dBi"])
     assert evaluation.quant_loss_dB == pytest.approx(direct["quant_loss_dB"])
-    assert evaluation.result["channel_model_requested"] == "link_budget"
-    assert evaluation.result["channel_model_used"] == "link_budget"
+    assert evaluation.result["channel_model_requested"] == "lightris"
+    assert evaluation.result["channel_model_used"] == "lightris"
 
 
 def test_phase3_shared_link_budget_helpers_preserve_utils_compatibility():
@@ -88,9 +89,9 @@ def test_phase3_shared_link_budget_helpers_preserve_utils_compatibility():
     for key in direct_metrics:
         assert direct_metrics[key] == pytest.approx(compat_metrics[key])
 
-def test_link_budget_channel_preserves_phase_payload_shape():
+def test_lightris_channel_preserves_phase_payload_shape():
     net = build_channel_network()
-    channel = LinkBudgetChannel()
+    channel = LightRISChannel()
 
     evaluation = channel.evaluate(
         net,
@@ -107,8 +108,8 @@ def test_link_budget_channel_preserves_phase_payload_shape():
     assert len(evaluation.result["phase_states"]) == ris.N * ris.N
 
 
-def test_link_budget_channel_is_deterministic_for_seeded_links():
-    channel = LinkBudgetChannel()
+def test_lightris_channel_is_deterministic_for_seeded_links():
+    channel = LightRISChannel()
     result_a = channel.evaluate(
         build_channel_network(),
         "ap1",
@@ -131,9 +132,9 @@ def test_link_budget_channel_is_deterministic_for_seeded_links():
     assert result_a.gain_dBi == pytest.approx(result_b.gain_dBi)
 
 
-def test_link_budget_channel_defaults_to_no_active_link_mutation():
+def test_lightris_channel_defaults_to_no_active_link_mutation():
     net = build_channel_network()
-    channel = LinkBudgetChannel()
+    channel = LightRISChannel()
 
     evaluation = channel.evaluate(net, "ap1", "ris1", "ue1", seed=42, use_get_snr=False)
 
@@ -141,9 +142,9 @@ def test_link_budget_channel_defaults_to_no_active_link_mutation():
     assert net.last_connect_result["metrics"]["snr_dB"] == pytest.approx(evaluation.snr_dB)
 
 
-def test_link_budget_channel_can_preserve_legacy_active_link_mutation():
+def test_lightris_channel_can_preserve_legacy_active_link_mutation():
     net = build_channel_network()
-    channel = LinkBudgetChannel(store_in_active_links=True)
+    channel = LightRISChannel(store_in_active_links=True)
 
     evaluation = channel.evaluate(net, "ap1", "ris1", "ue1", seed=42, use_get_snr=False)
 
@@ -152,8 +153,8 @@ def test_link_budget_channel_can_preserve_legacy_active_link_mutation():
     assert net.active_links[link_key]["snr_dB"] == pytest.approx(evaluation.snr_dB)
 
 
-def test_link_budget_channel_propagates_missing_node_errors():
-    channel = LinkBudgetChannel()
+def test_lightris_channel_propagates_missing_node_errors():
+    channel = LightRISChannel()
 
     with pytest.raises(ValueError) as exc_info:
         channel.evaluate(build_channel_network(), "missing-ap", "ris1", "ue1")
@@ -162,8 +163,8 @@ def test_link_budget_channel_propagates_missing_node_errors():
     assert "AP 'missing-ap'" in str(exc_info.value)
 
 
-def test_link_budget_channel_propagates_fov_rejections():
-    channel = LinkBudgetChannel()
+def test_lightris_channel_propagates_fov_rejections():
+    channel = LightRISChannel()
 
     with pytest.raises(ValueError) as exc_info:
         channel.evaluate(
@@ -178,7 +179,7 @@ def test_link_budget_channel_propagates_fov_rejections():
     assert "AP outside RIS FOV" in str(exc_info.value)
 
 
-def test_link_budget_channel_reproduces_current_connect_for_environment_blocked_paths():
+def test_lightris_channel_reproduces_current_connect_for_environment_blocked_paths():
     direct_net = build_channel_network()
     adapter_net = build_channel_network()
     direct_net.add_wall((2.5, -1.0), (2.5, 1.0), attenuation_dB=30.0, name="ap-ris-wall")
@@ -195,11 +196,12 @@ def test_link_budget_channel_reproduces_current_connect_for_environment_blocked_
         "ap1",
         "ris1",
         "ue1",
+        channel_model="lightris",
         seed=42,
         use_get_snr=False,
         store_in_active_links=False,
     )
-    evaluation = LinkBudgetChannel().evaluate(
+    evaluation = LightRISChannel().evaluate(
         adapter_net,
         "ap1",
         "ris1",
@@ -213,10 +215,10 @@ def test_link_budget_channel_reproduces_current_connect_for_environment_blocked_
     assert evaluation.gain_dBi == pytest.approx(direct["gain_dBi"])
 
 
-def test_link_budget_channel_explicitly_pins_legacy_engine_even_after_default_changes():
+def test_lightris_channel_explicitly_pins_the_official_native_engine_name():
     net = build_channel_network()
 
-    evaluation = LinkBudgetChannel().evaluate(
+    evaluation = LightRISChannel().evaluate(
         net,
         "ap1",
         "ris1",
@@ -225,6 +227,6 @@ def test_link_budget_channel_explicitly_pins_legacy_engine_even_after_default_ch
         use_get_snr=False,
     )
 
-    assert evaluation.result["channel_model_requested"] == "link_budget"
-    assert evaluation.result["channel_model_used"] == "link_budget"
+    assert evaluation.result["channel_model_requested"] == "lightris"
+    assert evaluation.result["channel_model_used"] == "lightris"
     assert evaluation.result["channel_model_fallback_reason"] is None

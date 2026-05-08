@@ -64,6 +64,37 @@ def test_scenario_runner_executes_connect_with_auto_resolved_names(tmp_path):
     assert run.network.last_connect_result["ap"] == "AP1"
 
 
+def test_scenario_runner_accepts_official_lightris_engine_name(tmp_path):
+    topology_path = tmp_path / "headless_connect_lightris.json"
+    topology_path.write_text(
+        """
+{
+  "name": "Headless Connect LightRIS",
+  "nodes": [
+    {"name": "AP1", "type": "AccessPoint", "pos": [0.0, 2.0, 0.0]},
+    {"name": "R1", "type": "RIS", "pos": [5.0, 2.0, 0.0], "N": 16, "bits": 1, "max_angle_deg": 90.0},
+    {"name": "UE1", "type": "UE", "pos": [10.0, 5.0, 0.0]}
+  ]
+}
+""".strip()
+    )
+
+    runner = ScenarioRunner()
+
+    run = runner.run_connect(
+        topology_path,
+        channel_model="lightris",
+        seed=42,
+        use_get_snr=False,
+        store_in_active_links=False,
+    )
+
+    assert run.result["channel_model_requested"] == "lightris"
+    assert run.result["channel_model_used"] == "lightris"
+    assert run.result["channel_model_fallback_reason"] is None
+    assert run.network.last_connect_result["metrics"]["channel_model_used"] == "lightris"
+
+
 def test_scenario_runner_passes_official_simris_connect_kwargs(tmp_path):
     topology_path = tmp_path / "headless_connect_simris.json"
     topology_path.write_text(

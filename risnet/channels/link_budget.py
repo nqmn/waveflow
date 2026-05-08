@@ -15,13 +15,15 @@ from utils.link_budget import (
 from .base import ChannelEvaluation
 
 
-class LinkBudgetChannel:
-    """Channel adapter that delegates to ``RISNetwork.connect``.
+class LightRISChannel:
+    """Preferred native lightweight channel adapter for Waveflow/RISNet.
 
-    This is intentionally a compatibility adapter, not a new channel model. It
-    gives future services a narrow channel-facing API while preserving the
-    current physics, waveform, metadata, and validation behavior.
+    It delegates to ``RISNetwork.connect`` while preserving the current native
+    physics, waveform, metadata, and validation behavior under the official
+    `lightris` engine name.
     """
+
+    channel_model_name = "lightris"
 
     def __init__(self, *, store_in_active_links: bool = False):
         self.store_in_active_links = store_in_active_links
@@ -37,7 +39,7 @@ class LinkBudgetChannel:
         """Evaluate the AP-RIS-UE link through the existing network facade."""
         connect_kwargs = dict(kwargs)
         connect_kwargs.setdefault("store_in_active_links", self.store_in_active_links)
-        connect_kwargs.setdefault("channel_model", "link_budget")
+        connect_kwargs.setdefault("channel_model", self.channel_model_name)
 
         result = network.connect(ap_name, ris_name, ue_name, **connect_kwargs)
         return ChannelEvaluation(result=result)

@@ -1,3 +1,56 @@
+## Task: Refactor the Native Engine Name to LightRIS
+Mode: Standard
+Risk: High
+Confidence: Stable
+Operational risk: Broad / Partial
+Rollback plan: Revert the `connect()` selector rename, adapter/export rewiring, LightRIS tests, and roadmap/test-map wording for this task.
+Change budget: [files 10] [functions: `RISNetwork.connect`, native channel adapter/export surface, focused connect/scenario tests] [interfaces: public engine naming (`lightris` vs legacy `link_budget`)] [state mutations: none beyond the existing `connect()` snapshots]
+
+### Scope
+- `core/network.py` — make `lightris` the official native engine selector and route unsupported SimRIS requests to it explicitly.
+- `risnet/channels/` and `waveflow/channels/` — expose `LightRISChannel` as the official native adapter surface.
+- `risnet/terminal_cli.py` — switch the demo connect path to the official `LightRISChannel`.
+- `tests/test_connect_characterization.py` — cover official `lightris` selection and rejection of the legacy `link_budget` selector.
+- `tests/test_link_budget_channel.py` — migrate focused adapter coverage to the `LightRISChannel` surface while keeping the current helper physics under test.
+- `tests/test_scenarios.py` — cover scenario passthrough for the official `lightris` selector.
+- `FUTURE.md`, `tasks/test-suite.md`, `tasks/todo.md` — keep naming and complementarity guidance current.
+
+### Steps
+- [x] Refactor the official native engine selector from `link_budget` to `lightris`
+- [x] Expose `LightRISChannel` and update focused code paths/tests to use it
+- [x] Verify impacted suites and update roadmap/test-map wording
+
+### Review
+- Completed: Promoted `lightris` to the official native engine selector at the `connect()` boundary, so unsupported SimRIS requests now fall back explicitly to `lightris` instead of `link_budget`. Exposed `LightRISChannel` as the official adapter surface, added `risnet.channels.lightris` / `waveflow.channels.lightris` re-export modules, updated the terminal demo command, and migrated focused connect/scenario/adapter tests to the new naming. The public `connect()` surface now rejects the legacy `channel_model="link_budget"` selector, which makes the refactor real rather than alias-based.
+- Out-of-scope flagged: I did not rename the low-level helper module `utils/link_budget.py`, the internal adapter file `risnet/channels/link_budget.py`, or the historical test filename `tests/test_link_budget_channel.py`; those remain implementation/history artifacts for now, while the official engine-facing surface is `lightris`.
+- Assumptions invalidated: The assumption that the native adapter tests could still compare against bare `connect()` defaults was false after the earlier SimRIS-first switch; they had to compare against explicit `channel_model="lightris"` to stay engine-consistent.
+- Known debt (acknowledged):
+- Limitations: This completes the public engine-name refactor for the tested surface, but there are still historical internal names (`link_budget`) in helper/module paths that can be cleaned up in a later pass if we decide to fully rename the underlying implementation files.
+
+## Task: Plan `LightRIS` Naming Split in Roadmap
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the `FUTURE.md` wording and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: roadmap/documentation only] [state mutations: none]
+
+### Scope
+- `FUTURE.md` — add a concrete plan to position `SimRIS` as the published/reference engine and evolve the current `LinkBudgetChannel` path into a novel native engine named `LightRIS`.
+- `tasks/todo.md` — record this roadmap task.
+
+### Steps
+- [x] Add naming/positioning guidance for `simris` vs `lightris`
+- [x] Add a staged migration plan for `LinkBudgetChannel` -> `LightRIS`
+- [x] Add a definition-of-done block for the naming split
+
+### Review
+- Completed: Updated `FUTURE.md` with a concrete publication-facing split: `SimRIS` stays the literature/reference engine, while the current native link-budget path should evolve into `LightRIS` as the proposed fast engine. Added staged migration guidance, compatibility-alias expectations, and a definition-of-done block for the rename/split.
+- Out-of-scope flagged: I did not rename any code, CLI flags, adapters, or tests in this task; this is roadmap planning only.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The `LightRIS` name is now planned in the roadmap, but the actual code-level migration and benchmark/paper positioning work still need separate implementation tasks.
+
 ## Task: Tighten Johari 2025 Test Integrity Around Production Physics Utilities
 Mode: Standard
 Risk: Medium

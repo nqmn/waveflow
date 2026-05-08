@@ -1347,14 +1347,14 @@ def run(argv: Optional[List[str]] = None) -> int:
         ue_y: float = typer.Option(0.0, "--ue-y", help="UE y position."),
     ) -> None:
         """Run a deterministic AP-RIS-UE demo link and print metrics."""
-        from risnet.channels import LinkBudgetChannel
+        from risnet.channels import LightRISChannel
 
         net = _new_network()
         net.add_ap("ap1", ap_x, ap_y)
         net.add_ris("ris1", ris_x, ris_y, max_angle_deg=180)
         net.add_ue("ue1", ue_x, ue_y)
 
-        evaluation = LinkBudgetChannel().evaluate(
+        evaluation = LightRISChannel().evaluate(
             net, "ap1", "ris1", "ue1", seed=seed, use_get_snr=False,
         )
 

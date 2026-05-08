@@ -1734,11 +1734,11 @@ Current status:
 Recommended integration sequence for the existing SimRIS precursor:
 
 1. Treat `SimRIS` as the first official channel engine for supported RIS-aware
-   scenarios, while keeping `LinkBudgetChannel` as the compatibility fallback
+   scenarios, while promoting `LightRIS` as the complementary native fallback
    and default `fast` backend where SimRIS support is incomplete.
 2. Add explicit engine selection to `RISNetwork.connect()` and the shared
    scenario service:
-   - `channel_model="link_budget"`
+   - `channel_model="lightris"`
    - `channel_model="simris"`
 3. Keep scalar compatibility outputs (`snr_dB`, `pwr_dBm`, `rssi_dBm`,
    `gain_dBi`) identical in shape to the current path, but include full SimRIS
@@ -1758,7 +1758,7 @@ Recommended integration sequence for the existing SimRIS precursor:
 6. Add explicit capability checks and fallback rules:
    - when `simris` fully supports the requested configuration, use it
    - when `simris` does not support the requested configuration, fall back to
-     `LinkBudgetChannel`
+     `LightRIS`
    - always surface the chosen engine and any fallback reason in the result
      metadata / CLI output
 7. Add connect/scenario/CLI integration tests before considering any default
@@ -1767,23 +1767,69 @@ Recommended integration sequence for the existing SimRIS precursor:
 Official engine policy for the intermediate phase:
 
 - `SimRIS` becomes the official engine for supported channel-aware workflows.
-- `LinkBudgetChannel` remains the fallback engine for:
+- `LightRIS` remains the complementary fallback engine for:
   - unsupported SimRIS configurations
   - legacy/simple workflows
-  - explicit `channel_model="link_budget"` requests
-- Do not silently mix `LinkBudgetChannel` physics with `SimRIS` physics inside
+  - explicit `channel_model="lightris"` requests
+- Do not silently mix `LightRIS` physics with `SimRIS` physics inside
   one execution path. One selected engine owns the result.
-- Fallback from `simris` to `link_budget` is allowed only at the engine
+- Fallback from `simris` to `lightris` is allowed only at the engine
   boundary and must be explicit in result metadata and user-facing diagnostics.
+
+Recommended engine naming and publication split:
+
+- `SimRIS` remains the published/reference engine.
+- The current `LinkBudgetChannel` path should be evolved into a distinct novel
+  engine named `LightRIS`.
+- Positioning:
+  - `simris` = literature-aligned channel baseline
+  - `lightris` = lightweight native Waveflow/RISNet engine for fast
+    system-level evaluation, beam control, tapering-aware workflows, feedback,
+    and deployment-oriented experiments
+- The two engines should be documented as complementary, not as one replacing
+  the other:
+  - `SimRIS` answers: "What does the published reference channel model say?"
+  - `LightRIS` answers: "What fast native engine do we propose for practical
+    control/system experiments?"
+
+Recommended migration plan for `LinkBudgetChannel` -> `LightRIS`:
+
+1. Introduce a new public engine identifier:
+   - `channel_model="lightris"`
+2. Rename the adapter and docs in stages:
+   - stage 1: expose `LightRISChannel` as the official native adapter
+   - stage 2: update CLI/docs/examples to prefer `lightris`
+   - stage 3: remove stale public `link_budget` engine naming from the
+     supported surface
+3. Define explicit feature ownership:
+   - `simris`: published/reference stochastic channel engine
+   - `lightris`: fast native engine with support for workflows that SimRIS does
+     not yet own end-to-end
+4. Add benchmarks and paper-facing comparisons:
+   - runtime / throughput
+   - supported workflow breadth
+   - agreement bands against `SimRIS` on overlapping scenarios
+5. Only after naming and benchmarks are stable, treat `LightRIS` as the
+   proposed engine in publication narratives.
+
+Definition of done for the `LightRIS` split:
+
+- `channel_model="lightris"` exists as the preferred native engine selector.
+- Docs and CLI explain `simris` vs `lightris` clearly.
+- Benchmarks show the intended tradeoff: `SimRIS` for reference accuracy,
+  `LightRIS` for fast practical workflows.
+- Tests for the current native path are migrated under the `LightRIS` naming
+  without regression.
 
 Definition of done for SimRIS integration (separate from MATLAB parity):
 
 - `RISNetwork.connect(..., channel_model="simris")` works end-to-end.
 - Shared scenario execution accepts `channel_model: simris`.
 - CLI/UI can select `simris` explicitly.
-- Unsupported SimRIS requests fall back cleanly to `LinkBudgetChannel` with an
+- Unsupported SimRIS requests fall back cleanly to `LightRIS` with an
   explicit reason, rather than failing or silently mixing engines.
-- Existing `link_budget` tests and behavior remain unchanged.
+- Existing native-engine tests and behavior remain unchanged under the
+  `LightRIS` name.
 - SimRIS integration tests pass without requiring MATLAB.
 
 ### Phase 7a - Human-Aware Sensing and Beam Focusing

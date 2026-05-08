@@ -3,12 +3,12 @@
 from .base import ChannelEvaluation, ChannelModel
 from .link_budget import (
     DEFAULT_RIS_LINK_CONFIG,
-    LinkBudgetChannel,
     build_link_budget_config,
     build_link_budget_config_from_nodes,
     evaluate_ris_link_from_nodes,
     evaluate_ris_link_metrics,
 )
+from .lightris import LightRISChannel
 from .simris import (
     build_simris_published_network,
     evaluate_simris_channel_published_case,
@@ -33,7 +33,7 @@ __all__ = [
     "ChannelEvaluation",
     "ChannelModel",
     "DEFAULT_RIS_LINK_CONFIG",
-    "LinkBudgetChannel",
+    "LightRISChannel",
     "build_link_budget_config",
     "build_link_budget_config_from_nodes",
     "evaluate_ris_link_from_nodes",

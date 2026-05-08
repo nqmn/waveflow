@@ -417,13 +417,13 @@ class RISNetwork:
         if channel_model is None:
             return None
         normalized = str(channel_model).strip().lower().replace("-", "_")
-        if normalized in {"link_budget", "linkbudget", "default", "current"}:
-            return "link_budget"
+        if normalized in {"lightris", "light_ris", "default", "current"}:
+            return "lightris"
         if normalized in {"simris", "sim_ris"}:
             return "simris"
         raise ValueError(
             "Unsupported channel_model. Expected one of: "
-            "'link_budget', 'simris'."
+            "'lightris', 'simris'."
         )
 
     @staticmethod
@@ -450,7 +450,7 @@ class RISNetwork:
         """Return whether the official SimRIS connect path supports this request."""
         reasons = []
         if beam_angle_deg is not None:
-            reasons.append("SimRIS connect currently supports automatic geometry only; explicit beam_angle_deg falls back to link_budget.")
+            reasons.append("SimRIS connect currently supports automatic geometry only; explicit beam_angle_deg falls back to lightris.")
         if enable_feedback:
             reasons.append("SimRIS connect does not yet support closed-loop feedback.")
         if tapering != "uniform":
@@ -900,7 +900,7 @@ class RISNetwork:
                      Default: 'uniform' (no tapering).
             fixed_ris_normal: If provided, use this RIS normal angle instead of auto-calculating.
                              For beam sweep testing to keep RIS normal consistent. Default: None
-            channel_model: Optional explicit channel engine selection (`link_budget` or `simris`).
+            channel_model: Optional explicit channel engine selection (`lightris` or `simris`).
             environment: SimRIS environment (`indoor`/`outdoor`) when `channel_model='simris'`.
             scenario: SimRIS scenario (1 or 2) when `channel_model='simris'`.
             array_type: SimRIS terminal array type (`ula`/`upa`) when `channel_model='simris'`.
@@ -923,9 +923,12 @@ class RISNetwork:
         if seed is not None:
             np.random.seed(seed)
 
-        channel_model_requested = self._normalize_connect_channel_model(
-            "simris" if channel_model is None else channel_model
+        channel_model_requested = (
+            "simris"
+            if channel_model is None
+            else str(channel_model).strip().lower().replace("-", "_")
         )
+        channel_model_canonical = self._normalize_connect_channel_model(channel_model_requested)
 
         ap_node, ris_node, ue_node = self._resolve_connect_nodes(ap_name, ris_name, ue_name)
 
@@ -951,7 +954,7 @@ class RISNetwork:
         ris_key = ris.name if ris else ris_name
         ue_key = ue.name if ue else ue_name
 
-        if channel_model_requested == "simris":
+        if channel_model_canonical == "simris":
             simris_supported, simris_fallback_reason = self._assess_simris_connect_support(
                 beam_angle_deg=beam_angle_deg,
                 enable_feedback=enable_feedback,
@@ -1098,7 +1101,7 @@ class RISNetwork:
         result = self._with_connect_channel_metadata(
             result,
             requested_model=channel_model_requested,
-            used_model="link_budget",
+            used_model="lightris",
             fallback_reason=simris_fallback_reason,
         )
 
