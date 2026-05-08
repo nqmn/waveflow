@@ -1,3 +1,27 @@
+## Task: Correct SimRIS Positioning Copy in `index.html`
+Mode: Standard
+Risk: Low
+Confidence: Stable
+Operational risk: Local / Trivial
+Rollback plan: Revert the copy change in `index.html` and this task-log entry.
+Change budget: [files 2] [functions: none] [interfaces: static landing-page copy only] [state mutations: none]
+
+### Scope
+- `index.html` — correct the SimRIS FAQ/marketing wording so it states SimRIS is an IEEE/published reference engine integrated into Waveflow, not published by Waveflow itself.
+- `tasks/todo.md` — record this copy correction.
+
+### Steps
+- [x] Locate the SimRIS/LightRIS comparison copy in `index.html`
+- [x] Replace the inaccurate SimRIS ownership wording
+- [x] Verify the diff remains limited to the intended copy correction
+
+### Review
+- Completed: Corrected the landing-page copy so SimRIS is described as the reference stochastic channel engine integrated from published/IEEE articles to enhance Waveflow, while LightRIS remains Waveflow's native analytical engine for fast system-level evaluation, ML dataset generation, and large beam sweeps.
+- Out-of-scope flagged: I did not alter any other marketing copy or documentation wording outside `index.html`.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: This is a wording correction only; it does not change engine behavior or documentation elsewhere.
+
 ## Task: Add Root Landing Page `index.html`
 Mode: Standard
 Risk: Low
