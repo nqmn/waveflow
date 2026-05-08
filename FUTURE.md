@@ -378,6 +378,9 @@ world/
 ├── terrain/
 ├── weather/
 └── sensors/
+    ├── lidar.py
+    ├── attack.py
+    └── features.py
 ```
 
 Material properties:
@@ -394,6 +397,12 @@ Implementation note:
 Keep `Environment` and `Wall` as compatibility objects. Add a `Scene` model
 that can import/export current wall data. Avoid forcing 3D dependencies such as
 Open3D, Trimesh, or PyVista into the base install.
+
+The `sensors/` subdirectory should host modality-specific sensor models. The
+first planned sensor is LiDAR, implemented as a synthetic ray-cast scanner that
+reuses existing node position and wall geometry from `RISNetwork` and
+`Environment`. Sensor models should be optional, headless-first, and mockable
+in tests without hardware.
 
 The scene model should eventually support:
 
@@ -921,6 +930,89 @@ scene, tracked over time, with beam steering or beam focusing driven by the
 estimated target state. Multi-human tracking, occupancy fields, and skeletal
 inference should remain later phases after the generalized actor and channel
 layers are stable.
+
+### 10d. LiDAR Sensing Pipeline and Threat Detection
+
+Waveflow should support a modular LiDAR sensing pipeline as an optional sensor
+layer alongside RF-based sensing. This is not a replacement for RF sensing — it
+is a complementary modality that can validate, augment, or cross-check RF
+localization and beam-focusing decisions.
+
+Intended use cases:
+
+- synthetic LiDAR scanning for simulation environments with known geometry
+- sensor noise and adversarial attack injection for robustness studies
+- ML-based detection of sensor spoofing, replay, and dropout attacks
+- fusion of LiDAR-derived occupancy information with RF beam steering
+- privacy-preserving presence detection research (no camera, no images)
+
+Pipeline stages:
+
+```text
+Virtual Environment (world/geometry + world/sensors)
+       ↓
+LiDAR Point Generator (world/sensors/lidar.py)
+       ↓
+Noise / Attack Injection (world/sensors/attack.py)
+       ↓
+Feature Extraction (services/sensing/lidar_features.py)
+       ↓
+ML Detection Model (controller/beamsweeping/ml/lidar_detector.py)
+       ↓
+Dashboard / Visualization (waveflow ui / waveflow web)
+```
+
+Proposed file layout:
+
+```text
+world/sensors/
+├── lidar.py          # LiDARScanner: ray-cast point cloud from RISNetwork geometry
+├── attack.py         # LiDARAttackInjector: noise, spoofing, dropout, replay
+└── features.py       # PointCloudFeatureExtractor: geometric statistics, histograms
+
+services/sensing/
+└── lidar_features.py # high-level feature extraction service
+
+controller/beamsweeping/ml/
+└── lidar_detector.py # LiDARDetector: inherits BasePredictorML, uses ML registry
+```
+
+Integration points:
+
+- `LiDARScanner` takes node positions and wall geometry directly from the
+  existing `RISNetwork` and `Environment` objects — no new geometry primitives
+  required at the base level.
+- `LiDARAttackInjector` extends the existing `adaptive_impairments` pattern —
+  adds sensor-layer attack models alongside the existing RF impairment models.
+- `LiDARDetector` registers into the existing `controller/beamsweeping/ml`
+  plugin registry using the same `@register_algorithm` pattern as all current
+  ML predictors.
+- Visualization reuses the existing Rich terminal and Flask web layers — no
+  new rendering stack is required.
+
+Attack types supported by `attack.py`:
+
+- Gaussian noise — additive point position perturbation
+- Spoofing — injection of synthetic false-positive points
+- Dropout — random removal of points (occlusion simulation)
+- Replay — substitution of a stale scan for the current one
+
+Implementation note:
+
+LiDAR is an optional sensor modality. It should be installable as
+`pip install -e ".[lidar]"` or included in `[all]`. The base install must
+remain importable and testable without LiDAR dependencies. NumPy is sufficient
+for the ray-cast scanner and feature extraction; no Open3D or PCL dependency
+should be required at this layer.
+
+Do not couple the LiDAR pipeline to the RF channel pipeline. They may share
+scene geometry and visualization surfaces, but they should remain independently
+executable. A scenario can run RF-only, LiDAR-only, or both in parallel.
+
+Current status:
+
+- Not started. Planned as a sub-deliverable within Phase 7a after `HumanTarget`
+  and basic scene graph primitives are in place.
 
 ### 11. Plugin Ecosystem
 
@@ -1488,6 +1580,20 @@ Parallel CLI work that can begin after Phase 5:
 - keep `waveflow` on the legacy shell surface until modern interactive parity is
   sufficient
 
+Current status:
+
+- Not started.
+- Phase 5 is complete. The shared scenario service layer, headless runner, and
+  CLI shared-service routing are all in place, which provides the service
+  foundation Phase 6 depends on.
+- Parallel CLI work from this section is largely complete: `waveflow ui`
+  defaults to the native interactive shell; `add`, `status`, `list`, `links`,
+  `connect`, `sweep`, `save`, and `load` all have native Rich implementations
+  that share in-session network state. The legacy shell remains reachable via
+  `waveflow` and as a fallback inside `waveflow ui` for unsupported commands.
+- The runtime kernel itself (simulation clock, trajectory iterator, metric
+  sampling loop) has not been started.
+
 ### Phase 7 - Spatial Channels, MIMO, and Generalized RF Nodes
 
 Goal: add new channel capabilities beside the link-budget adapter.
@@ -1514,6 +1620,110 @@ Exit gate:
 - Existing simulations still use `LinkBudgetChannel` by default.
 - Spatial-channel scenarios pass dedicated tests without changing compatibility
   results.
+
+### Phase 7b - GSCM Channel Engine (QRIS-Inspired)
+
+Goal: port the core ideas from QRIS (QuaDRiGa-Based Simulation Platform for
+RIS, Burtakov et al., IEEE Access 2023) into a native Python channel engine
+that plugs into the existing `ChannelModel` protocol.
+
+Background:
+
+The current `LinkBudgetChannel` uses scalar FSPL + Rician fading. This is fast
+and sufficient for beam management algorithm comparison, but it cannot model
+stochastic multipath clusters, spatial correlation, angle-of-arrival/departure
+spreads, or per-element UC radiation patterns. QRIS addresses these gaps by
+extending QuaDRiGa (3GPP TR 38.901) with a RIS reflection matrix. Porting
+these ideas to Python — rather than wrapping QRIS's MATLAB code — avoids the
+MATLAB license dependency and fits the existing Python simulation stack.
+
+What to port (the math is 3GPP TR 38.901, not QRIS-proprietary):
+
+- **Cluster generator** (`channels/stochastic/gscm.py`): stochastic path
+  delays, angles of departure/arrival, and per-path powers drawn from 3GPP
+  TR 38.901 §7.5 scenario tables (Indoor, UMi, UMa). ~400 lines NumPy.
+- **GSCM channel matrix builder** (`channels/mimo/gscm_channel.py`): sum
+  cluster contributions into a complex MIMO channel matrix H for each
+  subchannel (Tx→RIS, RIS→Rx). ~150 lines.
+- **RIS subchannel combiner** (`channels/spatial/ris_combiner.py`): implement
+  y = (R Φ T + H) x from equation (1) of the QRIS paper, where Φ is the
+  diagonal RIS reflection matrix. ~50 lines.
+- **UC radiation patterns** (`channels/spatial/uc_patterns.py`): COS-UC
+  closed-form pattern G_e(θ) = 2(2q+1) sin²q(θ) (eq. 3 of the paper); Q-UC
+  parametric patch template. ~80 lines.
+- **Angle-dependent phase table** (`channels/spatial/cst_uc.py`): optional
+  lookup-table interpolation for CST-style UCs where phase shift depends on
+  incidence angle. ~100 lines.
+
+What NOT to port:
+
+- QRIS's Optimal (full-CSI MIMO capacity) and ON-OFF configuration algorithms
+  — Waveflow already has superior beam management. These do not belong here.
+- QuaDRiGa's MATLAB-specific cluster realizations — implement directly in
+  NumPy from the 3GPP spec tables.
+
+Computational design:
+
+GSCM channel generation takes milliseconds per realization vs microseconds for
+the current link-budget call. A beam sweep over 120 angles would be
+unacceptably slow if each angle triggered a fresh stochastic realization.
+
+The correct design is a **precomputed scenario channel** approach:
+
+1. At scenario setup time, generate and average N realizations of the GSCM
+   channel for the configured geometry. Store as a `ScenarioChannel` object.
+2. Beam sweep algorithms query the precomputed channel by angle and compute
+   received SNR from the channel matrix — fast table lookup, not re-generation.
+3. Channel refresh (e.g., for mobility simulation) regenerates the table when
+   node positions change, not on every sweep angle query.
+
+This keeps sweep performance acceptable while providing stochastic-channel
+accuracy at the scenario level.
+
+Integration point:
+
+`risnet/channels/base.py` already defines `ChannelModel` with an `evaluate()`
+method. Add `GSCMChannel` as a new implementation. Existing scenarios continue
+using `LinkBudgetChannel` by default. A scenario opts into GSCM by setting
+`channel_model: gscm` in its YAML/JSON configuration.
+
+```python
+from risnet.channels.gscm import GSCMChannel
+
+channel = GSCMChannel(scenario="UMi", n_realizations=100, seed=42)
+result  = channel.evaluate(network, "AP1", "RIS1", "UE1")
+# result.snr_dB, result.channel_matrix, result.capacity_bps
+```
+
+Do not break:
+
+- Default `LinkBudgetChannel` behavior for all existing tests and examples.
+- Base install: GSCM engine is an optional extra (`pip install -e ".[gscm]"`
+  or included in `[all]`). NumPy and SciPy are sufficient; no MATLAB, no GPU.
+- Existing sweep algorithm interfaces — they call `channel.evaluate()` and
+  receive `snr_dB`; the backing engine is transparent to them.
+
+Exit gate:
+
+- `GSCMChannel` passes dedicated tests: channel matrix shapes, stochastic
+  reproducibility under fixed seed, SNR plausibility vs FSPL baseline.
+- Existing `LinkBudgetChannel` tests and smoke tests are unaffected.
+- A scenario YAML can select `channel_model: gscm` and run end-to-end without
+  changing any beam sweep algorithm code.
+
+Current status:
+
+- Not started. Planned for after Phase 7 spatial channel primitives are
+  stable. The `SimRIS` engine added in the todo log is a related precursor —
+  it should be reviewed for reuse or consolidation with the GSCM implementation.
+- Preliminary investigation complete: integration seam (`ChannelModel` in
+  `risnet/channels/base.py`) already exists. A `SimRISStochasticChannel`
+  prototype exists in `risnet/channels/simris.py` and covers seeded H/G/D
+  tensor generation. The GSCM engine should either extend or supersede this.
+- External MATLAB/Octave golden-parity verification for the SimRIS precursor is
+  KIV until a compatible runtime or frozen reference outputs are available.
+  Internal Python-side porting, regression fixtures, and branch coverage should
+  continue in the meantime.
 
 ### Phase 7a - Human-Aware Sensing and Beam Focusing
 
@@ -1575,6 +1785,59 @@ Phase 6 minimal clock + trajectory loop
     ->
 Phase 7a single moving human + tracking + beam focus
 ```
+
+### Phase 7c - LiDAR Sensing Pipeline and Threat Detection
+
+Goal: add a synthetic LiDAR sensing pipeline as an optional sensor modality
+that runs alongside the RF simulation stack without requiring any RF changes.
+
+Prerequisites: Phase 6 runtime loop and Phase 7a `HumanTarget` / scene graph
+primitives should be in place before this phase begins. LiDAR scanning and
+attack injection require a populated scene with node positions and wall
+geometry.
+
+Implementation:
+
+- Add `world/sensors/lidar.py` with a `LiDARScanner` class that performs
+  NumPy ray-cast scanning against existing `Environment` wall geometry and
+  `RISNetwork` node positions. No new geometry primitives or 3D libraries
+  required at this layer.
+- Add `world/sensors/attack.py` with a `LiDARAttackInjector` class covering
+  four attack types: Gaussian noise, spoofing (false point injection), dropout
+  (random point removal), and replay (stale scan substitution).
+- Add `services/sensing/lidar_features.py` with a `PointCloudFeatureExtractor`
+  that produces fixed-length feature vectors: point density, position
+  mean/variance, angular histograms, and temporal delta statistics between
+  consecutive scans.
+- Add `controller/beamsweeping/ml/lidar_detector.py` with `LiDARDetector`
+  inheriting from `BasePredictorML` and registering into the existing ML
+  plugin registry. Input: feature vector. Output: classification label
+  (normal / noisy / spoofed / replay / dropout).
+- Add `tests/test_lidar_pipeline.py` covering scanner output shape,
+  attack injection reproducibility under seed, feature vector dimensions,
+  and detector classification paths.
+- Expose scan and detection results through the existing Rich terminal and
+  Flask web surfaces without adding new visualization dependencies.
+
+Do not break:
+
+- Existing RF simulation, beam sweeping, and localization workflows.
+- Base install: LiDAR pipeline is optional (`pip install -e ".[lidar]"`).
+- ML registry: `LiDARDetector` is additive and does not change existing
+  predictor registrations.
+
+Exit gate:
+
+- A synthetic LiDAR scan can be generated from an existing `RISNetwork`
+  topology without any RF computation.
+- Attack injection is reproducible under a fixed seed.
+- The ML detector classifies clean vs. attacked scans in a test scenario.
+- All existing RF and beam-sweep tests remain unaffected.
+
+Current status:
+
+- Not started. Planned after Phase 7a `HumanTarget` and basic scene graph
+  primitives are stable.
 
 ### Phase 8 - AI Runtime and Dataset Tools
 
@@ -1696,13 +1959,13 @@ example path.
 
 ### print() Throughout Library Code
 
-Core simulation modules and the main beam-sweeping algorithm surfaces now use
-Python's `logging` module instead of direct `print()` diagnostics, which keeps
-test capture and production embedding cleaner.
+Resolved. Core simulation modules, all beam-sweeping algorithms (including
+OpenCV, ArUco, and HOG vision sweeps), and sweep support modules now use
+Python's `logging` module instead of direct `print()` diagnostics.
 
-Residual note: a few utility/demo scripts still print directly, particularly
-camera helper scripts under `utils/` and standalone mock/demo entrypoints.
-Those are now tooling cleanup rather than Phase 4 blockers.
+Residual note: a small number of standalone demo/utility scripts under
+`utils/` still emit direct stdout output. These are not library call paths and
+are no longer blockers for any migration phase.
 
 ### Star Imports in waveflow/
 
@@ -1716,13 +1979,14 @@ Low risk, low priority.
 
 ### SNR / Link Budget Utilities Scattered
 
-`utils/link_budget.py`, `utils/snr.py`, `utils/rssi.py`, and
-`core/physics.py:compute_snr_dB()` all perform overlapping link budget
-calculations with no clear ownership boundary.
+Partially resolved. `utils/link_budget.py` is now the low-level source of
+truth for shared RIS link-budget config and evaluation helpers. `utils/snr.py`
+reuses those helpers. `risnet/channels` re-exports them as the channel-facing
+API. `core/physics.py:compute_snr_dB()` is still the entry point for direct
+scalar SNR calls; it has not been removed.
 
-Resolution: consolidate under the `ChannelModel` adapter introduced in Phase 3.
-Route existing callers through the adapter progressively rather than deleting
-utility files immediately.
+Residual: `utils/rssi.py` still has overlapping calculations. Full
+consolidation under the `ChannelModel` adapter can continue in Phase 7.
 
 ### Hardcoded Configuration Constants
 
@@ -1739,51 +2003,77 @@ base install until Phase 5 or later.
 
 ## Immediate Action Items
 
-Status as of 2026-05-06:
+Status as of 2026-05-08:
 
 1. ~~Fix packaging and entry points.~~ — Done. All packages discoverable,
    `risnet/__main__.py` exists, imports verified.
-2. Set up a virtual environment and install `pytest` via `pip install -e
-   ".[dev]"` so the test suite can run without `PYTHONPATH` hacks.
-3. ~~Fix the stale expected value in `tests/test_fixes.py` TEST 3 (Phase 1
-   prerequisite before any refactoring).~~ — Done.
+2. ~~Set up a virtual environment and install `pytest`.~~ — Done. `.venv` with
+   `pip install -e ".[dev]"` is the verified test runner.
+3. ~~Fix the stale expected value in `tests/test_fixes.py` TEST 3.~~ — Done.
 4. ~~Fix `examples/hog_human_detection_example.py` — remove or update the
    `NetworkManager` reference to use the current `RISNetwork` API.~~ — Done.
-   The maintained example now lives at
-   `examples/script/example_19_hog_human_detection.py`.
-5. ~~Add characterization regression tests for `RISNetwork.connect()` output
-   shape, FOV errors, seeded fading, and active-link behavior (Phase 1).~~ —
-   Done. Covered by `tests/test_connect_characterization.py`.
-6. ~~Introduce a `PhaseEngine` abstract base in `core/` and remove the
-   `core/network.py:20` controller import (prerequisite for Phase 4).~~ —
-   Done. Core now routes phase operations through `core.phase_engine`, and the
-   controller implementation is registered via a compatibility adapter.
+   Maintained example lives at `examples/script/example_19_hog_human_detection.py`.
+5. ~~Add characterization regression tests for `RISNetwork.connect()`.~~ — Done.
+   Covered by `tests/test_connect_characterization.py`.
+6. ~~Introduce a `PhaseEngine` abstract base in `core/`.~~ — Done.
+   `core.phase_engine` owns the abstraction; `controller/ris_phase/core_adapter.py`
+   registers the controller-backed implementation.
 7. ~~Add a small `arrays/` module with ULA/UPA geometry and steering vector
-   tests (Phase 2).~~ — Done. Additive array primitives are in
-   `risnet/arrays`, routed through the low-risk legacy call sites, and covered
-   by focused equivalence tests.
+   tests (Phase 2).~~ — Done. `risnet/arrays` with equivalence tests.
 8. ~~Extract a `ChannelModel` interface and wrap current link-budget behavior
-   (Phase 3).~~ — Done. `ChannelModel`, `LinkBudgetChannel`, and shared
-   RIS link-budget helpers are in place and reused by the overlapping utility
-   paths without changing compatibility surfaces.
-9. ~~Split `RISNetwork.connect()` into smaller internal services without changing
-   its public return shape (Phase 4).~~ — Done. The public facade is preserved,
-   the major internal steps are extracted behind focused helpers, and helper
-   coverage now lives alongside the public characterization tests.
+   (Phase 3).~~ — Done. `ChannelModel`, `LinkBudgetChannel`, shared link-budget
+   helpers in `utils/link_budget.py`, re-exported through `risnet.channels`.
+9. ~~Split `RISNetwork.connect()` into smaller internal services (Phase 4).~~ —
+   Done. Node lookup, geometry/FOV, phase computation, link-budget, feedback,
+   active-link, and result-assembly are all extracted helpers behind the public facade.
 10. ~~Replace `print()` with `logging` in all non-CLI library modules (Phase 4).~~
-    — Done for the core/library surface. Core simulation modules and the main
-    sweep algorithms now use logger-based reporting; remaining direct prints are
-    limited to utility/demo scripts and are no longer Phase 4 blockers.
-11. ~~Decide canonical CLI implementation and document or consolidate the
-    `risnet/cli.py` vs `cli/main_shell.py` relationship (before Phase 5).~~ —
-    Done for documentation. `cli/main_shell.py` is the canonical full shell;
-    `risnet/cli.py` is retained as a legacy alternate shell and
-    `waveflow/cli.py` is a compatibility wrapper.
+    — Done. Core, controller, and all beam-sweep algorithms (including vision/HOG)
+    now use module loggers. Residual prints limited to standalone demo scripts.
+11. ~~Decide canonical CLI implementation and document the `risnet/cli.py` vs
+    `cli/main_shell.py` relationship.~~ — Done. `cli/main_shell.py` is canonical.
 12. ~~Add a scenario runner that executes AP → RIS → UE without Flask (Phase 5).~~
-    — Done. `ScenarioRunner` executes headless `connect`/`sweep` flows and
-    ordered action sequences from code and JSON/YAML request documents.
-13. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
-    Status: In Progress.
+    — Done. `ScenarioRunner` + `ScenarioExecutionService`; Flask/API `connect`
+    and `sweep` routes through the shared service; terminal `ui connect` also
+    routes through it.
+13. ~~Expand `waveflow ui` into a native modern CLI surface.~~ — Done for the
+    primary command surface. `waveflow ui` defaults to the native interactive
+    shell. `status`, `list`, `links`, `connect`, `sweep` (with live Rich UX and
+    progress), `add`, `save`, `load`, `env`, `ap`, `ris`, `ue`, `signal`,
+    `stream`, and `run` are all exposed. Fallback to legacy handler for
+    unsupported commands is in place.
+14. ~~Add a SimRIS-inspired stochastic channel engine as a precursor to GSCM.~~
+    — Done. `risnet/channels/simris.py` provides `SimRISChannel` (deterministic
+    LOS) and `SimRISStochasticChannel` (seeded H/G/D tensor generator).
+    Coverage in `tests/test_simris_channel.py`.
+15. ~~Make `example_1_simple.json` sweep-safe.~~ — Done. Geometry adjusted to
+    pass the default RIS FOV rules; sweep smoke coverage added.
+16. ~~Fix DE sweep result printer compatibility with NumPy payloads.~~ — Done.
+    Legacy `ConnectionHandler.print_sweep_results` now normalizes NumPy sequences.
+17. ~~Fix `waveflow ui run` legacy flag passthrough.~~ — Done. Unknown trailing
+    flags like `--breakdown` now pass through to the legacy shell command.
+18. Begin Phase 6 minimal runtime kernel. Status: Not started.
+    First slice: minimal simulation clock, deterministic trajectory iterator,
+    metric sampling loop. Must validate that `t=0` static output matches the
+    existing scenario result exactly.
+19. Implement Phase 7b GSCM channel engine. Status: Not started.
+    Precursor (`SimRISStochasticChannel`) exists in `risnet/channels/simris.py`.
+    Next: cluster generator from 3GPP TR 38.901 §7.5 tables, MIMO channel
+    matrix builder, RIS subchannel combiner, and `GSCMChannel` as a new
+    `ChannelModel` implementation. See Phase 7b section for the full spec.
+    External MATLAB/Octave golden parity for the SimRIS precursor remains KIV
+    and is not a blocker for continued Python-side channel-engine work.
+20. Keep Flask, notebooks, and CLI as clients of the same headless service APIs.
+    Status: In Progress. Flask/API and terminal `ui connect` are already routed
+    through the shared service. Notebook and broader CLI sweep paths are not yet.
+21. Implement Phase 7a `HumanTarget` and basic scene graph primitives. Status:
+    Not started. Required prerequisite before Phase 7c LiDAR pipeline can begin.
+22. Implement Phase 7c LiDAR sensing pipeline. Status: Not started. Depends on
+    Phase 7a scene primitives. Deliverables: `world/sensors/lidar.py` (scanner),
+    `world/sensors/attack.py` (noise/spoofing/dropout/replay injection),
+    `services/sensing/lidar_features.py` (feature extraction), and
+    `controller/beamsweeping/ml/lidar_detector.py` (ML threat detector).
+    All LiDAR components go behind an optional `[lidar]` extra; base install
+    must remain unaffected.
 
 ## Risks
 
