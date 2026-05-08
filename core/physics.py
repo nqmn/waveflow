@@ -11,6 +11,18 @@ class Physics:
     """Centralized physics calculations for RIS networks"""
 
     @staticmethod
+    def angular_deviation_deg(beam_angle_deg, target_angle_deg):
+        """Return the shortest absolute angular deviation in degrees.
+
+        The result is always in ``[0, 180]`` and is symmetric in the sense that
+        deviations of ``+Δ`` and ``-Δ`` map to the same value.
+        """
+        delta = (beam_angle_deg - target_angle_deg) % 360
+        if delta > 180:
+            return float(360 - delta)
+        return float(delta)
+
+    @staticmethod
     def path_loss_dB(distance, freq):
         """Free space path loss (FSPL) in dB
 
@@ -500,7 +512,14 @@ class Physics:
 
     @staticmethod
     def angle_loss_dB(beam_angle_deg, target_angle_deg, sensitivity=0.16):
-        """Calculate loss due to beam steering angle deviation
+        """Calculate loss due to beam steering angle deviation.
+
+        This is the bounded analytical LightRIS penalty used for steering
+        mismatch. It is:
+        - zero at perfect alignment,
+        - symmetric in angular deviation,
+        - monotone non-increasing in received gain with larger deviation, and
+        - lower-bounded by ``-max_loss_dB``.
 
         Args:
             beam_angle_deg: Actual beam steering angle
@@ -510,35 +529,71 @@ class Physics:
         Returns:
             Angle loss in dB
         """
-        # Compute shortest angular distance between two angles
-        delta = (beam_angle_deg - target_angle_deg) % 360
-        if delta > 180:
-            angular_deviation = 360 - delta
-        else:
-            angular_deviation = delta
+        return Physics.lightris_angle_loss_dB(
+            beam_angle_deg,
+            target_angle_deg,
+        )
 
-        # CRITICAL FIX: Use quadratic penalty function instead of sinc
-        # Sinc at small angles has floating-point precision issues causing plateaus
-        # Quadratic function provides smooth, monotonic loss variation
-        # Loss = k * (angular_deviation)^2, where k provides reasonable scaling
+    @staticmethod
+    def lightris_angle_loss_dB(
+        beam_angle_deg,
+        target_angle_deg,
+        *,
+        anchor_deviation_deg=60.0,
+        anchor_loss_dB=40.0,
+        max_loss_dB=60.0,
+    ):
+        """Bounded quadratic steering loss used by LightRIS.
 
-        # Loss magnitude: -20 dB at ±60°, -0 dB at 0°
-        # This means: loss = -20 * (angular_deviation / 60)^2
-        # Or more generally: loss = -a * angular_deviation^2
-        # where 'a' is chosen so peak loss = -20 dB at max deviation
+        At ``anchor_deviation_deg``, the penalty equals ``-anchor_loss_dB``.
+        The loss is clipped to ``[-max_loss_dB, 0]``.
+        """
+        angular_deviation = Physics.angular_deviation_deg(beam_angle_deg, target_angle_deg)
 
-        # For ±60° max deviation: a = 20 / (60^2) = 0.00556
-        # This gives smooth penalty without artifacts
+        anchor_deviation_deg = max(float(anchor_deviation_deg), 1e-6)
+        anchor_loss_dB = max(float(anchor_loss_dB), 0.0)
+        max_loss_dB = max(float(max_loss_dB), 0.0)
 
-        # Use steeper scaling: -40 dB at ±60° deviation
-        # This provides more realistic beam pattern with significant null regions
-        a = 40.0 / (60.0 ** 2)  # Scaling factor: -40 dB at ±60°
-        loss_dB = -a * (angular_deviation ** 2)
+        scale = anchor_loss_dB / (anchor_deviation_deg ** 2)
+        loss_dB = -scale * (angular_deviation ** 2)
+        return float(max(loss_dB, -max_loss_dB))
 
-        # Clamp to maximum loss of -60 dB (represents deep null/no signal)
-        loss_dB = max(loss_dB, -60.0)
+    @staticmethod
+    def lightris_bounded_loss_dB(loss_dB, *, min_loss_dB=0.0, max_loss_dB=120.0):
+        """Clamp a LightRIS correction term to a valid non-negative loss range."""
+        loss = float(loss_dB)
+        return float(min(max(loss, min_loss_dB), max_loss_dB))
 
-        return loss_dB
+    @staticmethod
+    def lightris_total_correction_loss_dB(
+        *,
+        quantization_loss_dB,
+        angle_loss_dB,
+        taper_loss_dB=0.0,
+        phase_error_loss_dB=0.0,
+        nearfield_loss_dB=0.0,
+        efficiency_loss_dB=0.0,
+        coherence_loss_dB=0.0,
+        other_loss_dB=0.0,
+    ):
+        """Compose bounded non-negative LightRIS correction losses.
+
+        ``quantization_loss_dB`` and ``angle_loss_dB`` are expected as signed
+        penalties (typically negative or zero). The returned mapping exposes the
+        non-negative loss magnitudes used in the LightRIS analytical model.
+        """
+        components = {
+            "quantization_loss_dB": Physics.lightris_bounded_loss_dB(max(-float(quantization_loss_dB), 0.0)),
+            "angle_loss_dB": Physics.lightris_bounded_loss_dB(max(-float(angle_loss_dB), 0.0)),
+            "taper_loss_dB": Physics.lightris_bounded_loss_dB(taper_loss_dB),
+            "phase_error_loss_dB": Physics.lightris_bounded_loss_dB(phase_error_loss_dB),
+            "nearfield_loss_dB": Physics.lightris_bounded_loss_dB(nearfield_loss_dB),
+            "efficiency_loss_dB": Physics.lightris_bounded_loss_dB(efficiency_loss_dB),
+            "coherence_loss_dB": Physics.lightris_bounded_loss_dB(coherence_loss_dB),
+            "other_loss_dB": Physics.lightris_bounded_loss_dB(other_loss_dB),
+        }
+        components["total_loss_dB"] = float(sum(components.values()))
+        return components
 
     @staticmethod
     def compute_snr_dB(tx_power_dBm, total_loss_dB, gain_dBi,

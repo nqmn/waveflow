@@ -99,7 +99,10 @@ def test_phase3_shared_lightris_helpers_preserve_utils_compatibility():
 
     assert direct_metrics.keys() == compat_metrics.keys()
     for key in direct_metrics:
-        assert direct_metrics[key] == pytest.approx(compat_metrics[key])
+        if isinstance(direct_metrics[key], dict):
+            assert direct_metrics[key] == compat_metrics[key]
+        else:
+            assert direct_metrics[key] == pytest.approx(compat_metrics[key])
 
 
 def test_phase3_lightris_node_helper_matches_channel_adapter_inputs():
@@ -119,7 +122,10 @@ def test_phase3_lightris_node_helper_matches_channel_adapter_inputs():
 
     assert helper_result.keys() == direct_result.keys()
     for key in helper_result:
-        assert helper_result[key] == pytest.approx(direct_result[key])
+        if isinstance(helper_result[key], dict):
+            assert helper_result[key] == direct_result[key]
+        else:
+            assert helper_result[key] == pytest.approx(direct_result[key])
 
 def test_lightris_channel_preserves_phase_payload_shape():
     net = build_channel_network()

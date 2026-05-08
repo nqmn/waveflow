@@ -1,3 +1,30 @@
+## Task: Formalize LightRIS Analytical Guarantees
+Mode: Standard
+Risk: High
+Confidence: Guarded
+Operational risk: Broad / Partial
+Rollback plan: Revert the additive LightRIS theory helpers in `core/physics.py` / `utils/lightris.py`, remove the new theory tests, and restore the test-suite/task-log wording for this task.
+Change budget: [files 5] [functions: additive LightRIS theory helpers, LightRIS low-level evaluator, new theory tests] [interfaces: additive `Physics`/`utils.lightris` APIs only] [state mutations: none]
+
+### Scope
+- `core/physics.py` — add explicit bounded analytical helpers for LightRIS angular deviation, correction losses, and aggregate correction composition.
+- `utils/lightris.py` — route LightRIS evaluation through the new bounded theory helpers and expose the composed correction breakdown.
+- `tests/test_lightris_channel.py` and/or a new focused LightRIS theory test file — verify monotonicity, bounds, and aggregate-loss consistency.
+- `tasks/test-suite.md` — record the new LightRIS theory coverage.
+- `tasks/todo.md` — record this task.
+
+### Steps
+- [x] Add additive bounded LightRIS theory helpers in `Physics`
+- [x] Refactor `utils.lightris` to use those helpers and expose correction-term breakdown
+- [x] Add focused LightRIS theory tests and update the test map
+
+### Review
+- Completed: Added explicit LightRIS theory helpers to `Physics` for shortest-angle deviation, bounded quadratic steering loss, bounded non-negative loss clamping, and additive correction-term composition. Strengthened `utils.lightris` from a scalar helper into a clearer analytical-model surface by adding `validate_lightris_config()`, `LIGHTRIS_ANALYTICAL_ASSUMPTIONS`, and `evaluate_lightris_decomposition()`, with `evaluate_lightris_metrics()` now embedding the full decomposition payload. Added `tests/test_lightris_theory.py` to enforce the intended guarantees: bounded/symmetric angular deviation, bounded monotone steering loss, additive non-negative correction composition, self-consistent decomposition, configuration validation/assumption surfacing, and monotone LightRIS SNR trends versus transmit power, distance, RIS size, and phase-bit resolution. Verified with `pytest -q tests/test_lightris_theory.py tests/test_lightris_channel.py tests/test_connect_characterization.py tests/test_scenarios.py` (`77 passed`) and `pytest -q tests/test_smoke.py tests/test_lightris_theory.py tests/test_lightris_channel.py tests/test_connect_characterization.py tests/test_scenarios.py tests/test_simris_channel.py tests/test_simris_paper_formulas.py tests/test_simris_physics_regression.py tests/test_johari2025_ris_5ghz.py tests/test_johari2025_physics_regression.py` (`268 passed`).
+- Out-of-scope flagged: I did not attempt to prove LightRIS as a full stochastic channel model or to make its correction terms equivalent to SimRIS; this task formalizes the native engine as a bounded analytical complement, not a SimRIS replacement.
+- Assumptions invalidated: None.
+- Known debt (acknowledged):
+- Limitations: The new guarantees are model-internal guarantees for the analytical LightRIS engine. They do not yet provide an external approximation bound against SimRIS or measurement data, which still needs a separate benchmarking/calibration phase for publication.
+
 ## Task: Finalize Active LightRIS Naming and Verification
 Mode: Standard
 Risk: Low
