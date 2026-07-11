@@ -110,7 +110,7 @@ class DTPredictor(SweepMLPredictor):
         return 3.5  # Decision Tree uncertainty
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct feature vector using AP-to-RIS geometry + link metrics (12 features).
+        """Construct feature vector using AP-to-RIS geometry + link metrics (10 features).
 
         Features:
           - AP position (3 coords: x, y, z)

@@ -52,8 +52,10 @@ def test_ris_gain_no_double_count():
     assert 27 < gain_dBi < 30, f"Gain {gain_dBi:.2f} dBi outside expected range [27, 30]"
     print(f"✓ Gain is within reasonable bounds: {gain_dBi:.2f} dBi")
 
-    # Now test through connect()
-    result = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
+    # Now test through connect(). These bounds validate the analytical LightRIS
+    # budget, so request it explicitly (the default engine is SimRIS stochastic).
+    result = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False,
+                         channel_model="lightris")
     snr_dB = result['snr_dB']
 
     print(f"\nSNR from connect(): {snr_dB:.2f} dB")
@@ -212,7 +214,8 @@ def test_overall_snr_bounds():
     net.add_ris("r1", 2, 0, 0, N=16, bits=2, max_angle_deg=90)  # 256 elements, close
     net.add_ue("ue1", 4, 0, 0)
 
-    result1 = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
+    result1 = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr1 = result1['snr_dB']
 
     print(f"Test 1 (short range, RIS N=256):")
@@ -226,7 +229,8 @@ def test_overall_snr_bounds():
     net.add_ris("r2", 20, 0, 0, N=4, bits=1, max_angle_deg=90)  # 16 elements, far
     net.add_ue("ue2", 40, 0, 0)
 
-    result2 = net.connect("ap2", "r2", "ue2", seed=42, use_get_snr=False)
+    result2 = net.connect("ap2", "r2", "ue2", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr2 = result2['snr_dB']
 
     print(f"Test 2 (long range, RIS N=16):")
@@ -240,7 +244,8 @@ def test_overall_snr_bounds():
     net.add_ris("r3", 10, 0, 0, N=8, bits=2, max_angle_deg=90)  # 64 elements
     net.add_ue("ue3", 20, 0, 0)
 
-    result3 = net.connect("ap3", "r3", "ue3", seed=42, use_get_snr=False)
+    result3 = net.connect("ap3", "r3", "ue3", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr3 = result3['snr_dB']
 
     print(f"Test 3 (moderate range, RIS N=64):")

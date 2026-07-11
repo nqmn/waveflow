@@ -60,13 +60,13 @@ class SmartGeometryPredictor(SweepMLPredictor):
         }
 
     def _extract_features(self, ap_pos: np.ndarray, ris_pos: np.ndarray,
-                         ue_pos: np.ndarray, fov: float) -> Dict[str, float]:
+                         ue_pos: np.ndarray, fov: float,
+                         link_key: str = None) -> Dict[str, float]:
         """Extract features for prediction"""
         geom = self._compute_geometry_angles(ap_pos, ris_pos, ue_pos)
 
-        # Get recent measurement history
-        history_key = f"{len(ap_pos)}_{len(ris_pos)}_{len(ue_pos)}"
-        recent = self.measurement_history.get(history_key, [])
+        # Get recent measurement history recorded for this link
+        recent = self.measurement_history.get(link_key, []) if link_key else []
 
         features = {
             'geometry_optimal': geom['optimal_angle'],
@@ -145,7 +145,11 @@ class SmartGeometryPredictor(SweepMLPredictor):
         return result[:top_k] if result else [0.0]
 
     def record_measurement(self, link_key: str, angle: float, snr_dB: float):
-        """Record SNR measurement for learning"""
+        """Record SNR measurement for learning.
+
+        Use ``link_{ap}_{ris}_{ue}`` as the key so predict_local_angles() can
+        find the history for the same link.
+        """
         if link_key not in self.measurement_history:
             self.measurement_history[link_key] = []
 
@@ -167,8 +171,9 @@ class SmartGeometryPredictor(SweepMLPredictor):
         if ap_pos is None or ris_pos is None or ue_pos is None:
             return [0.0]  # Fallback
 
-        # Extract features
-        features = self._extract_features(ap_pos, ris_pos, ue_pos, fov)
+        # Extract features, keyed to the same link identity used by record_measurement()
+        link_key = f"link_{ap_name}_{ris_name}_{ue_name}"
+        features = self._extract_features(ap_pos, ris_pos, ue_pos, fov, link_key=link_key)
 
         # Predict candidates
         candidates = self._predict_candidates(features, fov, top_k)

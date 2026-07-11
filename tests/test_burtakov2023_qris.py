@@ -99,7 +99,9 @@ class TestCOSUCRadiationPattern:
         thetas = np.linspace(0, math.pi / 2, 500)
         integrand = np.array([_simris._ris_pattern_linear(math.degrees(t)) for t in thetas])
         # ∫ G_e(θ) sin(θ) dθ dφ  over 2π azimuth and [0, π/2] elevation
-        integral = 2 * math.pi * np.trapz(integrand * np.sin(thetas), thetas)
+        # np.trapz was removed in NumPy 2.0 in favour of np.trapezoid
+        trapezoid = getattr(np, "trapezoid", getattr(np, "trapz", None))
+        integral = 2 * math.pi * trapezoid(integrand * np.sin(thetas), thetas)
         assert integral == pytest.approx(4 * math.pi, rel=0.15)
 
     def test_45deg_gain_between_broadside_and_endfire(self):

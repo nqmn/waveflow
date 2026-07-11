@@ -54,9 +54,15 @@ class Physics:
             alpha = 0.0001 + (freq_GHz - 10) * 0.00002
         elif freq_GHz >= 24 and freq_GHz < 50:
             alpha = 0.0003 + (freq_GHz - 24) * 0.00015
+        elif freq_GHz >= 50 and freq_GHz < 57:
+            # Bridge the 50-57 GHz window toward the oxygen-line shoulder so the
+            # coefficient stays continuous instead of collapsing to the sub-10 GHz default
+            alpha_50 = 0.0003 + (50 - 24) * 0.00015
+            alpha = alpha_50 + (freq_GHz - 50) * (0.005 - alpha_50) / 7.0
         elif freq_GHz >= 57 and freq_GHz <= 64:
-            # Oxygen absorption peak around 60 GHz
-            peak_factor = 1 - abs(freq_GHz - 60) / 3
+            # Oxygen absorption peak around 60 GHz; clamp so the shoulder never
+            # dips below the 57 GHz baseline outside the +/-3 GHz peak window
+            peak_factor = max(0.0, 1 - abs(freq_GHz - 60) / 3)
             alpha = 0.005 + peak_factor * 0.010
         elif freq_GHz > 64:
             alpha = 0.003 + (freq_GHz - 64) * 0.00005
@@ -222,28 +228,32 @@ class Physics:
             - Manufacturing tolerance: typically ±5-15° (default: ±8°)
             - Temperature drift: typically ±0.5°/°C for ΔT (default: ±5° for 10°C)
         """
+        # Use a local generator when seeded so per-element reproducibility does not
+        # clobber the global RNG state of the surrounding simulation
         if seed is not None:
-            np.random.seed(seed + element_idx)
+            rng = np.random.default_rng(seed + element_idx)
+        else:
+            rng = np.random
 
         total_error = 0.0
 
         # Quantization error (uniform distribution)
         if include_quantization and phase_bits > 0:
             quantization_bound = np.pi / (2 ** phase_bits)
-            quant_error = np.random.uniform(-quantization_bound / 2, quantization_bound / 2)
+            quant_error = rng.uniform(-quantization_bound / 2, quantization_bound / 2)
             total_error += quant_error
 
         # Manufacturing tolerance (normal distribution)
         if include_manufacturing:
-            mfg_error = np.random.normal(0, np.radians(mfg_std_deg))
+            mfg_error = rng.normal(0, np.radians(mfg_std_deg))
             total_error += mfg_error
 
         # Temperature drift (normal distribution)
         if include_temperature:
-            temp_error = np.random.normal(0, np.radians(temp_std_deg))
+            temp_error = rng.normal(0, np.radians(temp_std_deg))
             total_error += temp_error
 
-        return total_error
+        return float(total_error)
 
     @staticmethod
     def quantize_phase_to_bits(ideal_phase_rad, phase_bits):
@@ -708,6 +718,10 @@ class Physics:
                           element_spacing=0.5, center_freq=10e9):
         """Calculate RIS gain considering multipath contributions
 
+        Paths are summed coherently as complex field amplitudes, so co-phased
+        paths reinforce and anti-phased paths cancel. Narrowband model: path
+        'delay' is not converted to additional phase rotation.
+
         Args:
             paths_info: List of path dicts with 'amplitude', 'phase', 'delay'
             ris_phases: RIS phase configuration (radians)
@@ -717,28 +731,22 @@ class Physics:
         Returns:
             Effective RIS gain in dB
         """
-        k = 2 * np.pi * center_freq / C
-        wavelength = C / center_freq
+        # RIS aperture response is common to all paths
+        ris_response = np.sum(np.exp(1j * ris_phases))
 
-        # Calculate contribution from each path
-        total_power = 0.0
-
+        # Coherent sum of complex path amplitudes
+        total_field = 0.0 + 0.0j
         for path_info in paths_info:
             amplitude = path_info.get('amplitude', 1.0)
             phase = path_info.get('phase', 0.0)
+            total_field += amplitude * np.exp(1j * phase)
 
-            # Apply RIS phase response
-            ris_response = np.sum(np.exp(1j * ris_phases))
-            path_contribution = amplitude * np.abs(ris_response)**2
-
-            total_power += path_contribution
-
-        # Normalize by number of elements
+        # Normalize received power by the ideal fully-coherent aperture (N^2)
         num_elements = len(ris_phases)
-        gain_linear = total_power / (num_elements**2)
+        gain_linear = (np.abs(total_field) ** 2) * (np.abs(ris_response) ** 2) / (num_elements ** 2)
         gain_dB = 10 * np.log10(max(gain_linear, 1e-10))
 
-        return gain_dB
+        return float(gain_dB)
 
     @staticmethod
     def effective_snr_with_waveform_distortion(ideal_snr_dB, quantization_error_rms_deg,
