@@ -60,8 +60,11 @@ def test_ris_gain_no_double_count():
 
     print(f"\nSNR from connect(): {snr_dB:.2f} dB")
 
-    # Expected SNR should be positive (strong link) and < 50 dB
-    assert -20 < snr_dB < 50, f"SNR {snr_dB:.2f} dB outside expected range [-20, 50]"
+    # Expected SNR should be positive (strong link). With the N^2 cascaded RIS
+    # gain (aperture applied at capture and re-radiation, Bjornson 2020), the
+    # 5 m + 5 m / 256-element textbook ideal is ~55.7 dB; modeled hardware and
+    # quantization losses bring it to ~54.3 dB.
+    assert -20 < snr_dB < 60, f"SNR {snr_dB:.2f} dB outside expected range [-20, 60]"
     print(f"✓ SNR is physically reasonable: {snr_dB:.2f} dB")
 
 def test_snr_noise_floor_consistency():
@@ -218,9 +221,11 @@ def test_overall_snr_bounds():
                           channel_model="lightris")
     snr1 = result1['snr_dB']
 
+    # N^2 cascade at 2 m + 2 m with 256 elements: ideal textbook SNR ~71.6 dB,
+    # minus ~1.4 dB modeled hardware/quantization losses -> ~70.2 dB
     print(f"Test 1 (short range, RIS N=256):")
     print(f"  SNR: {snr1:.2f} dB")
-    assert -20 < snr1 < 70, f"SNR {snr1:.2f} dB outside expected range [-20, 70]"
+    assert -20 < snr1 < 75, f"SNR {snr1:.2f} dB outside expected range [-20, 75]"
     print(f"  ✓ Within bounds")
 
     # Test case 2: Long range, small RIS
@@ -253,7 +258,7 @@ def test_overall_snr_bounds():
     assert -20 < snr3 < 50, f"SNR {snr3:.2f} dB outside expected range [-20, 50]"
     print(f"  ✓ Within bounds")
 
-    print(f"\n✓ All SNR values within physically plausible range [-20, 50] dB")
+    print(f"\n✓ All SNR values within physically plausible ranges")
 
 if __name__ == "__main__":
     print("\n" + "="*70)

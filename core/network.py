@@ -782,7 +782,9 @@ class RISNetwork:
         except Exception:
             pass
 
-        gain_dBi = Physics.array_gain_dBi(
+        # Two-hop budget (FSPL on both hops): the RIS aperture gain applies at
+        # capture and re-radiation, so use the cascaded N^2-scaling gain
+        gain_dBi = Physics.ris_cascaded_gain_dBi(
             n_total, ris.amplifier_gain, angle_loss_dB=0.0, frequency=ris.freq
         )
         quant_loss_dB = Physics.quantization_loss_dB(
