@@ -18,7 +18,6 @@ from ..common import (
     apply_waveform_realism,
     setup_waveform_simulator,
     validate_and_get_nodes,
-    clamp_local_deflection_to_ris_fov,
 )
 from ..registry import register_algorithm
 from utils.csi import estimate_channel_capacity_bps_hz
@@ -68,16 +67,21 @@ class MLGuidedSweep(SweepAlgorithmBase):
     def _build_validation_candidates(
         self,
         predicted_angle: float,
-        ris_max_angle: float,
+        deflection_cap: float,
         enable_validation: bool,
         increment: float,
         neighbors: int,
         include_predicted: bool,
-        codebook_start: float = 10.0,
-        codebook_end: float = 60.0,
+        codebook_start: float = 0.0,
+        codebook_end: float = 180.0,
         codebook_step: float = 10.0,
     ) -> List[float]:
         """Return the local angles we should validate around the ML prediction.
+
+        Angles here are unsigned deflections from the incident direction, so
+        the reachable range is [0, deflection_cap] where deflection_cap is
+        min(180, 2 * ris_max_angle) — an optimally placed RIS normal (the
+        AP/UE bisector) needs only half the deflection as offset from normal.
 
         With enable_validation=True and fixed codebook:
         - Quantize predicted angle to nearest codebook angle
@@ -107,10 +111,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         if not candidates:
             candidates.add(predicted_angle)
 
-        clamped = clamp_local_deflection_to_ris_fov(
-            np.array(list(candidates), dtype=float),
-            ris_max_angle
-        )
+        clamped = np.clip(np.array(list(candidates), dtype=float), 0.0, deflection_cap)
         return sorted(set(clamped.tolist()))
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
@@ -122,8 +123,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
               codebook_neighbors: int = 1,
               enable_codebook_validation: bool = False,
               include_predicted_angle: bool = True,
-              codebook_start: float = 10.0,
-              codebook_end: float = 60.0,
+              codebook_start: float = 0.0,
+              codebook_end: float = 180.0,
               codebook_step: float = 10.0,
               ml_angles=None, use_waveform: bool = False,
               modulation: str = 'QPSK', num_symbols: int = 1000,
@@ -145,8 +146,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
             codebook_neighbors: Number of codebook angles to test on either side of quantized angle
             enable_codebook_validation: Whether to enable fixed codebook quantization and neighbor validation
             include_predicted_angle: If True, also include the raw ML prediction in validation set
-            codebook_start: Start angle of fixed codebook (degrees, default: 10)
-            codebook_end: End angle of fixed codebook (degrees, default: 60)
+            codebook_start: Start angle of fixed codebook (degrees, default: 0)
+            codebook_end: End angle of fixed codebook (degrees, default: 180)
             codebook_step: Step size for fixed codebook (degrees, default: 10)
             use_waveform: If True, simulate real signal-level SNR/SER
             modulation: Modulation type: QPSK, 16QAM, or 64QAM
@@ -158,6 +159,13 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
+        # Predictions are unsigned deflections from the incident direction.
+        # With the RIS normal on the AP/UE bisector, a deflection D needs only
+        # a D/2 offset from normal, so the reachable range is 2x the RIS
+        # steering limit (capped at 180 deg).
+        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
+        deflection_cap = min(180.0, 2.0 * float(ris_max_angle))
+
         # Load ML predictor
         try:
             predictor = MLPredictorLoader.get_predictor(ml_predictor, self.network)
@@ -166,7 +174,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
 
         # Get ML predictions with metrics
         ml_suggestions, ml_metrics = predictor.predict_with_metrics(
-            ap_name, ris_name, ue_name, fov, top_k=top_k
+            ap_name, ris_name, ue_name, deflection_cap, top_k=top_k
         )
 
         # Calculate incident and reflected azimuths from 3D coordinates
@@ -193,10 +201,9 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Set specular_angle for result reporting (incident direction)
         specular_angle = ap_angle
 
-        # Clamp ML-suggested angles to RIS FOV constraint (native RIS capability)
-        ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
-        clamped_ml_suggestions = clamp_local_deflection_to_ris_fov(
-            np.array(ml_suggestions), ris_max_angle
+        # Clamp ML-suggested deflections to the reachable range
+        clamped_ml_suggestions = np.clip(
+            np.array(ml_suggestions, dtype=float), 0.0, deflection_cap
         ).tolist()
 
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
@@ -212,7 +219,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         for ml_angle in clamped_ml_suggestions:
             validation_angles = self._build_validation_candidates(
                 ml_angle,
-                ris_max_angle,
+                deflection_cap,
                 enable_codebook_validation,
                 codebook_increment,
                 codebook_neighbors,

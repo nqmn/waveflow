@@ -10,18 +10,11 @@ from typing import List
 
 import numpy as np
 
-FEATURE_COLUMNS = [
-    'ap_x', 'ap_y', 'ap_z',
-    'ris_x', 'ris_y', 'ris_z',
-    'd_ap_ris',
-    'aoa_sin', 'aoa_cos',
-    'dx', 'dy', 'dz',
-    'az_sin', 'az_cos', 'el_sin', 'el_cos',
-    'ap_az_sin', 'ap_az_cos', 'ap_el_sin', 'ap_el_cos',
-    'spec_sin', 'spec_cos',
-    'align_cos', 'align_sin',
-    'snr_dB', 'rssi_dBm',
-]
+# Feature definitions are shared with inference — see features.py
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..', '..')))
+from controller.beamsweeping.ml.features import SKLEARN_FEATURE_COLUMNS as FEATURE_COLUMNS
 
 try:
     import lightgbm as lgb  # type: ignore

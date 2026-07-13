@@ -103,12 +103,15 @@ class GMFPredictor(SweepMLPredictor):
 
     def _build_observed_features(self, ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarray,
                                  ap, ris, ue) -> np.ndarray:
-        """Construct the observed feature vector expected by the GMM."""
+        """Construct the observed feature vector expected by the GMM.
+
+        Order must match train_gmf.py FEATURE_COLUMNS (minus the angle label).
+        """
         snr, rssi = self._compute_link_metrics(ap_pos, ris_pos, ue_pos, ap, ris, ue)
         d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
+        d_ris_ue = float(np.linalg.norm(ue_pos - ris_pos))
         aoa_rad = math.atan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])
-        aoa_sin = float(math.sin(aoa_rad))
-        aoa_cos = float(math.cos(aoa_rad))
+        aod_rad = math.atan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0])
 
         # Compute elevation angle and AP-RIS offset from AP-RIS geometry
         dx = ris_pos[0] - ap_pos[0]
@@ -116,10 +119,14 @@ class GMFPredictor(SweepMLPredictor):
         dz = ris_pos[2] - ap_pos[2]
         d_xy = math.hypot(dx, dy)
         el_rad = math.atan2(dz, d_xy)
-        el_sin = float(math.sin(el_rad))
-        el_cos = float(math.cos(el_rad))
 
-        return np.array([snr, rssi, d_ap_ris, aoa_sin, aoa_cos, el_sin, el_cos, float(dx), float(dy), float(dz)], dtype=float)
+        return np.array([
+            snr, rssi, d_ap_ris, d_ris_ue,
+            float(math.sin(aoa_rad)), float(math.cos(aoa_rad)),
+            float(math.sin(aod_rad)), float(math.cos(aod_rad)),
+            float(math.sin(el_rad)), float(math.cos(el_rad)),
+            float(dx), float(dy), float(dz),
+        ], dtype=float)
 
     def _compute_angle_posterior(self, obs: np.ndarray, fov: float, resolution: float = 1.0) -> tuple:
         """Estimate posterior probabilities across an angle grid using the GMM."""

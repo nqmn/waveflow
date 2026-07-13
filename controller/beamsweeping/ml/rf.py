@@ -11,7 +11,7 @@ import numpy as np
 
 from .base import SweepMLPredictor
 
-from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_metrics
+from .features import build_sklearn_features
 
 try:
     from sklearn.ensemble import RandomForestRegressor  # type: ignore
@@ -120,47 +120,20 @@ class RFPredictor(SweepMLPredictor):
 
         The ensemble standard deviation from the most recent prediction is a
         data-driven measure of confidence: unanimous trees give a low value,
-        disagreeing trees a high one. Falls back to the historical fixed
-        estimate (2.5 deg, R^2=0.9438) when the spread is unavailable.
+        disagreeing trees a high one. Falls back to a fixed estimate when the
+        spread is unavailable.
         """
         if not model_available:
             return 10.0
         if self._last_uncertainty is not None:
             # Floor keeps error bounds non-degenerate when all trees agree
             return max(0.1, self._last_uncertainty)
-        return 2.5  # Fallback: Random Forest uncertainty (best model)
+        return 3.5  # Fallback: typical test MAE band (R^2~0.87 on beam_dataset)
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct feature vector using AP-to-RIS geometry + link metrics (10 features).
+        """Construct the canonical feature vector shared with the training scripts.
 
-        Features:
-          - AP position (3 coords: x, y, z)
-          - RIS position (3 coords: x, y, z)
-          - d_ap_ris: Euclidean distance from AP to RIS
-          - aoa: Angle of Arrival from AP to RIS (azimuth in degrees)
-          - snr_dB/rssi_dBm: predicted link metrics toward UE
+        See controller/beamsweeping/ml/features.py (SKLEARN_FEATURE_COLUMNS) for
+        the authoritative column list and ordering.
         """
-        ap_pos = np.array(ap.pos)
-        ris_pos = np.array(ris.pos)
-        ue_pos = np.array(ue.pos)
-
-        d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
-        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0]))) % 360
-        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0]))) % 360
-
-        physics_config = build_lightris_config_from_nodes(ap, ris, ue)
-        metrics = evaluate_lightris_metrics(ap_pos, ris_pos, ue_pos, aod, physics_config)
-        snr = float(metrics['snr_dB'])
-        rssi = float(metrics['rssi_dBm'])
-
-        features = [
-            # AP position (3D)
-            float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
-            # RIS position (3D)
-            float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
-            # Derived geometry
-            d_ap_ris, aoa,
-            # Link metrics
-            snr, rssi,
-        ]
-        return features
+        return build_sklearn_features(ap, ris, ue)
