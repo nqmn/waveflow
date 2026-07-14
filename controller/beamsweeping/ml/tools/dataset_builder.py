@@ -472,22 +472,23 @@ def _sample_ue_within_fov(ris_pos: np.ndarray, ap_pos: np.ndarray, rng: random.R
 def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
                              distance_range: Tuple[float, float],
                              rng: random.Random,
-                             physics_config: Dict[str, float]) -> Dict:
+                             physics_config: Dict[str, float],
+                             z_range: Tuple[float, float] = (0.5, 3.0)) -> Dict:
     """Generate a sample following the CLI’s `add random` RIS-aware placement."""
     ris_x = rng.uniform(bounds['ris']['x_min'], bounds['ris']['x_max'])
     ris_y = rng.uniform(bounds['ris']['y_min'], bounds['ris']['y_max'])
-    ris_z = rng.uniform(0.0, 1.0)
+    ris_z = rng.uniform(z_range[0], z_range[1])
     ris_pos = np.array([ris_x, ris_y, ris_z])
 
     ap_distance = rng.uniform(distance_range[0], distance_range[1])
     ap_angle = rng.uniform(-ris_max_angle, ris_max_angle)
     ap_x = ris_x + ap_distance * math.cos(math.radians(ap_angle))
     ap_y = ris_y + ap_distance * math.sin(math.radians(ap_angle))
-    ap_z = rng.uniform(0.0, 1.0)
+    ap_z = rng.uniform(z_range[0], z_range[1])
     ap_pos = np.array([ap_x, ap_y, ap_z])
 
     ue_pos = _sample_ue_within_fov(
-        ris_pos, ap_pos, rng, ris_max_angle, distance_range, z_range=(0.0, 1.0)
+        ris_pos, ap_pos, rng, ris_max_angle, distance_range, z_range=z_range
     )
     theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
@@ -549,7 +550,8 @@ def build_ris_aware_dataset(args, bounds, ris_max_angle, physics_config: Dict[st
             ris_max_angle,
             (args.distance_min, args.distance_max),
             rng,
-            physics_config
+            physics_config,
+            z_range=(args.z_min, args.z_max),
         )
         samples_dict[idx] = sample
         if args.verbose and (idx + 1) % 1000 == 0:
@@ -618,6 +620,10 @@ def main():
                         help='Additional noise/interference margin applied to the noise floor (dB)')
     parser.add_argument('--max-deflection', type=float, default=180.0,
                         help='Maximum |aod-aoa| deflection to include (degrees)')
+    parser.add_argument('--z-min', type=float, default=0.5,
+                        help='Minimum node height (m) for ris-aware sampling')
+    parser.add_argument('--z-max', type=float, default=3.0,
+                        help='Maximum node height (m) for ris-aware sampling')
     args = parser.parse_args()
 
     # Position bounds (20m × 20m × 5m space)
