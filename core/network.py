@@ -759,16 +759,21 @@ class RISNetwork:
 
     def _prepare_connect_lightris(self, ap, ris, ue, *, d_ap_ris, d_ris_ue, beam_angle_deg,
                                   target_angle, phase_metadata, bandwidth_MHz=None):
-        """Prepare link-budget inputs and beam metadata for connect calculations."""
+        """Prepare link-budget inputs and beam metadata for connect calculations.
+
+        Delegates to utils.lightris so there is exactly ONE LightRIS budget in
+        the codebase: sweeps, pathfinding, ML probe features, and connect()
+        all evaluate the same analytical model. Steering-mismatch loss is
+        applied later by _compute_connect_snr, so the budget here is evaluated
+        at the on-target beam (angle loss 0).
+        """
+        from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_decomposition
+
         if bandwidth_MHz is None:
             bandwidth_MHz = getattr(ap, 'bandwidth_MHz', 100.0)
 
         if hasattr(ris, 'freq'):
             ris.freq = ap.freq
-
-        pl_ap_ris = Physics.path_loss_dB(d_ap_ris, ap.freq)
-        pl_ris_ue = Physics.path_loss_dB(d_ris_ue, ap.freq)
-        n_total = ris.N * ris.N
 
         try:
             ris.specular_angle_deg = float(target_angle)
@@ -782,16 +787,18 @@ class RISNetwork:
         except Exception:
             pass
 
-        gain_dBi = Physics.array_gain_dBi(
-            n_total, ris.amplifier_gain, angle_loss_dB=0.0, frequency=ris.freq
+        config = build_lightris_config_from_nodes(
+            ap, ris, ue, bandwidth_mhz=float(bandwidth_MHz)
         )
-        quant_loss_dB = Physics.quantization_loss_dB(
-            ris.bits,
-            element_efficiency=getattr(ris, 'element_efficiency', 0.95)
+        decomposition = evaluate_lightris_decomposition(
+            np.asarray(ap.pos, dtype=float),
+            np.asarray(ris.pos, dtype=float),
+            np.asarray(ue.pos, dtype=float),
+            float(target_angle),  # on-target beam: no steering-mismatch loss here
+            config,
         )
-        ap_antenna_gain_dBi = getattr(ap, 'antenna_gain_dBi', 3.0)
-        ue_antenna_gain_dBi = getattr(ue, 'antenna_gain_dBi', 3.0)
-        noise_figure_dB = getattr(ue, 'noise_figure_dB', 6.0)
+        metrics = decomposition["metrics"]
+        gain_terms = decomposition["gain_terms_dB"]
 
         extra_loss = 0.0
         impairments = self.impairments or {}
@@ -800,23 +807,16 @@ class RISNetwork:
         elif impairments.get('apply_extra_path_loss_to_ris', False):
             extra_loss = float(impairments.get('extra_path_loss_dB', 0.0))
 
-        pwr_dBm = (
-            ap.power_dBm + ap_antenna_gain_dBi + ue_antenna_gain_dBi + gain_dBi
-            - pl_ap_ris - pl_ris_ue - extra_loss + quant_loss_dB
-        )
-        total_loss_dB = pl_ap_ris + pl_ris_ue + extra_loss
-        total_gain_dBi = gain_dBi + quant_loss_dB + ap_antenna_gain_dBi + ue_antenna_gain_dBi
-
         return {
-            "bandwidth_MHz": float(bandwidth_MHz),
-            "gain_dBi": float(gain_dBi),
-            "quant_loss_dB": float(quant_loss_dB),
-            "ap_antenna_gain_dBi": float(ap_antenna_gain_dBi),
-            "ue_antenna_gain_dBi": float(ue_antenna_gain_dBi),
-            "noise_figure_dB": float(noise_figure_dB),
-            "pwr_dBm": float(pwr_dBm),
-            "total_loss_dB": float(total_loss_dB),
-            "total_gain_dBi": float(total_gain_dBi),
+            "bandwidth_MHz": float(config["bandwidth_mhz"]),
+            "gain_dBi": float(gain_terms["ris_gain_dBi"]),
+            "quant_loss_dB": float(metrics["quant_loss_dB"]),
+            "ap_antenna_gain_dBi": float(config["ap_antenna_gain_dBi"]),
+            "ue_antenna_gain_dBi": float(config["ue_antenna_gain_dBi"]),
+            "noise_figure_dB": float(config["noise_figure_dB"]),
+            "pwr_dBm": float(metrics["received_power_dBm"] - extra_loss),
+            "total_loss_dB": float(metrics["total_loss_dB"] + extra_loss),
+            "total_gain_dBi": float(metrics["total_gain_dBi"]),
         }
 
     def _compute_connect_snr(self, ap, ris, *, bandwidth_MHz, noise_figure_dB,

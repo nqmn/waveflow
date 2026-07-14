@@ -21,7 +21,8 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("joblib required to persist GMM. Install via `pip install joblib`.") from exc
 
-FEATURE_COLUMNS = ['snr_dB', 'rssi_dBm', 'd_ap_ris', 'aoa_sin', 'aoa_cos', 'el_sin', 'el_cos', 'dx', 'dy', 'dz', 'best_angle']
+PROBE_COLUMNS = [f'probe_snr_{i}' for i in range(8)]
+FEATURE_COLUMNS = PROBE_COLUMNS + ['d_ap_ris', 'aoa_sin', 'aoa_cos', 'el_sin', 'el_cos', 'dx', 'dy', 'dz', 'best_angle']
 
 
 def _describe_model_quality(log_likelihood: float) -> str:
@@ -39,7 +40,7 @@ def evaluate_gmm_predictions(gmm, X: np.ndarray, y: np.ndarray, resolution: floa
 
     For each sample, extracts the most likely angle from the posterior.
     """
-    angle_grid = np.arange(0, 60.0 + resolution, resolution)
+    angle_grid = np.arange(-180.0, 180.0 + resolution, resolution)
     predictions = []
 
     for i in range(X.shape[0]):
@@ -72,23 +73,14 @@ def evaluate_gmm_predictions(gmm, X: np.ndarray, y: np.ndarray, resolution: floa
 
 
 def load_features(path: Path) -> np.ndarray:
-    """Extract [snr, rssi, d_ap_ris, aoa_sin, aoa_cos, el_sin, el_cos, dx, dy, dz, angle_rad] rows from the CSV dataset."""
+    """Extract FEATURE_COLUMNS rows (angle converted to radians) from the CSV dataset."""
     rows: List[List[float]] = []
     with path.open(newline='') as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            snr = float(row['snr_dB'])
-            rssi = float(row['rssi_dBm'])
-            d_ap_ris = float(row['d_ap_ris'])
-            aoa_sin = float(row['aoa_sin'])
-            aoa_cos = float(row['aoa_cos'])
-            el_sin = float(row['el_sin'])
-            el_cos = float(row['el_cos'])
-            dx = float(row['dx'])
-            dy = float(row['dy'])
-            dz = float(row['dz'])
-            angle_rad = math.radians(float(row['best_angle']))
-            rows.append([snr, rssi, d_ap_ris, aoa_sin, aoa_cos, el_sin, el_cos, dx, dy, dz, angle_rad])
+            values = [float(row[col]) for col in FEATURE_COLUMNS[:-1]]
+            values.append(math.radians(float(row['best_angle'])))
+            rows.append(values)
     return np.array(rows, dtype=float)
 
 
@@ -111,7 +103,7 @@ def main():
 
     print("\nFitting Gaussian Mixture Model...")
     fit_start = time.time()
-    print(f"  Input shape: {data.shape} (11D: 10 features + 1 label)")
+    print(f"  Input shape: {data.shape} ({data.shape[1]}D: {data.shape[1]-1} features + 1 label)")
     gmm = GaussianMixture(
         n_components=args.components,
         covariance_type=args.covariance_type,

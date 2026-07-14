@@ -54,9 +54,15 @@ class Physics:
             alpha = 0.0001 + (freq_GHz - 10) * 0.00002
         elif freq_GHz >= 24 and freq_GHz < 50:
             alpha = 0.0003 + (freq_GHz - 24) * 0.00015
+        elif freq_GHz >= 50 and freq_GHz < 57:
+            # Bridge the 50-57 GHz window toward the oxygen-line shoulder so the
+            # coefficient stays continuous instead of collapsing to the sub-10 GHz default
+            alpha_50 = 0.0003 + (50 - 24) * 0.00015
+            alpha = alpha_50 + (freq_GHz - 50) * (0.005 - alpha_50) / 7.0
         elif freq_GHz >= 57 and freq_GHz <= 64:
-            # Oxygen absorption peak around 60 GHz
-            peak_factor = 1 - abs(freq_GHz - 60) / 3
+            # Oxygen absorption peak around 60 GHz; clamp so the shoulder never
+            # dips below the 57 GHz baseline outside the +/-3 GHz peak window
+            peak_factor = max(0.0, 1 - abs(freq_GHz - 60) / 3)
             alpha = 0.005 + peak_factor * 0.010
         elif freq_GHz > 64:
             alpha = 0.003 + (freq_GHz - 64) * 0.00005
@@ -222,28 +228,32 @@ class Physics:
             - Manufacturing tolerance: typically ±5-15° (default: ±8°)
             - Temperature drift: typically ±0.5°/°C for ΔT (default: ±5° for 10°C)
         """
+        # Use a local generator when seeded so per-element reproducibility does not
+        # clobber the global RNG state of the surrounding simulation
         if seed is not None:
-            np.random.seed(seed + element_idx)
+            rng = np.random.default_rng(seed + element_idx)
+        else:
+            rng = np.random
 
         total_error = 0.0
 
         # Quantization error (uniform distribution)
         if include_quantization and phase_bits > 0:
             quantization_bound = np.pi / (2 ** phase_bits)
-            quant_error = np.random.uniform(-quantization_bound / 2, quantization_bound / 2)
+            quant_error = rng.uniform(-quantization_bound / 2, quantization_bound / 2)
             total_error += quant_error
 
         # Manufacturing tolerance (normal distribution)
         if include_manufacturing:
-            mfg_error = np.random.normal(0, np.radians(mfg_std_deg))
+            mfg_error = rng.normal(0, np.radians(mfg_std_deg))
             total_error += mfg_error
 
         # Temperature drift (normal distribution)
         if include_temperature:
-            temp_error = np.random.normal(0, np.radians(temp_std_deg))
+            temp_error = rng.normal(0, np.radians(temp_std_deg))
             total_error += temp_error
 
-        return total_error
+        return float(total_error)
 
     @staticmethod
     def quantize_phase_to_bits(ideal_phase_rad, phase_bits):
@@ -470,12 +480,44 @@ class Physics:
         return float(af_magnitude_dB)
 
     @staticmethod
+    def aperture_directivity_dBi(N, frequency=5.8e9):
+        """One-way aperture directivity of a square λ/2-spaced RIS panel.
+
+        Uses the aperture formula D = 4π·A_ris / λ². With element area (λ/2)²
+        this reduces to D = π·N, independent of frequency, but the aperture
+        form is kept so non-default spacings can be added later.
+
+        Args:
+            N: Total number of elements (square array: N_side = sqrt(N))
+            frequency: Operating frequency in Hz (default 5.8 GHz)
+
+        Returns:
+            Directivity in dBi
+        """
+        c = 3e8
+        wavelength = c / frequency
+
+        # For N_side × N_side array with λ/2 spacing:
+        N_side = np.sqrt(N)
+        side_length = N_side * (wavelength / 2.0)
+        aperture_area = side_length ** 2
+
+        # Aperture directivity: D = 4π·A / λ²
+        directivity_linear = (4 * np.pi * aperture_area) / (wavelength ** 2)
+        return 10 * np.log10(directivity_linear)
+
+    @staticmethod
     def array_gain_dBi(N, amplifier_gain=1.0, insertion_loss_dB=0.5,
                        reflection_loss_dB=0.2, angle_loss_dB=0, frequency=5.8e9):
-        """Calculate RIS array gain based on aperture directivity
+        """Calculate one-way RIS array gain based on aperture directivity
 
         Uses aperture-based directivity formula: D = 4π·A_ris / λ²
         This is more realistic than the element-count formula 20*log10(N).
+
+        NOTE: This is the ONE-WAY gain (single aperture pass). In a full
+        AP→RIS→UE cascaded budget the aperture term applies twice — once at
+        capture and once at re-radiation — so use ris_cascaded_gain_dBi()
+        there, or apply this gain on each of the two hops.
 
         Args:
             N: Total number of elements (for square array: N_side = sqrt(N))
@@ -488,19 +530,7 @@ class Physics:
         Returns:
             Array gain in dBi
         """
-        # Calculate aperture directivity for square RIS panel
-        # Assume element spacing λ/2, so for N elements: side_length = sqrt(N) * λ/2
-        c = 3e8
-        wavelength = c / frequency
-
-        # For N_side × N_side array with λ/2 spacing:
-        N_side = np.sqrt(N)
-        side_length = N_side * (wavelength / 2.0)
-        aperture_area = side_length ** 2
-
-        # Aperture directivity: D = 4π·A / λ²
-        directivity_linear = (4 * np.pi * aperture_area) / (wavelength ** 2)
-        directivity_dBi = 10 * np.log10(directivity_linear)
+        directivity_dBi = Physics.aperture_directivity_dBi(N, frequency=frequency)
 
         # Apply realistic losses
         # Amplifier gain (only matters for active RIS; passive has gain=1.0)
@@ -509,6 +539,35 @@ class Physics:
         # Total realized gain
         total_gain = directivity_dBi + amp_gain_dB - insertion_loss_dB - reflection_loss_dB - angle_loss_dB
         return total_gain
+
+    @staticmethod
+    def ris_cascaded_gain_dBi(N, amplifier_gain=1.0, insertion_loss_dB=0.5,
+                              reflection_loss_dB=0.2, angle_loss_dB=0, frequency=5.8e9):
+        """Effective RIS gain for a full two-hop (AP→RIS→UE) link budget.
+
+        A passive RIS applies its aperture gain twice — once when capturing
+        the incident wave (effective area ∝ N) and once when re-radiating the
+        beamformed wave (directivity ∝ N) — so received power scales with N²
+        (Björnson et al. 2020; confirmed by the Tang et al. 2021 measurement
+        campaign). For a λ/2-spaced square panel the ideal cascaded term is
+        20·log10(π·N). Hardware losses (amplifier, insertion, reflection,
+        steering) are incurred once per reflection.
+
+        Args:
+            N: Total number of elements (for square array: N_side = sqrt(N))
+            amplifier_gain: Amplifier gain (linear, 1.0 for passive)
+            insertion_loss_dB: Insertion loss per element
+            reflection_loss_dB: Reflection loss
+            angle_loss_dB: Beam steering angle loss
+            frequency: Operating frequency in Hz (default 5.8 GHz)
+
+        Returns:
+            Cascaded RIS gain in dBi (to pair with FSPL on both hops)
+        """
+        directivity_dBi = Physics.aperture_directivity_dBi(N, frequency=frequency)
+        amp_gain_dB = 10 * np.log10(amplifier_gain)
+        return (2 * directivity_dBi + amp_gain_dB
+                - insertion_loss_dB - reflection_loss_dB - angle_loss_dB)
 
     @staticmethod
     def angle_loss_dB(beam_angle_deg, target_angle_deg, sensitivity=0.16):
@@ -708,6 +767,10 @@ class Physics:
                           element_spacing=0.5, center_freq=10e9):
         """Calculate RIS gain considering multipath contributions
 
+        Paths are summed coherently as complex field amplitudes, so co-phased
+        paths reinforce and anti-phased paths cancel. Narrowband model: path
+        'delay' is not converted to additional phase rotation.
+
         Args:
             paths_info: List of path dicts with 'amplitude', 'phase', 'delay'
             ris_phases: RIS phase configuration (radians)
@@ -717,28 +780,22 @@ class Physics:
         Returns:
             Effective RIS gain in dB
         """
-        k = 2 * np.pi * center_freq / C
-        wavelength = C / center_freq
+        # RIS aperture response is common to all paths
+        ris_response = np.sum(np.exp(1j * ris_phases))
 
-        # Calculate contribution from each path
-        total_power = 0.0
-
+        # Coherent sum of complex path amplitudes
+        total_field = 0.0 + 0.0j
         for path_info in paths_info:
             amplitude = path_info.get('amplitude', 1.0)
             phase = path_info.get('phase', 0.0)
+            total_field += amplitude * np.exp(1j * phase)
 
-            # Apply RIS phase response
-            ris_response = np.sum(np.exp(1j * ris_phases))
-            path_contribution = amplitude * np.abs(ris_response)**2
-
-            total_power += path_contribution
-
-        # Normalize by number of elements
+        # Normalize received power by the ideal fully-coherent aperture (N^2)
         num_elements = len(ris_phases)
-        gain_linear = total_power / (num_elements**2)
+        gain_linear = (np.abs(total_field) ** 2) * (np.abs(ris_response) ** 2) / (num_elements ** 2)
         gain_dB = 10 * np.log10(max(gain_linear, 1e-10))
 
-        return gain_dB
+        return float(gain_dB)
 
     @staticmethod
     def effective_snr_with_waveform_distortion(ideal_snr_dB, quantization_error_rms_deg,

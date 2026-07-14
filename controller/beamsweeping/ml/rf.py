@@ -11,7 +11,7 @@ import numpy as np
 
 from .base import SweepMLPredictor
 
-from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_metrics
+from .features import build_sklearn_features
 
 try:
     from sklearn.ensemble import RandomForestRegressor  # type: ignore
@@ -30,6 +30,7 @@ class RFPredictor(SweepMLPredictor):
         self._model: Optional[RandomForestRegressor] = None
         self._model_path = None
         self._model_error = None
+        self._last_uncertainty: Optional[float] = None
         self._load_model()
 
     @property
@@ -88,58 +89,51 @@ class RFPredictor(SweepMLPredictor):
             raise ValueError(f"Invalid nodes: AP={ap_name}, RIS={ris_name}, UE={ue_name}")
 
         features = self._build_feature_vector(ap, ris, ue)
+        X = np.array([features], dtype=float)
         try:
-            pred = float(self._model.predict(np.array([features], dtype=float))[0])
+            pred = float(self._model.predict(X)[0])
         except Exception as e:  # pragma: no cover - prediction failure
             raise RuntimeError(f"Random Forest prediction failed: {e}")
 
+        self._last_uncertainty = self._ensemble_uncertainty(X)
+
         pred_local = float(np.clip(pred, -fov, fov))
         return [pred_local]
+
+    def _ensemble_uncertainty(self, X: np.ndarray) -> Optional[float]:
+        """Standard deviation of per-tree predictions (degrees), if available."""
+        estimators = getattr(self._model, 'estimators_', None)
+        if not estimators:
+            return None
+        try:
+            tree_preds = np.array([est.predict(X)[0] for est in estimators], dtype=float)
+        except Exception:  # pragma: no cover - defensive against exotic pickles
+            return None
+        return float(np.std(tree_preds))
 
     def _is_model_available(self) -> bool:
         """Check if Random Forest model is loaded."""
         return self._model is not None and RandomForestRegressor is not None
 
     def _compute_uncertainty(self, model_available: bool) -> float:
-        """Random Forest-specific uncertainty (based on model performance).
+        """Random Forest uncertainty from the spread of per-tree predictions.
 
-        Random Forest has best performance (R²=0.9438), so lowest uncertainty.
+        The ensemble standard deviation from the most recent prediction is a
+        data-driven measure of confidence: unanimous trees give a low value,
+        disagreeing trees a high one. Falls back to a fixed estimate when the
+        spread is unavailable.
         """
         if not model_available:
             return 10.0
-        return 2.5  # Random Forest uncertainty (best model)
+        if self._last_uncertainty is not None:
+            # Floor keeps error bounds non-degenerate when all trees agree
+            return max(0.1, self._last_uncertainty)
+        return 3.5  # Fallback: typical test MAE band (R^2~0.87 on beam_dataset)
 
     def _build_feature_vector(self, ap, ris, ue) -> List[float]:
-        """Construct feature vector using AP-to-RIS geometry + link metrics (12 features).
+        """Construct the canonical feature vector shared with the training scripts.
 
-        Features:
-          - AP position (3 coords: x, y, z)
-          - RIS position (3 coords: x, y, z)
-          - d_ap_ris: Euclidean distance from AP to RIS
-          - aoa: Angle of Arrival from AP to RIS (azimuth in degrees)
-          - snr_dB/rssi_dBm: predicted link metrics toward UE
+        See controller/beamsweeping/ml/features.py (SKLEARN_FEATURE_COLUMNS) for
+        the authoritative column list and ordering.
         """
-        ap_pos = np.array(ap.pos)
-        ris_pos = np.array(ris.pos)
-        ue_pos = np.array(ue.pos)
-
-        d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
-        aoa = float(np.degrees(np.arctan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0]))) % 360
-        aod = float(np.degrees(np.arctan2(ue_pos[1] - ris_pos[1], ue_pos[0] - ris_pos[0]))) % 360
-
-        physics_config = build_lightris_config_from_nodes(ap, ris, ue)
-        metrics = evaluate_lightris_metrics(ap_pos, ris_pos, ue_pos, aod, physics_config)
-        snr = float(metrics['snr_dB'])
-        rssi = float(metrics['rssi_dBm'])
-
-        features = [
-            # AP position (3D)
-            float(ap_pos[0]), float(ap_pos[1]), float(ap_pos[2]),
-            # RIS position (3D)
-            float(ris_pos[0]), float(ris_pos[1]), float(ris_pos[2]),
-            # Derived geometry
-            d_ap_ris, aoa,
-            # Link metrics
-            snr, rssi,
-        ]
-        return features
+        return build_sklearn_features(ap, ris, ue)

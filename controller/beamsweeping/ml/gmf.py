@@ -11,6 +11,7 @@ import numpy as np
 
 from .base import SweepMLPredictor
 from utils.lightris import build_lightris_config_from_nodes, evaluate_lightris_metrics
+from .features import PROBE_DEFLECTIONS_DEG, probe_snrs_lightris
 
 try:
     import joblib
@@ -103,31 +104,39 @@ class GMFPredictor(SweepMLPredictor):
 
     def _build_observed_features(self, ap_pos: np.ndarray, ris_pos: np.ndarray, ue_pos: np.ndarray,
                                  ap, ris, ue) -> np.ndarray:
-        """Construct the observed feature vector expected by the GMM."""
-        snr, rssi = self._compute_link_metrics(ap_pos, ris_pos, ue_pos, ap, ris, ue)
+        """Construct the observed feature vector expected by the GMM.
+
+        UE-blind: probe-beam SNR feedback + AP/RIS geometry. Order must match
+        train_gmf.py FEATURE_COLUMNS (minus the angle label). ue_pos is used
+        only to simulate the probe feedback a real UE would report.
+        """
+        physics_config = build_lightris_config_from_nodes(ap, ris, ue)
+        probes = probe_snrs_lightris(ap_pos, ris_pos, ue_pos, physics_config,
+                                     deflections=PROBE_DEFLECTIONS_DEG)
+
         d_ap_ris = float(np.linalg.norm(ap_pos - ris_pos))
         aoa_rad = math.atan2(ap_pos[1] - ris_pos[1], ap_pos[0] - ris_pos[0])
-        aoa_sin = float(math.sin(aoa_rad))
-        aoa_cos = float(math.cos(aoa_rad))
 
-        # Compute elevation angle and AP-RIS offset from AP-RIS geometry
         dx = ris_pos[0] - ap_pos[0]
         dy = ris_pos[1] - ap_pos[1]
         dz = ris_pos[2] - ap_pos[2]
-        d_xy = math.hypot(dx, dy)
-        el_rad = math.atan2(dz, d_xy)
-        el_sin = float(math.sin(el_rad))
-        el_cos = float(math.cos(el_rad))
+        el_rad = math.atan2(dz, math.hypot(dx, dy))
 
-        return np.array([snr, rssi, d_ap_ris, aoa_sin, aoa_cos, el_sin, el_cos, float(dx), float(dy), float(dz)], dtype=float)
+        return np.array(list(probes) + [
+            d_ap_ris,
+            float(math.sin(aoa_rad)), float(math.cos(aoa_rad)),
+            float(math.sin(el_rad)), float(math.cos(el_rad)),
+            float(dx), float(dy), float(dz),
+        ], dtype=float)
 
     def _compute_angle_posterior(self, obs: np.ndarray, fov: float, resolution: float = 1.0) -> tuple:
         """Estimate posterior probabilities across an angle grid using the GMM."""
         if resolution <= 0:
             raise ValueError("resolution must be positive")
 
-        count = max(2, int(np.floor(fov / resolution)) + 1)
-        angle_grid = np.linspace(0.0, fov, count, dtype=float)
+        # Signed grid: the label is the signed deflection in [-fov, fov]
+        count = max(3, int(np.floor(2.0 * fov / resolution)) + 1)
+        angle_grid = np.linspace(-fov, fov, count, dtype=float)
         angles_rad = np.radians(angle_grid)
         obs_matrix = np.repeat(obs[np.newaxis, :], len(angles_rad), axis=0)
         samples = np.hstack([obs_matrix, angles_rad.reshape(-1, 1)])

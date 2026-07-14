@@ -52,14 +52,19 @@ def test_ris_gain_no_double_count():
     assert 27 < gain_dBi < 30, f"Gain {gain_dBi:.2f} dBi outside expected range [27, 30]"
     print(f"✓ Gain is within reasonable bounds: {gain_dBi:.2f} dBi")
 
-    # Now test through connect()
-    result = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
+    # Now test through connect(). These bounds validate the analytical LightRIS
+    # budget, so request it explicitly (the default engine is SimRIS stochastic).
+    result = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False,
+                         channel_model="lightris")
     snr_dB = result['snr_dB']
 
     print(f"\nSNR from connect(): {snr_dB:.2f} dB")
 
-    # Expected SNR should be positive (strong link) and < 50 dB
-    assert -20 < snr_dB < 50, f"SNR {snr_dB:.2f} dB outside expected range [-20, 50]"
+    # Expected SNR should be positive (strong link). With the N^2 cascaded RIS
+    # gain (aperture applied at capture and re-radiation, Bjornson 2020), the
+    # 5 m + 5 m / 256-element textbook ideal is ~55.7 dB; modeled hardware and
+    # quantization losses bring it to ~54.3 dB.
+    assert -20 < snr_dB < 60, f"SNR {snr_dB:.2f} dB outside expected range [-20, 60]"
     print(f"✓ SNR is physically reasonable: {snr_dB:.2f} dB")
 
 def test_snr_noise_floor_consistency():
@@ -212,12 +217,15 @@ def test_overall_snr_bounds():
     net.add_ris("r1", 2, 0, 0, N=16, bits=2, max_angle_deg=90)  # 256 elements, close
     net.add_ue("ue1", 4, 0, 0)
 
-    result1 = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False)
+    result1 = net.connect("ap1", "r1", "ue1", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr1 = result1['snr_dB']
 
+    # N^2 cascade at 2 m + 2 m with 256 elements: ideal textbook SNR ~71.6 dB,
+    # minus ~1.4 dB modeled hardware/quantization losses -> ~70.2 dB
     print(f"Test 1 (short range, RIS N=256):")
     print(f"  SNR: {snr1:.2f} dB")
-    assert -20 < snr1 < 70, f"SNR {snr1:.2f} dB outside expected range [-20, 70]"
+    assert -20 < snr1 < 75, f"SNR {snr1:.2f} dB outside expected range [-20, 75]"
     print(f"  ✓ Within bounds")
 
     # Test case 2: Long range, small RIS
@@ -226,7 +234,8 @@ def test_overall_snr_bounds():
     net.add_ris("r2", 20, 0, 0, N=4, bits=1, max_angle_deg=90)  # 16 elements, far
     net.add_ue("ue2", 40, 0, 0)
 
-    result2 = net.connect("ap2", "r2", "ue2", seed=42, use_get_snr=False)
+    result2 = net.connect("ap2", "r2", "ue2", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr2 = result2['snr_dB']
 
     print(f"Test 2 (long range, RIS N=16):")
@@ -240,7 +249,8 @@ def test_overall_snr_bounds():
     net.add_ris("r3", 10, 0, 0, N=8, bits=2, max_angle_deg=90)  # 64 elements
     net.add_ue("ue3", 20, 0, 0)
 
-    result3 = net.connect("ap3", "r3", "ue3", seed=42, use_get_snr=False)
+    result3 = net.connect("ap3", "r3", "ue3", seed=42, use_get_snr=False,
+                          channel_model="lightris")
     snr3 = result3['snr_dB']
 
     print(f"Test 3 (moderate range, RIS N=64):")
@@ -248,7 +258,7 @@ def test_overall_snr_bounds():
     assert -20 < snr3 < 50, f"SNR {snr3:.2f} dB outside expected range [-20, 50]"
     print(f"  ✓ Within bounds")
 
-    print(f"\n✓ All SNR values within physically plausible range [-20, 50] dB")
+    print(f"\n✓ All SNR values within physically plausible ranges")
 
 if __name__ == "__main__":
     print("\n" + "="*70)

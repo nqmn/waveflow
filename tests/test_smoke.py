@@ -14,6 +14,9 @@ from core import RISNetwork
 from risnet import RISnet
 from waveflow import RISnet as WaveflowRISnet
 
+# Repo root for subprocess cwd (portable across checkouts)
+REPO_ROOT = str(Path(__file__).resolve().parents[1])
+
 
 def test_imports_from_installed_package():
     assert RISNetwork is not None
@@ -95,7 +98,7 @@ def test_console_help_from_outside_repo():
 def test_bare_ui_opens_native_interactive_shell_and_accepts_commands():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui"],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         input="status\nquit\n",
         check=True,
         capture_output=True,
@@ -109,7 +112,7 @@ def test_bare_ui_opens_native_interactive_shell_and_accepts_commands():
 def test_native_ui_shell_keeps_state_and_supports_legacy_passthrough():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui", "shell"],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         input=(
             "load examples/json/example_1_simple.json\n"
             "add ue UE2 --x 11 --y 4\n"
@@ -132,7 +135,7 @@ def test_native_ui_shell_keeps_state_and_supports_legacy_passthrough():
 def test_native_ui_shell_connect_without_args_uses_native_renderer():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui", "shell"],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         input=(
             "load examples/json/example_1_simple.json\n"
             "connect\n"
@@ -175,7 +178,7 @@ def test_typer_rich_env_wrapper_uses_topology():
             "--topology",
             "examples/json/example_1_simple.json",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -199,7 +202,7 @@ def test_typer_rich_node_wrappers_show_details():
             "AP1",
             "show",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -216,7 +219,7 @@ def test_typer_rich_node_wrappers_show_details():
             "R1",
             "show",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -233,7 +236,7 @@ def test_typer_rich_node_wrappers_show_details():
             "UE1",
             "show",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -316,7 +319,7 @@ def test_native_ui_connect_surfaces_engine_fallback_metadata():
             "--no-feedback",
             "--no-waveform",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -344,7 +347,7 @@ def test_typer_rich_signal_wrapper_supports_breakdown():
             "UE1",
             "--breakdown",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -373,7 +376,7 @@ def test_typer_rich_stream_wrapper_surfaces_missing_file(tmp_path):
             "--file",
             "missing_payload.bin",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -462,7 +465,7 @@ def test_typer_rich_list_from_outside_repo_uses_topology():
             "--topology",
             "examples/json/example_1_simple.json",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -494,7 +497,7 @@ def test_typer_rich_connect_from_outside_repo_uses_topology():
             "--seed",
             "42",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -522,7 +525,7 @@ def test_typer_rich_connect_accepts_legacy_positional_angle_syntax():
             "examples/json/example_1_simple.json",
             "42",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -538,7 +541,7 @@ def test_typer_rich_connect_accepts_legacy_positional_angle_syntax():
 def test_native_ui_shell_connect_accepts_legacy_sweep_syntax_without_fallback():
     result = subprocess.run(
         [sys.executable, "-m", "risnet", "ui", "shell"],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         input=(
             "load examples/json/example_1_simple.json\n"
             "connect AP1 R1 UE1 --sweep 60 10 --algo linear\n"
@@ -568,7 +571,7 @@ def test_typer_rich_save_and_load_round_trip(tmp_path):
             "--topology",
             "examples/json/example_1_simple.json",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -714,7 +717,7 @@ def test_example_1_simple_topology_supports_terminal_sweep():
             "--format",
             "table",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,
@@ -740,7 +743,7 @@ def test_typer_rich_run_passes_through_legacy_breakdown_flags():
             "UE1",
             "--breakdown",
         ],
-        cwd="/home/user/project/risnet",
+        cwd=REPO_ROOT,
         check=True,
         capture_output=True,
         text=True,

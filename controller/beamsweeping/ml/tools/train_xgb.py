@@ -28,14 +28,11 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("xgboost and scikit-learn packages required. Install via `pip install xgboost scikit-learn`.") from exc
 
-FEATURE_COLUMNS = [
-    'd_ap_ris',
-    'aoa_sin', 'aoa_cos',
-    'dx', 'dy', 'dz',
-    'spec_sin', 'spec_cos',
-    'align_cos', 'align_sin',
-    'snr_dB', 'rssi_dBm',
-]
+# Feature definitions are shared with inference — see features.py
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.abspath(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', '..', '..', '..')))
+from controller.beamsweeping.ml.features import SKLEARN_FEATURE_COLUMNS as FEATURE_COLUMNS
 
 SCALER_FILENAME = "xgb_scaler.pkl"
 PCA_FILENAME = "xgb_pca.pkl"

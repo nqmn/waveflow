@@ -10,7 +10,7 @@ This is the steering angle the RIS must apply to redirect from AP incident
 direction to UE target direction (2D azimuth only).
 
 DATASET CONSTRAINT:
-- Only include geometries where: θ_rcv ≤ 60° (RIS FOV capability)
+- Only include geometries where: θ_rcv ≤ --max-deflection (default 180°, the full range)
 - Training labels (best_angle) = θ_rcv (the actual deflection angle)
 - NO sweep(), NO physics engine
 - Pure geometric sampling with strict feasibility
@@ -36,19 +36,23 @@ project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from utils.lightris import build_lightris_config, evaluate_lightris_metrics
+from controller.beamsweeping.ml.features import PROBE_DEFLECTIONS_DEG, probe_snrs_lightris
 
 
+# NOTE: earlier datasets also carried az_*/ap_az_*/ap_el_*/spec_*/align_*
+# columns. Those were exact duplicates or constants by construction (the
+# AP->RIS azimuth is anti-parallel to the RIS->AP AoA, so align_cos was always
+# -1 and spec_* reduced to copies of aoa_*), so they were removed.
 FIELDNAMES = [
     'ap_x', 'ap_y', 'ap_z',
     'ris_x', 'ris_y', 'ris_z',
     'ue_x', 'ue_y', 'ue_z',
     'd_ap_ris', 'd_ris_ue',
     'aoa_sin', 'aoa_cos', 'aod_sin', 'aod_cos',
-    'dx', 'dy', 'dz', 'az_sin', 'az_cos', 'el_sin', 'el_cos',
-    'ap_az_sin', 'ap_az_cos', 'ap_el_sin', 'ap_el_cos',
-    'spec_sin', 'spec_cos',
-    'align_cos', 'align_sin',
+    'dx', 'dy', 'dz', 'el_sin', 'el_cos',
     'snr_dB', 'rssi_dBm',
+    'probe_snr_0', 'probe_snr_1', 'probe_snr_2', 'probe_snr_3',
+    'probe_snr_4', 'probe_snr_5', 'probe_snr_6', 'probe_snr_7',
     'best_angle'
 ]
 
@@ -203,11 +207,12 @@ def generate_stratified_samples(
                 'd_ris_ue': d_ris_ue,
                 'aoa': aoa,
                 'aod': aod,
-                'best_angle': float(theta_rcv),
+                'best_angle': _signed_local_deflection(aoa, aod),
             }
             _add_angle_trigs(sample, aoa, aod)
             _add_ap_ris_orientation(sample)
             _add_physics_metrics(sample, physics_config)
+            _add_probe_metrics(sample, physics_config)
             samples[len(samples)] = sample
         attempts += 1
 
@@ -283,8 +288,8 @@ def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
     aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
 
-    # Keep the continuous deflection angle as the label
-    best_angle = float(theta_rcv)
+    # SIGNED deflection label (UE-blind predictors must recover the sign)
+    best_angle = _signed_local_deflection(aoa, aod)
 
     sample = {
         'ap_pos': ap_pos.tolist(),
@@ -345,20 +350,11 @@ def flatten_sample(sample: Dict) -> Dict:
         'dx': sample['dx'],
         'dy': sample['dy'],
         'dz': sample['dz'],
-        'az_sin': sample['az_sin'],
-        'az_cos': sample['az_cos'],
         'el_sin': sample['el_sin'],
         'el_cos': sample['el_cos'],
-        'ap_az_sin': sample['ap_az_sin'],
-        'ap_az_cos': sample['ap_az_cos'],
-        'ap_el_sin': sample['ap_el_sin'],
-        'ap_el_cos': sample['ap_el_cos'],
-        'spec_sin': sample['spec_sin'],
-        'spec_cos': sample['spec_cos'],
-        'align_cos': sample['align_cos'],
-        'align_sin': sample['align_sin'],
         'snr_dB': sample['snr_dB'],
         'rssi_dBm': sample['rssi_dBm'],
+        **{f'probe_snr_{i}': sample[f'probe_snr_{i}'] for i in range(len(PROBE_DEFLECTIONS_DEG))},
         'best_angle': sample['best_angle']
     }
 
@@ -383,32 +379,17 @@ def _signed_local_deflection(aoa_deg: float, aod_deg: float) -> float:
 
 
 def _add_ap_ris_orientation(sample: Dict) -> None:
-    """Annotate the sample with AP→RIS offset + sin/cos of azimuth/elevation."""
+    """Annotate the sample with AP→RIS offset + sin/cos of elevation."""
     ap_pos = np.array(sample['ap_pos'], dtype=float)
     ris_pos = np.array(sample['ris_pos'], dtype=float)
     dx, dy, dz = (ris_pos - ap_pos).tolist()
-    azimuth = math.atan2(dy, dx)
     elevation = math.atan2(dz, math.hypot(dx, dy))
     sample['dx'] = float(dx)
     sample['dy'] = float(dy)
     sample['dz'] = float(dz)
-    sample['az_sin'] = float(math.sin(azimuth))
-    sample['az_cos'] = float(math.cos(azimuth))
     sample['el_sin'] = float(math.sin(elevation))
     sample['el_cos'] = float(math.cos(elevation))
-    sample['ap_az_sin'] = sample['az_sin']
-    sample['ap_az_cos'] = sample['az_cos']
-    sample['ap_el_sin'] = sample['el_sin']
-    sample['ap_el_cos'] = sample['el_cos']
-    aoa_rad = sample.get('_aoa_rad')
-    if aoa_rad is None:
-        aoa_rad = math.atan2(sample['aoa_sin'], sample['aoa_cos'])
-    spec_rad = 2.0 * azimuth - aoa_rad
-    sample['spec_sin'] = float(math.sin(spec_rad))
-    sample['spec_cos'] = float(math.cos(spec_rad))
     sample.pop('_aoa_rad', None)
-    sample['align_cos'] = float(sample['az_cos'] * sample['aoa_cos'] + sample['az_sin'] * sample['aoa_sin'])
-    sample['align_sin'] = float(sample['az_sin'] * sample['aoa_cos'] - sample['az_cos'] * sample['aoa_sin'])
 
 
 def _add_angle_trigs(sample: Dict, aoa_deg: float, aod_deg: float) -> None:
@@ -439,6 +420,19 @@ def _add_physics_metrics(sample: Dict, physics_config: Dict[str, float]) -> None
 
     sample['snr_dB'] = float(metrics['snr_dB'])
     sample['rssi_dBm'] = float(metrics['rssi_dBm'])
+
+
+def _add_probe_metrics(sample: Dict, physics_config: Dict[str, float]) -> None:
+    """Annotate the sample with simulated UE feedback for each probe beam."""
+    probes = probe_snrs_lightris(
+        np.array(sample['ap_pos'], dtype=float),
+        np.array(sample['ris_pos'], dtype=float),
+        np.array(sample['ue_pos'], dtype=float),
+        physics_config,
+        deflections=PROBE_DEFLECTIONS_DEG,
+    )
+    for i, snr in enumerate(probes):
+        sample[f'probe_snr_{i}'] = float(snr)
 
 
 
@@ -496,22 +490,23 @@ def _sample_ue_within_fov(ris_pos: np.ndarray, ap_pos: np.ndarray, rng: random.R
 def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
                              distance_range: Tuple[float, float],
                              rng: random.Random,
-                             physics_config: Dict[str, float]) -> Dict:
+                             physics_config: Dict[str, float],
+                             z_range: Tuple[float, float] = (0.5, 3.0)) -> Dict:
     """Generate a sample following the CLI’s `add random` RIS-aware placement."""
     ris_x = rng.uniform(bounds['ris']['x_min'], bounds['ris']['x_max'])
     ris_y = rng.uniform(bounds['ris']['y_min'], bounds['ris']['y_max'])
-    ris_z = rng.uniform(0.0, 1.0)
+    ris_z = rng.uniform(z_range[0], z_range[1])
     ris_pos = np.array([ris_x, ris_y, ris_z])
 
     ap_distance = rng.uniform(distance_range[0], distance_range[1])
     ap_angle = rng.uniform(-ris_max_angle, ris_max_angle)
     ap_x = ris_x + ap_distance * math.cos(math.radians(ap_angle))
     ap_y = ris_y + ap_distance * math.sin(math.radians(ap_angle))
-    ap_z = rng.uniform(0.0, 1.0)
+    ap_z = rng.uniform(z_range[0], z_range[1])
     ap_pos = np.array([ap_x, ap_y, ap_z])
 
     ue_pos = _sample_ue_within_fov(
-        ris_pos, ap_pos, rng, ris_max_angle, distance_range, z_range=(0.0, 1.0)
+        ris_pos, ap_pos, rng, ris_max_angle, distance_range, z_range=z_range
     )
     theta_rcv = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
@@ -525,11 +520,12 @@ def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
         'd_ris_ue': d_ris_ue,
         'aoa': aoa,
         'aod': aod,
-        'best_angle': float(theta_rcv),
+        'best_angle': _signed_local_deflection(aoa, aod),
     }
     _add_angle_trigs(sample, aoa, aod)
     _add_ap_ris_orientation(sample)
     _add_physics_metrics(sample, physics_config)
+    _add_probe_metrics(sample, physics_config)
     return sample
 
 
@@ -573,7 +569,8 @@ def build_ris_aware_dataset(args, bounds, ris_max_angle, physics_config: Dict[st
             ris_max_angle,
             (args.distance_min, args.distance_max),
             rng,
-            physics_config
+            physics_config,
+            z_range=(args.z_min, args.z_max),
         )
         samples_dict[idx] = sample
         if args.verbose and (idx + 1) % 1000 == 0:
@@ -604,13 +601,13 @@ def main():
                         help='Maximum distance from RIS for AP/UE when using RIS-aware mode')
     parser.add_argument('--verbose', action='store_true',
                         help='Show progress when generating large datasets')
-    parser.add_argument('--tx-power', type=float, default=15.0,
+    parser.add_argument('--tx-power', type=float, default=20.0,
                         help='Transmit power per AP (dBm)')
-    parser.add_argument('--ap-gain', type=float, default=16.0,
+    parser.add_argument('--ap-gain', type=float, default=3.0,
                         help='AP antenna gain (dBi)')
-    parser.add_argument('--ue-gain', type=float, default=16.0,
+    parser.add_argument('--ue-gain', type=float, default=3.0,
                         help='UE antenna gain (dBi)')
-    parser.add_argument('--bandwidth', type=float, default=1.0,
+    parser.add_argument('--bandwidth', type=float, default=20.0,
                         help='Signal bandwidth for SNR calculations (MHz)')
     parser.add_argument('--noise-figure', type=float, default=6.0,
                         help='Receiver noise figure (dB)')
@@ -618,9 +615,9 @@ def main():
                         help='Carrier frequency (GHz)')
     parser.add_argument('--ris-elements', type=int, default=16,
                         help='RIS elements per side (square panel size)')
-    parser.add_argument('--phase-bits', type=int, default=1,
+    parser.add_argument('--phase-bits', type=int, default=2,
                         help='RIS phase quantization bits')
-    parser.add_argument('--element-efficiency', type=float, default=0.71,
+    parser.add_argument('--element-efficiency', type=float, default=0.95,
                         help='RIS element amplitude efficiency (0-1)')
     parser.add_argument('--ris-amplifier-gain', type=float, default=1.0,
                         help='RIS amplifier gain (linear, 1.0 = passive)')
@@ -640,6 +637,12 @@ def main():
                         help='Additional miscellaneous RIS losses (dB)')
     parser.add_argument('--noise-rise', type=float, default=0.0,
                         help='Additional noise/interference margin applied to the noise floor (dB)')
+    parser.add_argument('--max-deflection', type=float, default=180.0,
+                        help='Maximum |aod-aoa| deflection to include (degrees)')
+    parser.add_argument('--z-min', type=float, default=0.5,
+                        help='Minimum node height (m) for ris-aware sampling')
+    parser.add_argument('--z-max', type=float, default=3.0,
+                        help='Maximum node height (m) for ris-aware sampling')
     args = parser.parse_args()
 
     # Position bounds (20m × 20m × 5m space)
@@ -649,8 +652,10 @@ def main():
         'ue':  {'x_min': 0, 'x_max': 20, 'y_min': 0, 'y_max': 20, 'z_min': 0, 'z_max': 5},
     }
 
-    # RIS FOV constraint
-    ris_max_angle = 60.0
+    # Deflection-range constraint: theta_rcv <= max_deflection. A RIS with
+    # +/-90 deg steering and an optimally placed normal (AP/UE bisector) can
+    # realize deflections up to 180 deg, so cover the full range by default.
+    ris_max_angle = float(args.max_deflection)
 
     physics_config = build_lightris_config({
         'tx_power_dBm': args.tx_power,
