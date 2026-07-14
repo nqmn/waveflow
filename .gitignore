@@ -190,3 +190,7 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 nul
+
+# Vision sweep output artifacts
+aruco_marker_detected.png
+hog_detection_snapshot*.png
