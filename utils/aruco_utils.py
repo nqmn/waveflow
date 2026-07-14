@@ -180,7 +180,7 @@ def create_marker_grid(marker_ids: List[int],
     return grid_img
 
 
-def get_dictionary_info(dict_type: str = "DICT_4X4_50") -> Dict[str, int]:
+def get_dictionary_info(dict_type: str = "DICT_5X5_100") -> Dict[str, int]:
     """Get information about an ArUco dictionary
 
     Args:

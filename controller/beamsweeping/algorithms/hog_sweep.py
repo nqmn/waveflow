@@ -47,7 +47,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     FeedbackCollector,
-    clamp_local_deflection_to_ris_fov,
+    DEFAULT_CAMERA_MOUNT_R_CW,
 )
 from ..registry import register_algorithm
 
@@ -136,6 +136,12 @@ class HOGHumanDetector:
         if not CV2_AVAILABLE:
             raise ImportError("OpenCV required for HOG detection")
 
+        if not hasattr(cv2, 'HOGDescriptor'):
+            raise ImportError(
+                "cv2.HOGDescriptor is not available in this OpenCV build "
+                f"({cv2.__version__}); OpenCV 5.x removed it. Install a 4.x "
+                "build for the HOG sweep: pip install 'opencv-python<5'"
+            )
         self.hog = cv2.HOGDescriptor()
         self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
 
@@ -246,6 +252,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
               t_cw: Optional[np.ndarray] = None,
               max_frames: int = 100,
               angle_change_threshold: float = 1.0,
+              enable_viewer: bool = True,
               hog_win_stride: Tuple[int, int] = (8, 8),
               hog_padding: Tuple[int, int] = (16, 16),
               hog_scale: float = 1.05,
@@ -285,6 +292,7 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
             t_cw: Translation vector (camera to world)
             max_frames: Max frames to process
             angle_change_threshold: Skip similar angles (degrees)
+            enable_viewer: Show OpenCV windows during the sweep; set False for headless/automation runs (default: True)
             hog_win_stride: HOG sliding window stride
             hog_padding: HOG padding
             hog_scale: HOG scale factor
@@ -398,9 +406,11 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
         # Load camera calibration
         K, dist_coeffs = self._load_camera_calibration(camera_matrix_path, dist_coeffs_path)
 
-        # Setup coordinate transforms
+        # Setup coordinate transforms. Default: camera at the RIS looking
+        # along world +x (OpenCV axes are x-right, y-down, z-forward; an
+        # identity rotation would map the optical axis onto world UP).
         if r_cw is None:
-            r_cw = np.eye(3, dtype=np.float64)
+            r_cw = DEFAULT_CAMERA_MOUNT_R_CW.copy()
         else:
             r_cw = np.array(r_cw, dtype=np.float64)
 
@@ -619,11 +629,13 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
 
                         local_angle = ue_angle - ap_angle
 
-                        # Clamp to RIS FOV
+                        # Wrap to [-180, 180], then clamp to the reachable
+                        # deflection range: with the RIS normal on the AP/UE
+                        # bisector the cap is 2x the steering limit
+                        local_angle = (local_angle + 180.0) % 360.0 - 180.0
                         ris_max_angle = getattr(ris, 'max_angle_deg', 60.0)
-                        local_angle = clamp_local_deflection_to_ris_fov(
-                            local_angle, ris_max_angle
-                        )
+                        deflection_cap = min(180.0, 2.0 * float(ris_max_angle))
+                        local_angle = float(np.clip(local_angle, -deflection_cap, deflection_cap))
 
                         # Adaptive window logic: capture first detection angle and generate window
                         if adaptive_window and first_detection_angle is None:
@@ -662,13 +674,20 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                             cv2.putText(output_frame, f"SKIP: {local_angle:.1f}° ({skip_reason})",
                                        (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
                         else:
-                            # Measure network metrics
+                            # Measure network metrics. beam_angle_deg is an
+                            # ABSOLUTE world azimuth: incident azimuth + signed
+                            # local deflection (passing the raw deflection would
+                            # steer the beam relative to world x, not the AP).
                             try:
+                                abs_angle = ap_angle + local_angle
+                                measurement_seed = (seed + unique_poses) if seed is not None else None
                                 measurement = self.network.connect(
                                     ap.name, ris.name, ue.name,
-                                    beam_angle_deg=local_angle,
+                                    beam_angle_deg=abs_angle,
+                                    seed=measurement_seed,
                                     enable_feedback=enable_feedback,
-                                    max_feedback_iterations=max_feedback_iterations
+                                    max_feedback_iterations=max_feedback_iterations,
+                                    store_in_active_links=False
                                 )
 
                                 snr = measurement.get('snr_dB', 0)
@@ -736,15 +755,16 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
                 # Store last processed frame (used if no detections ever happened)
                 last_display_frame = output_frame.copy()
 
-                # Show frame
-                cv2.imshow("HOG Human Detection", output_frame)
+                # Show frame (headless/automation runs pass enable_viewer=False)
+                if enable_viewer:
+                    cv2.imshow("HOG Human Detection", output_frame)
 
                 # Write to video
                 if video_writer is not None:
                     video_writer.write(output_frame.astype('uint8'))
 
                 # Exit on 'q'
-                if cv2.waitKey(1) & 0xFF == ord('q'):
+                if enable_viewer and cv2.waitKey(1) & 0xFF == ord('q'):
                     break
 
         finally:
@@ -807,18 +827,20 @@ class HOGHumanDetectionSweep(SweepAlgorithmBase):
             logger.info("[HOG VIEWER] Snapshot saved to %s", snapshot_path)
 
             # Display until user closes window
-            cv2.imshow("HOG Human Detection", final_frame)
-            logger.info("\n[HOG VIEWER] Scan complete. Click window or press 'q' to close.")
+            if enable_viewer:
+                cv2.imshow("HOG Human Detection", final_frame)
+                logger.info("\n[HOG VIEWER] Scan complete. Click window or press 'q' to close.")
 
-            while True:
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q') or key == 27:  # 'q' or ESC
-                    break
-                # Check if window is closed by user clicking X
-                if cv2.getWindowProperty("HOG Human Detection", cv2.WND_PROP_VISIBLE) < 1:
-                    break
+                while True:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q') or key == 27:  # 'q' or ESC
+                        break
+                    # Check if window is closed by user clicking X
+                    if cv2.getWindowProperty("HOG Human Detection", cv2.WND_PROP_VISIBLE) < 1:
+                        break
 
-        cv2.destroyAllWindows()
+        if enable_viewer:
+            cv2.destroyAllWindows()
 
         # Compute results
         if len(local_angles) == 0:

@@ -7,6 +7,23 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+# Default camera-to-world rotation for vision sweeps (ArUco / HOG).
+#
+# OpenCV's camera frame is x-right, y-down, z-forward (optical axis). The
+# world frame is x/y ground plane with z up. This mount places the camera at
+# the RIS, LOOKING ALONG WORLD +X, image-up aligned with world +Z:
+#   camera z (forward) -> world +x
+#   camera x (right)   -> world -y
+#   camera y (down)    -> world -z
+# An identity rotation would instead map the optical axis onto world UP and
+# compute azimuths in the image plane, which is physically wrong for any
+# horizontally mounted camera. Supply r_cw explicitly for other mounts.
+DEFAULT_CAMERA_MOUNT_R_CW = np.array([
+    [0.0, 0.0, 1.0],
+    [-1.0, 0.0, 0.0],
+    [0.0, -1.0, 0.0],
+])
+
 try:  # Centralize waveform availability handling
     from core.signal_processor import (
         SignalConfig,

@@ -28,7 +28,7 @@ from ..common import (
     setup_waveform_simulator,
     validate_and_get_nodes,
     FeedbackCollector,
-    clamp_local_deflection_to_ris_fov,
+    DEFAULT_CAMERA_MOUNT_R_CW,
 )
 from ..registry import register_algorithm
 
@@ -108,7 +108,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             num_symbols: Number of symbols per measurement
             metric_selector: Custom metric selection function
             camera_id: Camera device ID (default: 0)
-            aruco_dict_type: ArUco dictionary type (default: DICT_4X4_50)
+            aruco_dict_type: ArUco dictionary type (default: DICT_5X5_100)
             marker_size: Physical marker size in meters
             camera_matrix_path: Path to camera intrinsics (K matrix, .npy)
             dist_coeffs_path: Path to distortion coefficients (.npy)
@@ -116,7 +116,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             t_cw: Translation vector (camera to world), shape (3,)
             max_frames: Max frames to process before stopping
             angle_change_threshold: Skip poses within this angle of previous (degrees)
-            enable_viewer: Enable camera viewer with AP/RIS/UE overlay (default: True)
+            enable_viewer: Show OpenCV windows during the sweep; set False for headless/automation runs (default: True)
             use_mock: Use mock camera instead of real camera (default: False)
             mock_trajectory: Mock camera trajectory type: 'circular', 'linear', 'random', 'static' (default: 'circular')
 
@@ -195,11 +195,14 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         except AttributeError:
             raise ValueError(f"Invalid ArUco dictionary type: {aruco_dict_type}")
 
-        # Camera assumed to be mounted at RIS if extrinsics not supplied
+        # Camera assumed to be mounted at the RIS, looking along world +x,
+        # if extrinsics not supplied. NOTE: OpenCV's camera frame is x-right,
+        # y-down, z-forward; an identity rotation would map the optical axis
+        # onto world UP, so the default uses the horizontal-mount rotation.
         default_rotation = False
         default_translation = False
         if r_cw is None:
-            r_cw = np.eye(3, dtype=np.float64)
+            r_cw = DEFAULT_CAMERA_MOUNT_R_CW.copy()
             default_rotation = True
         else:
             r_cw = np.array(r_cw, dtype=np.float64)
@@ -211,7 +214,10 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             t_cw = np.array(t_cw, dtype=np.float64)
 
         if default_rotation:
-            logger.info("[OPENCV] r_cw not provided. Assuming camera axes aligned with RIS (identity rotation).")
+            logger.info(
+                "[OPENCV] r_cw not provided. Assuming camera at RIS looking along world +x "
+                "(image-up = world +z). Supply r_cw for other mounts."
+            )
         if default_translation:
             logger.info(
                 "[OPENCV] t_cw not provided. Assuming camera located at RIS position %s.",
@@ -224,27 +230,6 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
         # Calculate AP and RIS angles for deflection computation
         ap_vec = ap.pos - ris.pos
         ap_angle = np.degrees(np.arctan2(ap_vec[1], ap_vec[0]))
-
-        # For mock camera, compute r_cw and t_cw if using identity
-        # so that camera detection maps correctly to world coordinates
-        if use_mock and np.allclose(r_cw, np.eye(3)) and np.allclose(t_cw, np.zeros(3)):
-            # Position camera AT RIS center with axes aligned to world
-            # This ensures marker bearing in camera frame directly maps to world bearing
-            # If marker is detected at camera (x, y, z), world position = (x + ris_x, y + ris_y, z + ris_z)
-
-            # Camera is positioned at RIS location (same origin)
-            t_cw = np.array([ris.pos[0], ris.pos[1], ris.pos[2]])
-
-            # Camera axes aligned with world axes (identity rotation)
-            r_cw = np.eye(3, dtype=np.float64)
-
-            logger.info(
-                "[MOCK CAMERA] Computed transformation:\n"
-                "  Camera position (t_cw): %s\n"
-                "  Camera rotation (r_cw): identity\n"
-                "  Note: Camera is at RIS center with world-aligned axes",
-                t_cw,
-            )
 
         # Setup waveform simulator if requested
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols)
@@ -292,19 +277,18 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
                 # Detect ArUco markers or use mock pose estimation
                 if use_mock:
-                    # For mock camera: work backwards from actual UE world position
-                    # 1. Get actual UE world position
+                    # The mock camera has a FIXED physical setup: mounted at the
+                    # RIS, looking along world +x (OpenCV axes: x-right, y-down,
+                    # z-forward). The measurement is generated with this ground
+                    # truth, INDEPENDENT of the configured r_cw/t_cw, so a
+                    # mis-configured transform produces visibly wrong world
+                    # positions instead of silently cancelling out.
                     ue_world = np.array(ue.pos, dtype=np.float64)
+                    true_r_cw = DEFAULT_CAMERA_MOUNT_R_CW
+                    true_t_cw = np.array(ris.pos, dtype=np.float64)
+                    ue_cam = true_r_cw.T @ (ue_world - true_t_cw)
 
-                    # 2. Transform from world to camera frame
-                    r_wc = r_cw.T  # World to camera rotation (inverse of r_cw)
-                    t_wc = -r_wc @ t_cw  # World to camera translation (inverse of t_cw)
-                    ue_cam = r_wc @ ue_world + t_wc
-
-                    # 3. Create tvec/rvec directly from the correct camera coordinates
-                    # tvec is the position in camera frame (no rotation needed for point)
                     tvec = ue_cam.reshape(3, 1)
-                    # rvec is identity (marker is aligned with world frame)
                     rvec = np.array([0.0, 0.0, 0.0]).reshape(3, 1)
                     frames_with_markers += 1
                     marker_detected = True
@@ -312,14 +296,15 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                     corners, ids, rejected = detector.detectMarkers(frame)
 
                     if ids is None or len(ids) == 0:
-                        # Display frame without detections
-                        cv2.putText(output_frame, "NO MARKERS DETECTED - place marker in view",
-                                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                        cv2.putText(output_frame, f"Frames scanned: {frame_count}",
-                                   (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-                        cv2.imshow("ArUco Marker Detection", output_frame)
-                        if cv2.waitKey(1) & 0xFF == ord('q'):
-                            break
+                        if enable_viewer:
+                            # Display frame without detections
+                            cv2.putText(output_frame, "NO MARKERS DETECTED - place marker in view",
+                                       (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                            cv2.putText(output_frame, f"Frames scanned: {frame_count}",
+                                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                            cv2.imshow("ArUco Marker Detection", output_frame)
+                            if cv2.waitKey(1) & 0xFF == ord('q'):
+                                break
                         continue
 
                     # Pick target marker (defaults to first if no filter)
@@ -338,12 +323,9 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                     frames_with_markers += 1
                     marker_detected = True
 
-                    rvec, tvec, _ = cv2.aruco.estimatePoseSingleMarkers(
-                        [corners[selected_index]], marker_size, K, dist_coeffs
+                    rvec, tvec = self._estimate_marker_pose(
+                        corners[selected_index], marker_size, K, dist_coeffs
                     )
-
-                    rvec = rvec[0]
-                    tvec = tvec[0]
 
                     # Draw detected markers with green squares
                     selected_ids = ids[selected_index:selected_index+1]
@@ -418,10 +400,11 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                         except:
                             pass
 
-                # Display frame
-                cv2.imshow("ArUco Marker Detection", output_frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
+                # Display frame (headless/automation runs pass enable_viewer=False)
+                if enable_viewer:
+                    cv2.imshow("ArUco Marker Detection", output_frame)
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
 
                 # Store last detection frame and info for validation display
                 last_detection_frame = output_frame.copy()
@@ -455,8 +438,11 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 # Compute deflection angle from AP/RIS/UE geometry
                 deflection_angle = self._compute_deflection_angle(ap, ris, p_ue_world)
 
-                # Clamp to RIS FOV
-                deflection_clamped = np.clip(deflection_angle, -ris_max_angle, ris_max_angle)
+                # Clamp to the reachable deflection range: with the RIS
+                # normal on the AP/UE bisector, a deflection D needs only a D/2
+                # offset from normal, so the cap is 2x the steering limit
+                deflection_cap = min(180.0, 2.0 * float(ris_max_angle))
+                deflection_clamped = np.clip(deflection_angle, -deflection_cap, deflection_cap)
 
                 # Log deflection calculation for first detection
                 if unique_poses == 0:
@@ -548,7 +534,8 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
 
         finally:
             cap.release()
-            cv2.destroyAllWindows()
+            if enable_viewer:
+                cv2.destroyAllWindows()
 
         # Validate results
         if not snr_values:
@@ -570,14 +557,7 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                     "  - Check: ArUco marker is clearly visible in camera view",
                     "  - Check: Lighting is adequate for marker detection",
                     f"  - Check: Marker size parameter ({marker_size}m) matches actual marker",
-                    "  - Check: ArUco dictionary (DICT_4X4_50) matches your markers",
-                    "",
-                    "  Debug frames saved:",
-                    "    - camera_frame_001.jpg, camera_frame_005.jpg, camera_frame_010.jpg, ...",
-                    "  These show what the camera sees. Check them to:",
-                    "    1. Verify camera is working",
-                    "    2. See where to place the ArUco marker",
-                    "    3. Adjust lighting/focus if needed",
+                    f"  - Check: ArUco dictionary ({aruco_dict_type}) matches your markers",
                 ])
             elif unique_poses == 0:
                 diagnostic_lines.extend([
@@ -645,10 +625,11 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                 marker_image_path,
             )
 
-            logger.info("\nPress any key to view the detected marker frame...")
-            cv2.imshow("Detected Marker Frame - Validation", last_detection_frame)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            if enable_viewer:
+                logger.info("\nPress any key to view the detected marker frame...")
+                cv2.imshow("Detected Marker Frame - Validation", last_detection_frame)
+                cv2.waitKey(0)
+                cv2.destroyAllWindows()
 
         # Build result dictionary in standard format (matching ml_guided_sweep)
         result = {
@@ -678,6 +659,38 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
             result['ser_fine'] = []
 
         return result
+
+    @staticmethod
+    def _estimate_marker_pose(corner, marker_size: float, K: np.ndarray,
+                              dist_coeffs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Estimate a single marker pose, portable across OpenCV versions.
+
+        cv2.aruco.estimatePoseSingleMarkers was removed in OpenCV 5.x; the
+        replacement is solvePnP against the marker's square object points
+        (same convention: corners TL, TR, BR, BL in the marker plane z=0,
+        centered on the marker).
+        """
+        if hasattr(cv2.aruco, 'estimatePoseSingleMarkers'):
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(
+                [corner], marker_size, K, dist_coeffs
+            )
+            return rvecs[0], tvecs[0]
+
+        half = marker_size / 2.0
+        object_points = np.array([
+            [-half,  half, 0.0],
+            [ half,  half, 0.0],
+            [ half, -half, 0.0],
+            [-half, -half, 0.0],
+        ], dtype=np.float64)
+        image_points = np.asarray(corner, dtype=np.float64).reshape(4, 2)
+        ok, rvec, tvec = cv2.solvePnP(
+            object_points, image_points, K, dist_coeffs,
+            flags=cv2.SOLVEPNP_IPPE_SQUARE
+        )
+        if not ok:
+            raise RuntimeError("solvePnP failed to estimate marker pose")
+        return rvec.reshape(3, 1), tvec.reshape(3, 1)
 
     def _load_camera_calibration(self, K_path: Optional[str],
                                  dist_path: Optional[str]) -> Tuple[np.ndarray, np.ndarray]:
@@ -718,36 +731,25 @@ class OpenCVVisionSweep(SweepAlgorithmBase):
                         r_cw: np.ndarray, t_cw: np.ndarray) -> np.ndarray:
         """Transform point from camera frame to world frame.
 
-        Assumes:
-        - World coordinate system has origin at RIS center with RIS axes
-        - Camera is mounted at RIS center with axes aligned to RIS axes
-        - Therefore: camera-frame = RIS-frame = world-frame
-        - Camera-to-world transform should be identity (R_cw=I, t_cw=0)
+        OpenCV camera frame: x-right, y-down, z-forward (optical axis).
+        World frame: x/y ground plane, z up. The default extrinsics assume a
+        camera mounted at the RIS looking along world +x (see
+        DEFAULT_CAMERA_MOUNT_R_CW in beamsweeping.common); pass r_cw/t_cw for
+        any other mount.
 
         Args:
             p_cam: Point in camera frame (3,) or (3, 1)
             rvec: Rotation vector (marker rotation, not used for world transform)
-            r_cw: Rotation matrix camera-to-world (3, 3), should be identity
-            t_cw: Translation vector camera-to-world (3,), should be [0, 0, 0]
+            r_cw: Rotation matrix camera-to-world (3, 3)
+            t_cw: Translation vector camera-to-world (3,)
 
         Returns:
             Point in world frame (3,) as numpy array
 
         Formula: p_world = R_cw @ p_cam + t_cw
-
-        When R_cw=I and t_cw=0:
-        p_world = I @ p_cam + 0 = p_cam (camera frame = world frame)
         """
         p_cam = np.array(p_cam).flatten()
-
-        # Check if transform is identity (camera at RIS center, axes aligned)
-        is_identity_transform = (np.allclose(r_cw, np.eye(3)) and
-                                 np.allclose(t_cw, np.zeros(3)))
-
-        # Apply transformation
-        p_world = r_cw @ p_cam + t_cw
-
-        return p_world
+        return r_cw @ p_cam + t_cw
 
     def _compute_deflection_angle(self, ap, ris, p_ue_world: np.ndarray) -> float:
         """Compute RIS local deflection angle for beam steering.
