@@ -72,16 +72,18 @@ class MLGuidedSweep(SweepAlgorithmBase):
         increment: float,
         neighbors: int,
         include_predicted: bool,
-        codebook_start: float = 0.0,
+        codebook_start: float = -180.0,
         codebook_end: float = 180.0,
         codebook_step: float = 10.0,
     ) -> List[float]:
         """Return the local angles we should validate around the ML prediction.
 
-        Angles here are unsigned deflections from the incident direction, so
-        the reachable range is [0, deflection_cap] where deflection_cap is
-        min(180, 2 * ris_max_angle) — an optimally placed RIS normal (the
-        AP/UE bisector) needs only half the deflection as offset from normal.
+        Angles here are SIGNED deflections from the incident direction, so
+        the reachable range is [-deflection_cap, deflection_cap] where
+        deflection_cap is min(180, 2 * ris_max_angle) — an optimally placed
+        RIS normal (the AP/UE bisector) needs only half the deflection as
+        offset from normal. Predictors return signed deflections (UE-blind
+        models recover the sign from the probe profile).
 
         With enable_validation=True and fixed codebook:
         - Quantize predicted angle to nearest codebook angle
@@ -111,7 +113,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         if not candidates:
             candidates.add(predicted_angle)
 
-        clamped = np.clip(np.array(list(candidates), dtype=float), 0.0, deflection_cap)
+        clamped = np.clip(np.array(list(candidates), dtype=float), -deflection_cap, deflection_cap)
         return sorted(set(clamped.tolist()))
 
     def sweep(self, ap_name: str, ris_name: str, ue_name: str,
@@ -123,7 +125,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
               codebook_neighbors: int = 1,
               enable_codebook_validation: bool = False,
               include_predicted_angle: bool = True,
-              codebook_start: float = 0.0,
+              codebook_start: float = -180.0,
               codebook_end: float = 180.0,
               codebook_step: float = 10.0,
               ml_angles=None, use_waveform: bool = False,
@@ -146,7 +148,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
             codebook_neighbors: Number of codebook angles to test on either side of quantized angle
             enable_codebook_validation: Whether to enable fixed codebook quantization and neighbor validation
             include_predicted_angle: If True, also include the raw ML prediction in validation set
-            codebook_start: Start angle of fixed codebook (degrees, default: 0)
+            codebook_start: Start angle of fixed codebook (degrees, default: -180)
             codebook_end: End angle of fixed codebook (degrees, default: 180)
             codebook_step: Step size for fixed codebook (degrees, default: 10)
             use_waveform: If True, simulate real signal-level SNR/SER
@@ -159,7 +161,7 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Validate nodes
         ap, ris, ue = validate_and_get_nodes(self.network, ap_name, ris_name, ue_name)
 
-        # Predictions are unsigned deflections from the incident direction.
+        # Predictions are SIGNED deflections from the incident direction.
         # With the RIS normal on the AP/UE bisector, a deflection D needs only
         # a D/2 offset from normal, so the reachable range is 2x the RIS
         # steering limit (capped at 180 deg).
@@ -201,9 +203,9 @@ class MLGuidedSweep(SweepAlgorithmBase):
         # Set specular_angle for result reporting (incident direction)
         specular_angle = ap_angle
 
-        # Clamp ML-suggested deflections to the reachable range
+        # Clamp ML-suggested signed deflections to the reachable range
         clamped_ml_suggestions = np.clip(
-            np.array(ml_suggestions, dtype=float), 0.0, deflection_cap
+            np.array(ml_suggestions, dtype=float), -deflection_cap, deflection_cap
         ).tolist()
 
         link_simulator = setup_waveform_simulator(use_waveform, modulation, num_symbols, pilot_ratio=0.1)
@@ -239,10 +241,9 @@ class MLGuidedSweep(SweepAlgorithmBase):
                 logger.info("\nTesting %d angles", len(validation_angles))
 
             for local_angle in validation_angles:
-                if angle_diff > 0:
-                    abs_angle = ap_angle + local_angle
-                else:
-                    abs_angle = ap_angle - local_angle
+                # local_angle is a signed deflection from the incident azimuth;
+                # no UE-position-derived sign is needed
+                abs_angle = ap_angle + local_angle
 
                 with self._ap_state_guard(ap):
                     measurement_seed = (seed + len(snr_values)) if seed is not None else None
@@ -339,11 +340,8 @@ class MLGuidedSweep(SweepAlgorithmBase):
             result_lines.append(f"{local_angle:<12.1f} {metric_val:<20.4f} {marker}")
         best_local = local_angles[best_idx]
         best_snr = snr_values[best_idx]
-        # Convert deflection angle to absolute beam angle
-        if angle_diff > 0:
-            best_abs = ap_angle + best_local
-        else:
-            best_abs = ap_angle - best_local
+        # Convert signed deflection to absolute beam angle
+        best_abs = ap_angle + best_local
 
         result_lines.extend([
             "",

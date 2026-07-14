@@ -13,7 +13,7 @@ trig, and the LightRIS-computed snr_dB/rssi_dBm), so the shared inference
 builder in ml/features.py and every training script work unchanged; only
 the label source differs. Extra diagnostic columns are appended after
 best_angle and are ignored by the training scripts:
-  - geo_angle:     geometric deflection |aod - aoa| (degrees)
+  - geo_angle:     SIGNED geometric deflection wrap(aod - aoa) (degrees)
   - oracle_gain_dB: channel gain of the measured-best beam
   - geo_gain_dB:    channel gain when steering at the geometric aim
 
@@ -59,9 +59,11 @@ from controller.beamsweeping.ml.tools.dataset_builder import (
     _add_angle_trigs,
     _add_ap_ris_orientation,
     _add_physics_metrics,
+    _add_probe_metrics,
     flatten_sample,
 )
 from utils.lightris import build_lightris_config
+from controller.beamsweeping.ml.features import PROBE_DEFLECTIONS_DEG
 
 FIELDNAMES = BASE_FIELDNAMES + ['geo_angle', 'oracle_gain_dB', 'geo_gain_dB']
 
@@ -98,6 +100,44 @@ def scan_beam_gains(ris_pos: np.ndarray, ue_pos: np.ndarray, H: np.ndarray, G: n
     return 20.0 * np.log10(np.abs(e) + 1e-30)
 
 
+def probe_beam_gains(ris_pos: np.ndarray, ue_pos: np.ndarray, H: np.ndarray, G: np.ndarray,
+                     ris_side: int, frequency_GHz: float, scenario: int,
+                     probe_phis: np.ndarray, subarray_side: int = 4) -> np.ndarray:
+    """Measure probe beams with a WIDE beam formed by a subarray.
+
+    A full 16x16 panel has a ~6 deg beamwidth, so a handful of probes spaced
+    tens of degrees apart would only ever measure sidelobe noise. Real beam
+    management probes with wide beams instead; here the probe uses only the
+    top-left subarray (subarray_side x subarray_side), giving a ~25 deg
+    beamwidth for 4x4, so 8 probes cover the whole azimuth informatively.
+    """
+    wavelength = _wavelength_m(frequency_GHz)
+    k = 2.0 * np.pi / wavelength
+    spacing = wavelength / 2.0
+    d_ue = float(np.linalg.norm(ue_pos - ris_pos))
+
+    x_idx = np.repeat(np.arange(ris_side), ris_side).astype(float)
+    y_idx = np.tile(np.arange(ris_side), ris_side).astype(float)
+    mask = (x_idx < subarray_side) & (y_idx < subarray_side)
+
+    w = (np.abs(H) * G)[mask]
+    xs, ys = x_idx[mask], y_idx[mask]
+
+    a_coef = np.empty(len(probe_phis))
+    b_coef = np.empty(len(probe_phis))
+    for i, phi in enumerate(probe_phis):
+        virt = ris_pos + d_ue * np.array([math.cos(math.radians(phi)),
+                                          math.sin(math.radians(phi)), 0.0])
+        virt[2] = ue_pos[2]
+        phi_ris, theta_ris, _, _ = _angles_ris_rx_los(ris_pos, virt, scenario)
+        a_coef[i] = math.sin(math.radians(theta_ris))
+        b_coef[i] = math.sin(math.radians(phi_ris)) * math.cos(math.radians(theta_ris))
+
+    phases = k * spacing * (np.outer(a_coef, xs) + np.outer(b_coef, ys))
+    e = np.exp(1j * phases).conj() @ w
+    return 20.0 * np.log10(np.abs(e) + 1e-30)
+
+
 def build_simris_sample(bounds, physics_config, ris_side, frequency_GHz, scenario,
                         channel_seed, phi_grid, max_deflection):
     """Sample one topology and label it with the SimRIS measured-best beam."""
@@ -122,16 +162,18 @@ def build_simris_sample(bounds, physics_config, ris_side, frequency_GHz, scenari
 
     aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
     geo_deflection = compute_theta_rcv(ap_pos, ris_pos, ue_pos)
+    geo_signed = (aod - aoa + 180.0) % 360.0 - 180.0
 
     # The UPA response is mirror-ambiguous: two azimuths can achieve identical
     # gain. Among angles within 0.5 dB of the measured max (physically
     # equivalent beams), label with the one closest to the geometric aim so the
     # regression target stays unimodal; residual deviations then reflect real
     # channel physics (scatterers, blocking), not parameterization artifacts.
+    # The label is SIGNED (UE-blind predictors must recover the sign).
     near_max = np.flatnonzero(gains >= float(np.max(gains)) - 0.5)
-    deflections = np.abs((phi_grid[near_max] - aoa + 180.0) % 360.0 - 180.0)
-    pick = near_max[int(np.argmin(np.abs(deflections - geo_deflection)))]
-    best_deflection = abs((float(phi_grid[pick]) - aoa + 180.0) % 360.0 - 180.0)
+    signed_cands = (phi_grid[near_max] - aoa + 180.0) % 360.0 - 180.0
+    pick = int(np.argmin(np.abs((signed_cands - geo_signed + 180.0) % 360.0 - 180.0)))
+    best_deflection = float(signed_cands[pick])
     geo_gain = float(gains[int(np.argmin(np.abs((phi_grid - aod + 180.0) % 360.0 - 180.0)))])
 
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
@@ -148,8 +190,21 @@ def build_simris_sample(bounds, physics_config, ris_side, frequency_GHz, scenari
     _add_angle_trigs(sample, aoa, aod)
     _add_ap_ris_orientation(sample)
     _add_physics_metrics(sample, physics_config)
+    _add_probe_metrics(sample, physics_config)
     row = flatten_sample(sample)
-    row['geo_angle'] = float(geo_deflection)
+
+    # Replace the LightRIS-simulated probe feedback with MEASURED wide-beam
+    # probes from the SimRIS channel (4x4 subarray, ~25 deg beamwidth),
+    # converted to the SNR scale used by the budget:
+    # tx 20 dBm + 6 dBi antennas - (-94.99 dBm) noise floor.
+    snr_offset = 20.0 + 6.0 + 94.99
+    probe_phis = np.array([(aoa + d + 180.0) % 360.0 - 180.0 for d in PROBE_DEFLECTIONS_DEG])
+    probe_gains = probe_beam_gains(ris_pos, ue_pos, H, G, ris_side, frequency_GHz,
+                                   scenario, probe_phis)
+    for i in range(len(PROBE_DEFLECTIONS_DEG)):
+        row[f'probe_snr_{i}'] = float(probe_gains[i] + snr_offset)
+
+    row['geo_angle'] = float(geo_signed)
     row['oracle_gain_dB'] = float(np.max(gains))
     row['geo_gain_dB'] = geo_gain
     return row
@@ -204,6 +259,8 @@ def main():
 
     label = np.array([r['best_angle'] for r in rows])
     geo = np.array([r['geo_angle'] for r in rows])
+    # both signed: compare with wrap
+    label, geo = (label - geo + 180) % 360 - 180 + geo, geo
     gap = np.array([r['oracle_gain_dB'] - r['geo_gain_dB'] for r in rows])
     print(f"Wrote {len(rows)} samples to {args.output} in {time.time()-start:.1f}s")
     print(f"label vs geometric deflection: MAE {np.abs(label-geo).mean():.2f} deg, "

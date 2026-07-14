@@ -36,6 +36,7 @@ project_root = os.path.abspath(os.path.join(script_dir, '..', '..', '..', '..'))
 sys.path.insert(0, project_root)
 
 from utils.lightris import build_lightris_config, evaluate_lightris_metrics
+from controller.beamsweeping.ml.features import PROBE_DEFLECTIONS_DEG, probe_snrs_lightris
 
 
 # NOTE: earlier datasets also carried az_*/ap_az_*/ap_el_*/spec_*/align_*
@@ -50,6 +51,8 @@ FIELDNAMES = [
     'aoa_sin', 'aoa_cos', 'aod_sin', 'aod_cos',
     'dx', 'dy', 'dz', 'el_sin', 'el_cos',
     'snr_dB', 'rssi_dBm',
+    'probe_snr_0', 'probe_snr_1', 'probe_snr_2', 'probe_snr_3',
+    'probe_snr_4', 'probe_snr_5', 'probe_snr_6', 'probe_snr_7',
     'best_angle'
 ]
 
@@ -204,11 +207,12 @@ def generate_stratified_samples(
                 'd_ris_ue': d_ris_ue,
                 'aoa': aoa,
                 'aod': aod,
-                'best_angle': float(theta_rcv),
+                'best_angle': _signed_local_deflection(aoa, aod),
             }
             _add_angle_trigs(sample, aoa, aod)
             _add_ap_ris_orientation(sample)
             _add_physics_metrics(sample, physics_config)
+            _add_probe_metrics(sample, physics_config)
             samples[len(samples)] = sample
         attempts += 1
 
@@ -284,8 +288,8 @@ def build_sample(bounds: Dict, ris_max_angle: float = 60.0) -> Dict:
     d_ap_ris, d_ris_ue = compute_distances(ap_pos, ris_pos, ue_pos)
     aoa, aod = compute_angles(ap_pos, ris_pos, ue_pos)
 
-    # Keep the continuous deflection angle as the label
-    best_angle = float(theta_rcv)
+    # SIGNED deflection label (UE-blind predictors must recover the sign)
+    best_angle = _signed_local_deflection(aoa, aod)
 
     sample = {
         'ap_pos': ap_pos.tolist(),
@@ -350,6 +354,7 @@ def flatten_sample(sample: Dict) -> Dict:
         'el_cos': sample['el_cos'],
         'snr_dB': sample['snr_dB'],
         'rssi_dBm': sample['rssi_dBm'],
+        **{f'probe_snr_{i}': sample[f'probe_snr_{i}'] for i in range(len(PROBE_DEFLECTIONS_DEG))},
         'best_angle': sample['best_angle']
     }
 
@@ -415,6 +420,19 @@ def _add_physics_metrics(sample: Dict, physics_config: Dict[str, float]) -> None
 
     sample['snr_dB'] = float(metrics['snr_dB'])
     sample['rssi_dBm'] = float(metrics['rssi_dBm'])
+
+
+def _add_probe_metrics(sample: Dict, physics_config: Dict[str, float]) -> None:
+    """Annotate the sample with simulated UE feedback for each probe beam."""
+    probes = probe_snrs_lightris(
+        np.array(sample['ap_pos'], dtype=float),
+        np.array(sample['ris_pos'], dtype=float),
+        np.array(sample['ue_pos'], dtype=float),
+        physics_config,
+        deflections=PROBE_DEFLECTIONS_DEG,
+    )
+    for i, snr in enumerate(probes):
+        sample[f'probe_snr_{i}'] = float(snr)
 
 
 
@@ -502,11 +520,12 @@ def generate_ris_aware_sample(bounds: Dict, ris_max_angle: float,
         'd_ris_ue': d_ris_ue,
         'aoa': aoa,
         'aod': aod,
-        'best_angle': float(theta_rcv),
+        'best_angle': _signed_local_deflection(aoa, aod),
     }
     _add_angle_trigs(sample, aoa, aod)
     _add_ap_ris_orientation(sample)
     _add_physics_metrics(sample, physics_config)
+    _add_probe_metrics(sample, physics_config)
     return sample
 
 
